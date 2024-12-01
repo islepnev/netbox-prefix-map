@@ -130,4 +130,4 @@ def is_child_prefix(child_prefix_str, parent_prefix_str):
 def sanitize_name(name):
     if not name:
         return name
-    return re.sub(r'\W+', '_', name)
+    return re.sub(r'\W+', '_', str(name))

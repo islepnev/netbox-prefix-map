@@ -1,4 +1,4 @@
-# app/app.py
+# app/webapp.py
 
 from flask import Flask, request, jsonify
 from dotenv import load_dotenv

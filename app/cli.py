@@ -1,6 +1,7 @@
-# app/main.py
+# app/cli.py
 
 import argparse
+import ipaddress
 import json
 import logging
 import os
@@ -13,9 +14,25 @@ from app.output_file import create_output_file
 from app.plot_map import build_tenant_color_map
 from app.utils import is_child_prefix, sanitize_name
 
+logging_levels = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+
+MAX_PREFIX_LEN = 20
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description="Generate IP Address Allocation Grid Image.")
+    parser.add_argument(
+        "-d",
+        "--debug",
+        action="store_true",
+        help="Enable debug logging level for detailed output.",
+    )
+    parser.add_argument(
+        "-l",
+        "--log-level",
+        default="INFO",
+        type=str,
+        help=f"Set the logging level. Options: {', '.join(logging_levels)} (default: INFO).",
+    )
     parser.add_argument(
         "-o", "--output",
         type=str,
@@ -30,6 +47,14 @@ def parse_arguments():
     )
 
     args = parser.parse_args()
+
+    # Ensure log level is case insensitive and validate
+    args.log_level = args.log_level.upper()
+    if args.log_level not in logging_levels:
+        parser.error(
+            f"Invalid log level: {args.log_level}. Choose from {', '.join(logging_levels)}."
+        )
+
     return args
 
 
@@ -38,6 +63,7 @@ def process_prefix(prefix_entry, all_prefixes, ip_addresses, cell_size, tenant_c
     if not prefix:
         logging.warning("Empty Prefix field encountered.")
         return
+    logging.debug(f"Processing prefix {str(prefix_entry)}")
 
     # Get VRF name
     vrf = prefix_entry.get('vrf', None)
@@ -80,11 +106,12 @@ def process_prefix(prefix_entry, all_prefixes, ip_addresses, cell_size, tenant_c
             json.dump(data_to_save, f, indent=2)
         logging.info(f"Saved data for prefix {prefix} to {json_filepath}")
 
+    if data_changed or not os.path.exists(output_filepath):
         # Generate image
         create_output_file(prefix_entry, child_prefixes, ip_addresses, cell_size, tenant_color_map, output_filepath)
         logging.info(f"Generated image for prefix {prefix} at {output_filepath}")
     else:
-        logging.info(f"No changes detected for prefix {prefix}. Skipping image regeneration.")
+        logging.debug(f"No changes detected for prefix {prefix}. Skipping image regeneration.")
 
 
 def process_all_prefixes(prefixes, ip_addresses, cell_size, output_dir):
@@ -92,16 +119,22 @@ def process_all_prefixes(prefixes, ip_addresses, cell_size, output_dir):
 
     for prefix_entry in prefixes:
         try:
+            network = ipaddress.ip_network(prefix_entry.get("prefix"), strict=False)
+            prefix_length = network.prefixlen
+            if prefix_length > MAX_PREFIX_LEN:
+                continue
+
             process_prefix(prefix_entry, prefixes, ip_addresses, cell_size, tenant_color_map, output_dir)
         except Exception as e:
             logging.error(f"Error processing prefix '{str(prefix_entry)}': {e}")
             continue
 
 
-def main():
+def cli():
     args = parse_arguments()
 
-    setup_logging()
+    setup_logging(level=getattr(logging, args.log_level), debug=args.debug)
+
     load_dotenv()
 
     cell_size = int(os.getenv('CELL_SIZE', args.cell_size))
@@ -126,4 +159,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    cli()

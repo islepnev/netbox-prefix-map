@@ -61,9 +61,9 @@ def blend_colors(color1, color2, alpha):
     Returns:
         str: The resulting blended color in hex format.
     """
-    if color1 == 'none' or not color1.startswith('#'):
+    if not color1 or color1 == 'none' or not color1.startswith('#'):
         return color1
-    if color2 == 'none' or not color2.startswith('#'):
+    if not color2 or color2 == 'none' or not color2.startswith('#'):
         raise ValueError(f"Invalid color2: {color2}")
     if not (0.0 <= alpha <= 1.0):
         raise ValueError(f"Alpha must be between 0.0 and 1.0. Given: {alpha}")
