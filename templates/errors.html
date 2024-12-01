@@ -1,0 +1,44 @@
+<!-- templates/errors.html -->
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Error Logs</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+    <style>
+        body {
+            font-family: monospace;
+            background-color: #f5f5f5;
+            padding: 20px;
+        }
+        .log-entry {
+            padding: 5px;
+            margin-bottom: 2px;
+            border-radius: 3px;
+        }
+        .ERROR {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        .WARNING {
+            background-color: #fff3cd;
+            color: #856404;
+        }
+    </style>
+</head>
+<body>
+    <h1>Error Logs</h1>
+    <div id="log-container">
+        {% for line in logs %}
+            {% if 'ERROR' in line %}
+                <div class="log-entry ERROR">{{ line }}</div>
+            {% elif 'WARNING' in line %}
+                <div class="log-entry WARNING">{{ line }}</div>
+            {% else %}
+                <div class="log-entry">{{ line }}</div>
+            {% endif %}
+        {% endfor %}
+    </div>
+</body>
+</html>
