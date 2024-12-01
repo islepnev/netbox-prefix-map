@@ -1,0 +1,59 @@
+
+{
+    "id": 150,
+    "url": "http://netbox.example.com/api/ipam/prefixes/150/",
+    "display_url": "http://netbox.example.com/ipam/prefixes/150/",
+    "display": "10.18.12.0/24",
+    "family": {
+        "value": 4,
+        "label": "IPv4"
+    },
+    "prefix": "10.18.12.0/24",
+    "site": {
+        "id": 33,
+        "url": "http://netbox.example.com/api/dcim/sites/33/",
+        "display": "VPC-67",
+        "name": "VPC-67",
+        "slug": "vpc-67",
+        "description": ""
+    },
+    "vrf": null,
+    "tenant": {
+        "id": 3,
+        "url": "http://netbox.example.com/api/tenancy/tenants/3/",
+        "display": "AFI-TechNet",
+        "name": "AFI-TechNet",
+        "slug": "afi-technet",
+        "description": "AFI Technological Network Admins"
+    },
+    "vlan": {
+        "id": 65,
+        "url": "http://netbox.example.com/api/ipam/vlans/65/",
+        "display": "1812 (1812)",
+        "vid": 1812,
+        "name": "1812",
+        "description": "AFI, TechNet services"
+    },
+    "status": {
+        "value": "active",
+        "label": "Active"
+    },
+    "role": {
+        "id": 8,
+        "url": "http://netbox.example.com/api/ipam/roles/8/",
+        "display": "Infrastructure Services",
+        "name": "Infrastructure Services",
+        "slug": "infrastructure-services",
+        "description": ""
+    },
+    "is_pool": false,
+    "mark_utilized": false,
+    "description": "AFI Infrastructure Services",
+    "comments": "",
+    "tags": [],
+    "custom_fields": {},
+    "created": "2017-11-12T03:00:00+03:00",
+    "last_updated": "2021-10-20T20:38:54.415028+03:00",
+    "children": 0,
+    "_depth": 3
+}

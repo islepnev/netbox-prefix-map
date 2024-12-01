@@ -1,0 +1,61 @@
+{
+    "id": 215,
+    "url": "http://netbox.example.com/api/ipam/ip-addresses/215/",
+    "display_url": "http://netbox.example.com/ipam/ip-addresses/215/",
+    "display": "10.18.2.7/32",
+    "family": {
+        "value": 4,
+        "label": "IPv4"
+    },
+    "address": "10.18.2.7/32",
+    "vrf": null,
+    "tenant": {
+        "id": 3,
+        "url": "http://netbox.example.com/api/tenancy/tenants/3/",
+        "display": "AFI-TechNet",
+        "name": "AFI-TechNet",
+        "slug": "afi-technet",
+        "description": "AFI Technological Network Admins"
+    },
+    "status": {
+        "value": "active",
+        "label": "Active"
+    },
+    "role": {
+        "value": "anycast",
+        "label": "Anycast"
+    },
+    "assigned_object_type": "ipam.fhrpgroup",
+    "assigned_object_id": 9,
+    "assigned_object": {
+        "id": 9,
+        "url": "http://netbox.example.com/api/ipam/fhrp-groups/9/",
+        "display": "Anycast DNS Other: 1 (10.18.2.7/32)",
+        "protocol": "other",
+        "group_id": 1,
+        "description": ""
+    },
+    "nat_inside": null,
+    "nat_outside": [],
+    "dns_name": "",
+    "description": "Anycast DNS",
+    "comments": "",
+    "tags": [
+        {
+            "id": 40,
+            "url": "http://netbox.example.com/api/extras/tags/40/",
+            "display_url": "http://netbox.example.com/extras/tags/40/",
+            "display": "DNS Server",
+            "name": "DNS Server",
+            "slug": "dns-server",
+            "color": "f44336"
+        }
+    ],
+    "custom_fields": {
+        "dhcp": null,
+        "dns_a": null,
+        "dns_ptr": null
+    },
+    "created": "2024-11-10T02:48:11.451657+03:00",
+    "last_updated": "2024-11-12T17:21:01.659182+03:00"
+}

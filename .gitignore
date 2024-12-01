@@ -1,0 +1,65 @@
+# Python bytecode
+*.py[cod]
+__pycache__/
+*.so
+
+# Pytest cache
+.pytest_cache/
+
+# Virtual environment
+venv/
+.env/
+env/
+.venv/
+
+# Ignore diff and merge remains
+*.orig
+*.rej
+*.diff
+*.patch
+*.merge
+
+# Ignore configuration and temporary files
+*.log
+*.tmp
+*.bak
+tmp
+
+# VSCode settings
+.vscode/
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Coverage reports
+htmlcov/
+.coverage
+coverage.xml
+.cache
+*.cover
+
+# MyPy cache
+.mypy_cache/
+
+
+# App configuration files with sensitive info
+secrets.*
+.env
+
+# Application specific data files for debugging
+*log.txt
+
+# Other data files or temporary files
+*.data
+*.dat
+*.out
+*.backup
+*.cache
+*.swp
+
+# Application input files
+*.csv
+
+# Application output files
+*.png

@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>16-Color Palette</title>
+    <style>
+        body {
+            background-color: #f0f0f0;
+            font-family: Arial, sans-serif;
+            padding: 20px;
+        }
+        .palette {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+        }
+        .color-box {
+            width: 100px;
+            height: 100px;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            position: relative;
+            overflow: hidden;
+        }
+        .color-label {
+            position: absolute;
+            bottom: 0;
+            width: 100%;
+            background: rgba(255,255,255,0.7);
+            text-align: center;
+            padding: 5px 0;
+            font-size: 12px;
+            color: #333;
+        }
+        /* Dark Mode Styles */
+        @media (prefers-color-scheme: dark) {
+            body {
+                background-color: #121212;
+            }
+            .color-label {
+                background: rgba(0,0,0,0.7);
+                color: #fff;
+            }
+            .color-box {
+                box-shadow: 0 2px 5px rgba(255,255,255,0.1);
+            }
+        }
+    </style>
+</head>
+<body>
+    <h1>16-Color Palette for Graphs</h1>
+    <div class="palette">
+        <div class="color-box" style="background-color: #1f77b4;">
+            <div class="color-label">#1f77b4</div>
+        </div>
+        <div class="color-box" style="background-color: #ff7f0e;">
+            <div class="color-label">#ff7f0e</div>
+        </div>
+        <div class="color-box" style="background-color: #2ca02c;">
+            <div class="color-label">#2ca02c</div>
+        </div>
+        <div class="color-box" style="background-color: #d62728;">
+            <div class="color-label">#d62728</div>
+        </div>
+        <div class="color-box" style="background-color: #9467bd;">
+            <div class="color-label">#9467bd</div>
+        </div>
+        <div class="color-box" style="background-color: #8c564b;">
+            <div class="color-label">#8c564b</div>
+        </div>
+        <div class="color-box" style="background-color: #e377c2;">
+            <div class="color-label">#e377c2</div>
+        </div>
+        <div class="color-box" style="background-color: #7f7f7f;">
+            <div class="color-label">#7f7f7f</div>
+        </div>
+        <div class="color-box" style="background-color: #bcbd22;">
+            <div class="color-label">#bcbd22</div>
+        </div>
+        <div class="color-box" style="background-color: #17becf;">
+            <div class="color-label">#17becf</div>
+        </div>
+        <div class="color-box" style="background-color: #aec7e8;">
+            <div class="color-label">#aec7e8</div>
+        </div>
+        <div class="color-box" style="background-color: #ffbb78;">
+            <div class="color-label">#ffbb78</div>
+        </div>
+        <div class="color-box" style="background-color: #98df8a;">
+            <div class="color-label">#98df8a</div>
+        </div>
+        <div class="color-box" style="background-color: #ff9896;">
+            <div class="color-label">#ff9896</div>
+        </div>
+        <div class="color-box" style="background-color: #c5b0d5;">
+            <div class="color-label">#c5b0d5</div>
+        </div>
+        <div class="color-box" style="background-color: #c49c94;">
+            <div class="color-label">#c49c94</div>
+        </div>
+    </div>
+</body>
+</html>
