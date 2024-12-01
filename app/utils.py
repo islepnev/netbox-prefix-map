@@ -3,6 +3,7 @@
 import csv
 import ipaddress
 import logging
+import re
 import sys
 
 def load_csv(file_path):
@@ -112,3 +113,21 @@ def ip_in_prefix(ip_address, prefix):
         return ip in network
     except ValueError:
         return False
+
+
+def is_child_prefix(child_prefix_str, parent_prefix_str):
+    try:
+        child_network = ipaddress.ip_network(child_prefix_str)
+        parent_network = ipaddress.ip_network(parent_prefix_str)
+        # Ensure both prefixes belong to the same address family
+        if parent_network.version != child_network.version:
+            return False
+        return child_network.subnet_of(parent_network) and child_network != parent_network
+    except ValueError:
+        return False
+
+
+def sanitize_name(name):
+    if not name:
+        return name
+    return re.sub(r'\W+', '_', name)

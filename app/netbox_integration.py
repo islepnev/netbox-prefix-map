@@ -53,7 +53,7 @@ class NetboxAddressManager:
             raise RuntimeError(f"Failed to fetch {data_type} from NetBox")
 
     def get_prefixes(self) -> list:
-        return self._prefixes
+        return self.prefixes
 
     def get_ip_addresses(self) -> list:
-        return self._ip_addresses
+        return self.ip_addresses

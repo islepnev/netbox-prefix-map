@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import sys
 
-from app.color_design import blend_colors
+from app.color_design import TABLEAU10_PALETTE, blend_colors
 from app.utils import expand_ip_entry, extract_ip_details
 
 
@@ -139,31 +139,18 @@ def get_prefix_rectangles(top_prefix, prefixes):
     return rectangles
 
 
-def build_tenant_color_map(ip_addresses, palette):
-    """
-    Build a mapping from tenant names to color indices using simple modulo division.
-    
-    Args:
-        ip_addresses (list of dict): List of IP address entries from ip_addresses.csv.
-        palette (list of str): List of color hex codes.
-    
-    Returns:
-        dict: Mapping of tenant names to color hex codes.
-    """
-    # Extract unique tenant names, ignoring case and non-alphanumeric characters
-    unique_tenants = sorted({
-        ''.join(filter(str.isalnum, str(entry.get('tenant', '')).lower()))
-        for entry in ip_addresses
-        if entry.get('tenant', '')
-    })
-    
-    # Assign each tenant a color index based on its position modulo the palette size
+def build_tenant_color_map(prefixes, palette = TABLEAU10_PALETTE):
+    # Extract unique tenant names
+    unique_tenants = sorted(set(
+        prefix.get('tenant', None) for prefix in prefixes
+    ))
+
+    # Assign colors consistently based on sorted tenant names
     tenant_color_map = {
-        tenant: palette[idx % len(palette)] 
-        for idx, tenant in enumerate(unique_tenants)
+        tenant: palette[idx % len(palette)] for idx, tenant in enumerate(unique_tenants)
     }
-    
     return tenant_color_map
+
 
 def get_tenant_color(tenant, tenant_color_map):
     """
