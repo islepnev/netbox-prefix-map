@@ -63,3 +63,4 @@ secrets.*
 
 # Application output files
 *.png
+output/
