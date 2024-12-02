@@ -6,7 +6,7 @@ document.addEventListener("DOMContentLoaded", () => {
     // Fetch and render the prefix tree
     function fetchAndRenderTree(vrf, prefix, parentElement) {
         const sanitizedPrefix = prefix.replace(/\./g, '_').replace(/\//g, '_');
-        const treeUrl = `/data/${vrf ?? 'None'}/${sanitizedPrefix}`; // Handle null VRF as "None"
+        const treeUrl = `/data/${vrf ?? 'None'}/${sanitizedPrefix}`;
 
         fetch(treeUrl)
             .then(response => {
@@ -43,22 +43,25 @@ document.addEventListener("DOMContentLoaded", () => {
             toggleButton.addEventListener("click", () => {
                 if (toggleButton.textContent === " [+]") {
                     toggleButton.textContent = " [-]";
+                    const childUl = document.createElement("ul");
                     data.child_prefixes.forEach(child => {
                         const childLi = document.createElement("li");
                         const childLink = document.createElement("a");
                         childLink.href = `/map/${child.vrf ?? 'None'}/${child.prefix.replace(/\./g, '_').replace(/\//g, '_')}`;
                         childLink.textContent = child.prefix;
                         childLi.appendChild(childLink);
-                        ul.appendChild(childLi);
+                        childUl.appendChild(childLi);
 
                         // Recursively fetch and render children
-                        const childVrf = child.vrf ?? 'None'; // Ensure VRF is handled as "None"
+                        const childVrf = child.vrf ?? 'None';
                         fetchAndRenderTree(childVrf, child.prefix, childLi);
                     });
+                    li.appendChild(childUl);
                 } else {
                     toggleButton.textContent = " [+]";
-                    while (ul.firstChild) {
-                        ul.removeChild(ul.firstChild);
+                    const childUl = li.querySelector("ul");
+                    if (childUl) {
+                        li.removeChild(childUl);
                     }
                 }
             });
