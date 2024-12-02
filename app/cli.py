@@ -12,11 +12,13 @@ from app.logging_config import setup_logging
 from app.netbox_integration import NetboxAddressManager
 from app.output_file import create_output_file
 from app.plot_map import build_tenant_color_map
-from app.utils import is_child_prefix, sanitize_name
+from app.prefix_tree import PrefixTree
+from app.utils import filter_keys_from_dicts, ip_in_prefix, sanitize_name
 
 logging_levels = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 
-MAX_PREFIX_LEN = 20
+MAX_PREFIX_LEN = 22
+
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description="Generate IP Address Allocation Grid Image.")
@@ -58,7 +60,7 @@ def parse_arguments():
     return args
 
 
-def process_prefix(prefix_entry, all_prefixes, ip_addresses, cell_size, tenant_color_map, output_dir):
+def process_prefix(prefix_tree_obj, prefix_entry, prefix_subtree, ip_addresses, cell_size, tenant_color_map, output_dir):
     prefix = prefix_entry.get("prefix", "").strip()
     if not prefix:
         logging.warning("Empty Prefix field encountered.")
@@ -79,54 +81,87 @@ def process_prefix(prefix_entry, all_prefixes, ip_addresses, cell_size, tenant_c
     json_filename = f"data-{sanitized_vrf}-{sanitized_prefix}.json"
     json_filepath = os.path.join(output_dir, json_filename)
 
-    # Collect child prefixes
-    child_prefixes = [
-        p for p in all_prefixes
-        if is_child_prefix(p.get("prefix", ""), prefix)
-    ]
+    # Collect child prefixes from the prefix subtree
+    child_prefixes = filter_keys_from_dicts(prefix_subtree.get("children", []), {"id", "prefix", "vrf", "tenant"})
 
-    # Prepare data to save
+    # # Prepare data to save
+    # data_to_save = {
+    #     'prefix': prefix_entry,
+    #     'child_prefixes': child_prefixes,
+    #     'ip_addresses': ip_addresses,
+    # }
+
+    # # Check if JSON data has changed
+    # data_changed = True
+    # if os.path.exists(json_filepath):
+    #     with open(json_filepath, 'r') as f:
+    #         existing_data = json.load(f)
+    #     if existing_data == data_to_save:
+    #         data_changed = False
+
+    # if data_changed:
+    #     # Save JSON data
+    #     with open(json_filepath, 'w') as f:
+    #         json.dump(data_to_save, f, indent=2)
+    #     logging.info(f"Saved data for prefix {prefix} to {json_filepath}")
+
+    # if not data_changed and os.path.exists(output_filepath):
+    #     logging.debug(f"No changes detected for prefix {prefix}. Skipping image regeneration.")
+    #     return
+
+    # Generate image
+    create_output_file(prefix_entry, child_prefixes, ip_addresses, cell_size, tenant_color_map, output_filepath)
+    logging.info(f"Generated image for prefix {prefix} at {output_filepath}")
+
+    prefix_tree = prefix_tree_obj.build_tree(vrf);
+    filtered_ip_addresses = filter_keys_from_dicts(ip_addresses, {"id", "address", "vrf", "tenant"})
     data_to_save = {
-        'prefix': prefix_entry,
+        'prefix': prefix_entry["prefix"],
         'child_prefixes': child_prefixes,
-        # We can optionally filter IPs relevant to this prefix
+        'ip_addresses': filtered_ip_addresses,
     }
 
-    # Check if JSON data has changed
-    data_changed = True
-    if os.path.exists(json_filepath):
-        with open(json_filepath, 'r') as f:
-            existing_data = json.load(f)
-        if existing_data == data_to_save:
-            data_changed = False
-
-    if data_changed:
-        # Save JSON data
-        with open(json_filepath, 'w') as f:
-            json.dump(data_to_save, f, indent=2)
-        logging.info(f"Saved data for prefix {prefix} to {json_filepath}")
-
-    if data_changed or not os.path.exists(output_filepath):
-        # Generate image
-        create_output_file(prefix_entry, child_prefixes, ip_addresses, cell_size, tenant_color_map, output_filepath)
-        logging.info(f"Generated image for prefix {prefix} at {output_filepath}")
-    else:
-        logging.debug(f"No changes detected for prefix {prefix}. Skipping image regeneration.")
+    with open(json_filepath, 'w') as f:
+        json.dump(data_to_save, f, indent=2)
+    logging.info(f"Saved data for prefix {prefix} to {json_filepath}")
 
 
 def process_all_prefixes(prefixes, ip_addresses, cell_size, output_dir):
+    
+    # Build separate prefix trees for each VRF
+    prefix_tree_obj = PrefixTree()
+    for prefix_entry in prefixes:
+        prefix_data = {
+            'id': prefix_entry['id'],
+            'vrf': prefix_entry.get('vrf'),
+            'tenant': prefix_entry.get('tenant'),
+            'prefix': prefix_entry['prefix']
+        }
+        prefix_tree_obj.add_prefix(prefix_data)
+
+
     tenant_color_map = build_tenant_color_map(prefixes)
 
     for prefix_entry in prefixes:
         try:
-            network = ipaddress.ip_network(prefix_entry.get("prefix"), strict=False)
+            vrf = prefix_entry.get('vrf')  # None for Global VRF
+            prefix = prefix_entry['prefix']
+            # Get the subtree for the current prefix
+            prefix_subtree = prefix_tree_obj.get_subtree(prefix, vrf)
+            network = ipaddress.ip_network(prefix, strict=False)
             prefix_length = network.prefixlen
             if prefix_length > MAX_PREFIX_LEN:
                 continue
 
-            process_prefix(prefix_entry, prefixes, ip_addresses, cell_size, tenant_color_map, output_dir)
+            # Filter ip_addresses by prefix
+            filtered_ip_addresses = [
+                ip for ip in ip_addresses
+                if ip_in_prefix(ip.get("address", ""), prefix)
+            ]
+
+            process_prefix(prefix_tree_obj, prefix_entry, prefix_subtree, filtered_ip_addresses, cell_size, tenant_color_map, output_dir)
         except Exception as e:
-            logging.error(f"Error processing prefix '{str(prefix_entry)}': {e}")
+            logging.error(f"Error processing prefix '{prefix}': {e}")
             continue
 
 

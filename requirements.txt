@@ -3,3 +3,5 @@ numpy
 pynetbox
 flask
 python-dotenv
+pytricia
+pytest
