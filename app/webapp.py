@@ -1,5 +1,6 @@
 # app/webapp.py
 
+import json
 from flask import Flask, request, jsonify, send_from_directory, render_template
 from dotenv import load_dotenv
 import logging
@@ -99,17 +100,35 @@ def serve_map(vrf, prefix):
 @app.route('/data/<vrf>/<path:prefix>', methods=['GET'])
 def serve_data(vrf, prefix):
     """
-    Serve the JSON data file for a given VRF and prefix.
+    Serve the JSON data file for a given VRF and prefix, including navigation URLs.
     """
     sanitized_vrf = sanitize_name(vrf)
     sanitized_prefix = sanitize_name(prefix)
 
     data_filename = f"data-{sanitized_vrf}-{sanitized_prefix}.json"
+    json_filepath = os.path.join(OUTPUT_DIR, data_filename)
 
-    if not os.path.exists(os.path.join(OUTPUT_DIR, data_filename)):
+    if not os.path.exists(json_filepath):
         return jsonify({'error': 'Data not found.'}), 404
 
-    return send_from_directory(OUTPUT_DIR, data_filename)
+    try:
+        # Load the existing JSON data
+        with open(json_filepath, 'r') as f:
+            data = json.load(f)
+
+        # Add URLs for navigation
+        def add_urls(node):
+            node['url'] = f"/map/{sanitize_name(node.get('vrf', 'None'))}/{sanitize_name(node['prefix'])}"
+            if 'children' in node:
+                for child in node['children']:
+                    add_urls(child)
+
+        add_urls(data)
+        return jsonify(data), 200
+
+    except Exception as e:
+        logging.error(f"Failed to load prefix tree data: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
 
 @app.route('/images/<filename>', methods=['GET'])
 def serve_image(filename):
