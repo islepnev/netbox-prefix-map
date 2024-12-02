@@ -3,55 +3,31 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>IP Allocation Visualization: {{ prefix }}</title>
+    <title>Prefix Map</title>
     <link rel="stylesheet" href="/static/css/styles.css">
+    <script src="/static/js/prefix_tree.js" defer></script>
 </head>
 <body>
     <header>
         <h1>IP Allocation Map</h1>
-        <h2>VRF: {{ vrf or "Global" }} | Prefix: {{ prefix }}</h2>
     </header>
-    <main>
+    <main class="layout">
+        <aside id="navigation">
+            <h2>Prefix Tree</h2>
+            <div id="prefix-tree"></div>
+        </aside>
         <section id="map-section">
-            <h3>Allocation Map</h3>
-            {% if image_filename %}
-                <img src="/images/{{ image_filename }}" alt="Visualization for {{ prefix }}">
-            {% else %}
-                <p>Visualization image not available for {{ prefix }}.</p>
-            {% endif %}
-        </section>
-        <section id="data-section">
-            <h3>Prefix Tree Data</h3>
-            <button id="toggle-tree">Toggle Tree</button>
-            <div id="prefix-tree" style="display: none;">
-                <pre id="tree-content">Loading...</pre>
+            <h2>Visualization</h2>
+            <div id="map-container">
+                <img id="map-image" src="/images/{{ image_filename }}" alt="Prefix Map">
             </div>
         </section>
+        <aside id="data-section">
+            <h2>Prefix Details</h2>
+            <pre id="prefix-data">
+                {{ prefix | tojson(indent=2) }}
+            </pre>
+        </aside>
     </main>
-    <footer>
-        <p>&copy; 2024 IP Allocation Visualization</p>
-    </footer>
-    <script>
-        document.getElementById('toggle-tree').addEventListener('click', () => {
-            const tree = document.getElementById('prefix-tree');
-            if (tree.style.display === 'none') {
-                fetch('/data/{{ vrf }}/{{ prefix.replace(".", "_").replace("/", "_") }}')
-                    .then(response => {
-                        if (!response.ok) throw new Error('Tree data not available');
-                        return response.json();
-                    })
-                    .then(data => {
-                        document.getElementById('tree-content').textContent = JSON.stringify(data, null, 2);
-                        tree.style.display = 'block';
-                    })
-                    .catch(error => {
-                        document.getElementById('tree-content').textContent = error.message;
-                        tree.style.display = 'block';
-                    });
-            } else {
-                tree.style.display = 'none';
-            }
-        });
-    </script>
 </body>
 </html>

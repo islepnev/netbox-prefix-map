@@ -17,7 +17,7 @@ from app.utils import filter_keys_from_dicts, ip_in_prefix, sanitize_name
 
 logging_levels = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 
-MAX_PREFIX_LEN = 22
+MAX_PREFIX_LEN = 32
 
 
 def parse_arguments():

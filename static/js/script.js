@@ -1,6 +1,7 @@
 // static/js/script.js
 
 document.addEventListener('DOMContentLoaded', function() {
+    console.log("static/js/script.js loaded.");
     // Get references to DOM elements
     const overlay = d3.select('#overlay');
     const tooltip = d3.select('#tooltip');
