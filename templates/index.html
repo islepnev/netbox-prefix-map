@@ -18,7 +18,7 @@
             <h2>VRFs</h2>
             <ul>
                 {% for vrf in vrfs %}
-                    <li><a href="{{ url_for('vrf_view', vrf=vrf.id) }}">{{ vrf.name or 'Global' }}</a></li>
+                    <li><a href="{{ url_for('app.vrf_view', vrf=vrf.id) }}">{{ vrf.name or 'Global' }}</a></li>
                 {% endfor %}
             </ul>
         </div>

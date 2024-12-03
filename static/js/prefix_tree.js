@@ -1,6 +1,7 @@
 // static/js/prefix_tree.js
 
 document.addEventListener("DOMContentLoaded", () => {
+
     const prefixTreeContainer = document.getElementById("prefix-tree");
 
     // Function to sanitize prefix for URL (replace '.' and '/' with '_')
@@ -23,12 +24,12 @@ document.addEventListener("DOMContentLoaded", () => {
     // Fetch and render the prefix tree
     function fetchAndRenderTree(vrf, prefix, parentElement) {
         const sanitizedPrefix = sanitizePrefix(prefix);
-        const treeUrl = `/data/${vrf ?? 'None'}/${sanitizedPrefix}`;
+        const treeUrl = `${BASE_PATH}/data/${vrf ?? 'None'}/${sanitizedPrefix}`;
 
         fetch(treeUrl)
             .then(response => {
                 if (!response.ok) {
-                    throw new Error("Failed to fetch prefix tree data.");
+                    throw new Error(`Failed to fetch prefix tree data from URL: ${treeUrl}`);
                 }
                 return response.json();
             })
@@ -38,7 +39,7 @@ document.addEventListener("DOMContentLoaded", () => {
             })
             .catch(error => {
                 console.error(error);
-                parentElement.innerHTML = "Failed to load prefix tree.";
+                parentElement.innerHTML = `Failed to load prefix tree. URL: ${treeUrl}`;
             });
     }
 
@@ -51,7 +52,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const link = document.createElement("a");
         const displayPrefix = data.prefix;
         const sanitizedPrefix = sanitizePrefix(displayPrefix);
-        link.href = `/map/${data.vrf ?? 'None'}/${sanitizedPrefix}`;
+        link.href = `${BASE_PATH}/map/${data.vrf ?? 'None'}/${sanitizedPrefix}`;
         link.textContent = displayPrefix;
         li.appendChild(link);
 
@@ -69,7 +70,7 @@ document.addEventListener("DOMContentLoaded", () => {
                         const childLink = document.createElement("a");
                         const childDisplayPrefix = child.prefix;
                         const childSanitizedPrefix = sanitizePrefix(childDisplayPrefix);
-                        childLink.href = `/map/${child.vrf ?? 'None'}/${childSanitizedPrefix}`;
+                        childLink.href = `${BASE_PATH}/map/${child.vrf ?? 'None'}/${childSanitizedPrefix}`;
                         childLink.textContent = childDisplayPrefix;
                         childLi.appendChild(childLink);
                         childUl.appendChild(childLi);
@@ -96,10 +97,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // Extract VRF and prefix from the current URL
     const currentUrl = window.location.pathname;
-    const urlParts = currentUrl.split("/");
-    const vrf = urlParts[2];
+    const urlParts = currentUrl.replace(BASE_PATH, "").split("/");
+    const vrf = urlParts[2] ?? 'None';  // Correctly extract VRF
     const sanitizedPrefix = urlParts.slice(3).join("/");
-    const prefix = reconstructPrefix(sanitizedPrefix);
+    const prefix = sanitizedPrefix ? reconstructPrefix(sanitizedPrefix) : null;
 
     if (prefix) {
         prefixTreeContainer.innerHTML = "Loading..."; // Set initial "Loading..." text

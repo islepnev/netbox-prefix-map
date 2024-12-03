@@ -6,7 +6,10 @@
 <head>
     <meta charset="UTF-8">
     <title>VRF {{ vrf.name or 'Global' }}, prefix {{ prefix }}</title>
-    <link rel="stylesheet" href="/static/css/styles.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+    <script>
+        const BASE_PATH = "{{ base_path }}";
+    </script>
     <script src="{{ url_for('static', filename='js/prefix_tree.js') }}" defer></script>
 </head>
 
@@ -24,7 +27,7 @@
         <div class="content">
             <h1>{{ prefix }}</h1>
             <div id="map-container">
-                <img id="map-image" src="/images/{{ image_filename }}" alt="Prefix Map">
+                <img id="map-image" src="{{ base_path }}/images/{{ image_filename }}" alt="Prefix Map">
             </div>
             <div id="prefix-details">
                 <h2>Prefix Details</h2>

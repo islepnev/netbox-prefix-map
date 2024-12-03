@@ -6,7 +6,10 @@
 <head>
     <meta charset="UTF-8">
     <title>VRF {{ vrf.name or 'Global' }}</title>
-    <link rel="stylesheet" href="/static/css/styles.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+    <script>
+        const BASE_PATH = "{{ base_path }}";
+    </script>
     <script src="{{ url_for('static', filename='js/prefix_tree.js') }}" defer></script>
 </head>
 
@@ -22,7 +25,7 @@
             <div id="prefix-tree">Loading...</div>
             <ul>
                 {% for prefix in prefixes %}
-                <li><a href="/map/{{ vrf.id or 'None' }}/{{ prefix.sanitized }}">{{ prefix.display }}</a></li>
+                <li><a href="{{ base_path }}/map/{{ vrf.id or 'None' }}/{{ prefix.sanitized }}">{{ prefix.display }}</a></li>
                 {% endfor %}
             </ul>
         </div>

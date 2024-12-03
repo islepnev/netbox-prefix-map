@@ -1,7 +1,7 @@
 # app/webapp.py
 
 import json
-from flask import Flask, request, jsonify, send_from_directory, render_template
+from flask import Flask, Blueprint, request, jsonify, send_from_directory, render_template
 from dotenv import load_dotenv
 import logging
 import subprocess
@@ -9,24 +9,34 @@ import os
 
 from app.logging_config import setup_logging
 
-# Load environment variables from .env file
+
 load_dotenv()
-
-# Initialize Flask app
-app = Flask(
-    __name__,
-    static_folder=os.path.join(os.path.dirname(__file__), "..", "static"),
-    static_url_path="/static",
-    template_folder=os.path.join(os.path.dirname(__file__), "..", "templates"),
-)
-
-# Ensure logging is set up
 setup_logging()
+
+BASE_PATH = os.getenv('BASE_PATH', '/prefix-map')
 
 OUTPUT_DIR = os.getenv('OUTPUT_DIR', 'output')
 OUTPUT_DIR = os.path.join(os.path.dirname(__file__), '..', OUTPUT_DIR)
 
 NETBOX_URL = os.getenv('NETBOX_API_URL')
+
+# Initialize Flask app
+app = Flask(
+    __name__,
+    static_folder=os.path.join(os.path.dirname(__file__), "..", "static"),
+    static_url_path=f"{BASE_PATH}/static",
+    template_folder=os.path.join(os.path.dirname(__file__), "..", "templates"),
+)
+
+bp = Blueprint('app', __name__, url_prefix=BASE_PATH)
+
+
+def sanitize_name(name):
+    """
+    Sanitize a string to be used in filenames by replacing non-alphanumeric characters with underscores.
+    """
+    import re
+    return re.sub(r'\W+', '_', name)
 
 
 def reconstruct_prefix(sanitized_prefix):
@@ -68,7 +78,18 @@ def load_prefix_tree():
         return {}
 
 
-@app.route('/webhook', methods=['POST'])
+prefix_map = Blueprint('prefix_map', __name__)
+
+
+@app.context_processor
+def inject_base_path():
+    """
+    Inject base_path into all templates.
+    """
+    return {'base_path': BASE_PATH}
+
+
+@bp.route('/webhook', methods=['POST'])
 def webhook():
     """
     Endpoint to receive webhook events from NetBox.
@@ -101,7 +122,8 @@ def webhook():
         logging.info(f"Ignored event: {event_type}")
         return jsonify({'status': 'ignored'}), 200
 
-@app.route('/errors', methods=['GET'])
+
+@bp.route('/errors', methods=['GET'])
 def show_errors():
     """
     Endpoint to display recent error logs.
@@ -116,14 +138,14 @@ def show_errors():
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 
-@app.route('/')
-@app.route('/map')
+@bp.route('/')
+@bp.route('/map')
 def index():
     vrfs = load_vrf_data()
     return render_template('index.html', vrfs=vrfs, netbox_url=get_netbox_url())
 
 
-@app.route('/map/<vrf>', methods=['GET'])
+@bp.route('/map/<vrf>', methods=['GET'])
 def vrf_view(vrf):
     prefix_tree = load_prefix_tree()
     vrfs = load_vrf_data()
@@ -135,7 +157,7 @@ def vrf_view(vrf):
     return render_template('vrf.html', vrf=vrf_info, prefixes=prefixes, netbox_url=get_netbox_url())
 
 
-@app.route('/map/<vrf>/<path:prefix>', methods=['GET'])
+@bp.route('/map/<vrf>/<path:prefix>', methods=['GET'])
 def serve_map(vrf, prefix):
     """
     Serve the visualization page for a given VRF and prefix.
@@ -165,7 +187,8 @@ def serve_map(vrf, prefix):
         data_filename=data_filename
     )
 
-@app.route('/data/<vrf>/<path:prefix>', methods=['GET'])
+
+@bp.route('/data/<vrf>/<path:prefix>', methods=['GET'])
 def serve_data(vrf, prefix):
     """
     Serve the JSON data file for a given VRF and prefix, including navigation URLs.
@@ -198,7 +221,8 @@ def serve_data(vrf, prefix):
         logging.error(f"Failed to load prefix tree data: {e}")
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
-@app.route('/images/<filename>', methods=['GET'])
+
+@bp.route('/images/<filename>', methods=['GET'])
 def serve_image(filename):
     """
     Serve image files from the output directory.
@@ -206,12 +230,8 @@ def serve_image(filename):
     return send_from_directory(OUTPUT_DIR, filename)
 
 
-def sanitize_name(name):
-    """
-    Sanitize a string to be used in filenames by replacing non-alphanumeric characters with underscores.
-    """
-    import re
-    return re.sub(r'\W+', '_', name)
+app.register_blueprint(bp)
+
 
 if __name__ == '__main__':
     # Run the Flask app on all interfaces, port 5000
