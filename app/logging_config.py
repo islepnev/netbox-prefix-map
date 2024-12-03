@@ -8,10 +8,11 @@ This module sets up logging with both console and SysLog handlers.
 
 import logging
 from logging.handlers import SysLogHandler
+import os
 import sys
 
 
-def setup_logging(level = logging.INFO, debug = False):
+def setup_logging(level=logging.INFO, debug=False):
     """Configure logging for the script."""
     if debug:
         level = logging.DEBUG
@@ -27,10 +28,12 @@ def setup_logging(level = logging.INFO, debug = False):
 
     # SysLog handler for INFO level
     try:
-        syslog_handler = SysLogHandler(address='/dev/log')
-        syslog_handler.setLevel(level)
-        syslog_formatter = logging.Formatter('%(levelname)s - %(message)s')
-        syslog_handler.setFormatter(syslog_formatter)
-        logger.addHandler(syslog_handler)
+        DEV_LOG = '/dev/log'
+        if os.path.exists(DEV_LOG):
+            syslog_handler = SysLogHandler(address=DEV_LOG)
+            syslog_handler.setLevel(level)
+            syslog_formatter = logging.Formatter('%(levelname)s - %(message)s')
+            syslog_handler.setFormatter(syslog_formatter)
+            logger.addHandler(syslog_handler)
     except Exception as e:
         logger.error(f"Failed to set up SysLogHandler: {e}")
