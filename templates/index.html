@@ -10,20 +10,22 @@
 <body>
     <div class="navbar">
         <div class="navbar-brand">
-            <a href="/">Prefix Map</a>
+            <a href="/">NetBox</a> >> <a href="{{ url_for('app.index') }}">Prefix Map</a>
         </div>
     </div>
     <div class="container">
         <div class="sidebar">
             <h2>VRFs</h2>
             <ul>
+                <!-- Add Global VRF -->
+                <li><a href="{{ url_for('app.vrf_view', vrf='None') }}">Global</a></li>
                 {% for vrf in vrfs %}
                     <li><a href="{{ url_for('app.vrf_view', vrf=vrf.id) }}">{{ vrf.name or 'Global' }}</a></li>
                 {% endfor %}
             </ul>
         </div>
         <div class="content">
-            <h1>Welcome to the IP Allocation Visualization</h1>
+            <h1>Welcome to the IP Address Allocation Visualization</h1>
             <p>Select a VRF from the left to view its prefixes.</p>
         </div>
     </div>
