@@ -60,6 +60,55 @@ def parse_arguments():
     return args
 
 
+def save_vrf_data(vrfs, output_dir):
+    vrf_data = []
+    for vrf in vrfs:
+        vrf_entry = {
+            'id': vrf['id'],
+            'name': vrf.get('name'),
+            'rd': vrf.get('rd'),
+            'description': vrf.get('description'),
+            'tenant': vrf.get('tenant'),
+            'url': vrf.get('url'),
+            'display_url': vrf.get('display_url'),
+            'prefix_count': vrf.get('prefix_count'),
+            'ipaddress_count': vrf.get('ipaddress_count'),
+        }
+        vrf_data.append(vrf_entry)
+
+    vrf_filepath = os.path.join(output_dir, 'vrf.json')
+    with open(vrf_filepath, 'w') as f:
+        json.dump(vrf_data, f, indent=2)
+    logging.info(f"Saved VRF data to {vrf_filepath}")
+
+
+def save_prefix_tree(prefixes, output_dir):
+    """
+    Generate and save prefix tree as a JSON file.
+
+    Args:
+        prefixes (list): List of prefix dictionaries from NetBox.
+        output_dir (str): Directory to save the output file.
+    """
+    prefix_tree_obj = PrefixTree()
+    for prefix_entry in prefixes:
+        prefix_data = {
+            'id': prefix_entry['id'],
+            'vrf': prefix_entry.get('vrf'),
+            'tenant': prefix_entry.get('tenant'),
+            'prefix': prefix_entry['prefix']
+        }
+        prefix_tree_obj.add_prefix(prefix_data)
+
+    # Build hierarchical trees for each VRF
+    hierarchical_trees = prefix_tree_obj.build_tree()
+
+    prefix_tree_filepath = os.path.join(output_dir, 'prefix_tree.json')
+    with open(prefix_tree_filepath, 'w') as f:
+        json.dump(hierarchical_trees, f, indent=2)
+    logging.info(f"Saved prefix tree to {prefix_tree_filepath}")
+
+
 def process_prefix(prefix_tree_obj, prefix_entry, prefix_subtree, ip_addresses, cell_size, tenant_color_map, output_dir):
     prefix = prefix_entry.get("prefix", "").strip()
     if not prefix:
@@ -113,7 +162,7 @@ def process_prefix(prefix_tree_obj, prefix_entry, prefix_subtree, ip_addresses, 
     create_output_file(prefix_entry, child_prefixes, ip_addresses, cell_size, tenant_color_map, output_filepath)
     logging.info(f"Generated image for prefix {prefix} at {output_filepath}")
 
-    prefix_tree = prefix_tree_obj.build_tree(vrf);
+    prefix_tree = prefix_tree_obj.build_tree(vrf)
     filtered_ip_addresses = filter_keys_from_dicts(ip_addresses, {"id", "address", "vrf", "tenant"})
     data_to_save = {
         'prefix': prefix_entry["prefix"],
@@ -127,7 +176,7 @@ def process_prefix(prefix_tree_obj, prefix_entry, prefix_subtree, ip_addresses, 
 
 
 def process_all_prefixes(prefixes, ip_addresses, cell_size, output_dir):
-    
+
     # Build separate prefix trees for each VRF
     prefix_tree_obj = PrefixTree()
     for prefix_entry in prefixes:
@@ -183,7 +232,9 @@ def cli():
         mgr = NetboxAddressManager()
         prefixes = mgr.get_prefixes()
         ip_addresses = mgr.get_ip_addresses()
-
+        vrfs = mgr.get_vrfs()
+        save_vrf_data(vrfs, output_dir)
+        save_prefix_tree(prefixes, output_dir)
         process_all_prefixes(prefixes, ip_addresses, cell_size, output_dir)
 
     except Exception as e:

@@ -1,11 +1,12 @@
 <!-- templates/map.html -->
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>IP Allocation Map</title>
+    <title>Prefix {{ prefix }}</title>
     <link rel="stylesheet" href="/static/css/styles.css">
-    <script src="/static/js/prefix_tree.js" defer></script>
+    <script src="{{ url_for('static', filename='js/prefix_tree.js') }}" defer></script>
 </head>
 <body>
     <div class="navbar">
@@ -26,9 +27,10 @@
             <div id="prefix-details">
                 <h2>Prefix Details</h2>
                 <table>
-                    <tr><th>Prefix</th><td>{{ prefix }}</td></tr>
-                    <tr><th>VRF</th><td>{{ vrf or "Global" }}</td></tr>
-                    <!-- Add more details as needed -->
+                    <tr><th>Prefix</th><td><a href="{{ netbox_url }}/ipam/prefixes/{{ prefix_id }}/">{{ prefix }}</a></td></tr>
+                    {% if vrf %}
+                    <tr><th>VRF</th><td><a href="{{ netbox_url }}/ipam/vrfs/{{ vrf.id }}/">{{ vrf.name }}</a> {{ vrf.description }}</td></td></tr>
+                    {% endif %}
                 </table>
             </div>
         </div>

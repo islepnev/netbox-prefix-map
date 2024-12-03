@@ -24,8 +24,9 @@ app = Flask(
 setup_logging()
 
 OUTPUT_DIR = os.getenv('OUTPUT_DIR', 'output')
-
 OUTPUT_DIR = os.path.join(os.path.dirname(__file__), '..', OUTPUT_DIR)
+
+NETBOX_URL = os.getenv('NETBOX_API_URL')
 
 
 def reconstruct_prefix(sanitized_prefix):
@@ -38,6 +39,23 @@ def reconstruct_prefix(sanitized_prefix):
     else:
         # Handle cases with less than 5 parts
         return sanitized_prefix.replace('_', '.')
+
+
+def get_netbox_url():
+    if NETBOX_URL:
+        return NETBOX_URL.rstrip('/')
+    else:
+        return request.host_url.rstrip('/')
+
+
+def load_vrf_data():
+    vrf_filepath = os.path.join(OUTPUT_DIR, 'vrf.json')
+    if os.path.exists(vrf_filepath):
+        with open(vrf_filepath, 'r') as f:
+            vrfs = json.load(f)
+        return vrfs
+    else:
+        return []
 
 
 @app.route('/webhook', methods=['POST'])
@@ -87,11 +105,38 @@ def show_errors():
         logging.error(f"Failed to read log file: {e}")
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
+
+@app.route('/')
+@app.route('/map')
+def index():
+    vrfs = load_vrf_data()
+    return render_template('index.html', vrfs=vrfs, netbox_url=get_netbox_url())
+
+
+@app.route('/map/<vrf>')
+def vrf_view(vrf):
+    prefixes = []
+    vrfs = load_vrf_data()
+    vrf_info = next((v for v in vrfs if str(v['id']) == vrf), None)
+    if not vrf_info and vrf != 'None':
+        return render_template('error.html', message="VRF not found"), 404
+
+    # Load prefixes for the VRF
+    prefix_tree_filepath = os.path.join(OUTPUT_DIR, 'prefix_tree.json')
+    if os.path.exists(prefix_tree_filepath):
+        with open(prefix_tree_filepath, 'r') as f:
+            prefix_tree = json.load(f)
+        prefixes = prefix_tree.get(vrf, {}).get('prefixes', [])
+    return render_template('vrf.html', vrf=vrf_info, prefixes=prefixes, netbox_url=get_netbox_url())
+
+
 @app.route('/map/<vrf>/<path:prefix>', methods=['GET'])
 def serve_map(vrf, prefix):
     """
     Serve the visualization page for a given VRF and prefix.
     """
+    vrfs = load_vrf_data()
+    vrf_info = next((v for v in vrfs if str(v['id']) == vrf), None)
 
     # Reconstruct the display prefix from the sanitized prefix
     display_prefix = reconstruct_prefix(prefix)
@@ -107,8 +152,10 @@ def serve_map(vrf, prefix):
 
     return render_template(
         'map.html',
-        vrf=vrf,
+        netbox_url=get_netbox_url(),
+        vrf=vrf_info,
         prefix=display_prefix,
+        # prefix_id=prefix["id"],
         image_filename=image_filename,
         data_filename=data_filename
     )
@@ -153,14 +200,6 @@ def serve_image(filename):
     """
     return send_from_directory(OUTPUT_DIR, filename)
 
-@app.route('/', methods=['GET'])
-def index():
-    """
-    Index route to list available visualizations.
-    """
-    # Logic to list available VRFs and prefixes
-    # For simplicity, return a placeholder message
-    return "Welcome to the IP Allocation Visualization. Navigate to /map/<vrf>/<prefix> to view a visualization."
 
 def sanitize_name(name):
     """

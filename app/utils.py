@@ -4,6 +4,7 @@ from collections import defaultdict
 import csv
 import ipaddress
 import logging
+import os
 import re
 import sys
 from typing import Dict, List, Set
@@ -211,3 +212,4 @@ def _unused_build_prefix_tree(prefixes):
     # Convert defaultdicts to regular dicts for JSON serialization
     return {vrf: {str(version): list(tree.values()) for version, tree in ip_versions.items()} 
             for vrf, ip_versions in trees.items()}
+

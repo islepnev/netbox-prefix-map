@@ -1,0 +1,32 @@
+<!-- templates/vrf.html -->
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>VRF {{ vrf.name or 'Global' }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/netbox.css') }}">
+</head>
+<body>
+    <div class="navbar">
+        <div class="navbar-brand">
+            <a href="/">NetBox Visualization</a>
+        </div>
+    </div>
+    <div class="container">
+        <div class="sidebar">
+            <h2>Prefixes</h2>
+            <ul>
+                {% for prefix in prefixes %}
+                    <li><a href="/map/{{ vrf.id or 'None' }}/{{ prefix.sanitized }}">{{ prefix.display }}</a></li>
+                {% endfor %}
+            </ul>
+        </div>
+        <div class="content">
+            <h1>VRF: {{ vrf.name or 'Global' }}</h1>
+            <p>{{ vrf.description }}</p>
+            <p><a href="{{ netbox_url }}/ipam/vrfs/{{ vrf.id }}/">View in NetBox</a></p>
+        </div>
+    </div>
+</body>
+</html>
