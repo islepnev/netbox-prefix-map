@@ -2,16 +2,18 @@
 
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
-    <title>Prefix {{ prefix }}</title>
+    <title>VRF {{ vrf.name or 'Global' }}, prefix {{ prefix }}</title>
     <link rel="stylesheet" href="/static/css/styles.css">
     <script src="{{ url_for('static', filename='js/prefix_tree.js') }}" defer></script>
 </head>
+
 <body>
     <div class="navbar">
         <div class="navbar-brand">
-            <a href="/">NetBox Visualization</a>
+            <a href="/">Prefix Map</a>
         </div>
     </div>
     <div class="container">
@@ -27,13 +29,22 @@
             <div id="prefix-details">
                 <h2>Prefix Details</h2>
                 <table>
-                    <tr><th>Prefix</th><td><a href="{{ netbox_url }}/ipam/prefixes/{{ prefix_id }}/">{{ prefix }}</a></td></tr>
+                    <tr>
+                        <th>Prefix</th>
+                        <td><a href="{{ netbox_url }}/ipam/prefixes/{{ prefix_id }}/">{{ prefix }}</a></td>
+                    </tr>
                     {% if vrf %}
-                    <tr><th>VRF</th><td><a href="{{ netbox_url }}/ipam/vrfs/{{ vrf.id }}/">{{ vrf.name }}</a> {{ vrf.description }}</td></td></tr>
+                    <tr>
+                        <th>VRF</th>
+                        <td><a href="{{ netbox_url }}/ipam/vrfs/{{ vrf.id }}/">{{ vrf.name }}</a> {{ vrf.description }}
+                        </td>
+                        </td>
+                    </tr>
                     {% endif %}
                 </table>
             </div>
         </div>
     </div>
 </body>
+
 </html>

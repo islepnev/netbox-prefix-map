@@ -58,6 +58,16 @@ def load_vrf_data():
         return []
 
 
+def load_prefix_tree():
+    prefix_tree_filepath = os.path.join(OUTPUT_DIR, 'prefix_tree.json')
+    if os.path.exists(prefix_tree_filepath):
+        with open(prefix_tree_filepath, 'r') as f:
+            prefix_tree = json.load(f)
+        return prefix_tree
+    else:
+        return {}
+
+
 @app.route('/webhook', methods=['POST'])
 def webhook():
     """
@@ -113,20 +123,15 @@ def index():
     return render_template('index.html', vrfs=vrfs, netbox_url=get_netbox_url())
 
 
-@app.route('/map/<vrf>')
+@app.route('/map/<vrf>', methods=['GET'])
 def vrf_view(vrf):
-    prefixes = []
+    prefix_tree = load_prefix_tree()
     vrfs = load_vrf_data()
     vrf_info = next((v for v in vrfs if str(v['id']) == vrf), None)
     if not vrf_info and vrf != 'None':
         return render_template('error.html', message="VRF not found"), 404
 
-    # Load prefixes for the VRF
-    prefix_tree_filepath = os.path.join(OUTPUT_DIR, 'prefix_tree.json')
-    if os.path.exists(prefix_tree_filepath):
-        with open(prefix_tree_filepath, 'r') as f:
-            prefix_tree = json.load(f)
-        prefixes = prefix_tree.get(vrf, {}).get('prefixes', [])
+    prefixes = prefix_tree.get(vrf, {}).get('prefixes', [])
     return render_template('vrf.html', vrf=vrf_info, prefixes=prefixes, netbox_url=get_netbox_url())
 
 

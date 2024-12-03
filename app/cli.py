@@ -83,30 +83,26 @@ def save_vrf_data(vrfs, output_dir):
 
 
 def save_prefix_tree(prefixes, output_dir):
-    """
-    Generate and save prefix tree as a JSON file.
-
-    Args:
-        prefixes (list): List of prefix dictionaries from NetBox.
-        output_dir (str): Directory to save the output file.
-    """
-    prefix_tree_obj = PrefixTree()
-    for prefix_entry in prefixes:
-        prefix_data = {
-            'id': prefix_entry['id'],
-            'vrf': prefix_entry.get('vrf'),
-            'tenant': prefix_entry.get('tenant'),
-            'prefix': prefix_entry['prefix']
+    prefix_tree = {}
+    for prefix in prefixes:
+        vrf_id = str(prefix['vrf']) if prefix['vrf'] else 'None'
+        if vrf_id not in prefix_tree:
+            prefix_tree[vrf_id] = {'prefixes': []}
+        sanitized_prefix = sanitize_name(prefix['prefix'])
+        prefix_entry = {
+            'id': prefix['id'],
+            'prefix': prefix['prefix'],
+            'tenant': prefix.get('tenant'),
+            'vrf': vrf_id,
+            'sanitized': sanitized_prefix,
+            'display': prefix['prefix'],
         }
-        prefix_tree_obj.add_prefix(prefix_data)
-
-    # Build hierarchical trees for each VRF
-    hierarchical_trees = prefix_tree_obj.build_tree()
-
+        prefix_tree[vrf_id]['prefixes'].append(prefix_entry)
+    
     prefix_tree_filepath = os.path.join(output_dir, 'prefix_tree.json')
     with open(prefix_tree_filepath, 'w') as f:
-        json.dump(hierarchical_trees, f, indent=2)
-    logging.info(f"Saved prefix tree to {prefix_tree_filepath}")
+        json.dump(prefix_tree, f, indent=2)
+    logging.info(f"Saved prefix tree data to {prefix_tree_filepath}")
 
 
 def process_prefix(prefix_tree_obj, prefix_entry, prefix_subtree, ip_addresses, cell_size, tenant_color_map, output_dir):
@@ -213,6 +209,7 @@ def process_all_prefixes(prefixes, ip_addresses, cell_size, output_dir):
             logging.error(f"Error processing prefix '{prefix}': {e}")
             continue
 
+    save_prefix_tree(prefixes, output_dir)
 
 def cli():
     args = parse_arguments()
@@ -234,7 +231,6 @@ def cli():
         ip_addresses = mgr.get_ip_addresses()
         vrfs = mgr.get_vrfs()
         save_vrf_data(vrfs, output_dir)
-        save_prefix_tree(prefixes, output_dir)
         process_all_prefixes(prefixes, ip_addresses, cell_size, output_dir)
 
     except Exception as e:
