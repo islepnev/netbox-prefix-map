@@ -120,12 +120,9 @@ def webhook():
 
     # Define relevant event types
     relevant_events = [
-        'ip_created',
-        'ip_updated',
-        'ip_deleted',
-        'prefix_created',
-        'prefix_updated',
-        'prefix_deleted'
+        'created',
+        'updated',
+        'deleted',
     ]
 
     event_type = data.get('event', '')
