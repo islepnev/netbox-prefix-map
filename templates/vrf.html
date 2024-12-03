@@ -15,9 +15,18 @@
 
 <body>
     <div class="navbar">
-        <div class="navbar-brand">
-            <a href="/">NetBox</a> >> <a href="{{ url_for('app.index') }}">Prefix Map</a>
-        </div>
+        <div class="breadcrumbs">
+            {% for crumb in generate_breadcrumbs(vrf=vrf, prefix=prefix) %}
+                {% if crumb.url %}
+                    <a href="{{ crumb.url }}">{{ crumb.name }}</a>
+                    {% if not loop.last %}
+                        <span class="separator">&gt;</span>
+                    {% endif %}
+                {% else %}
+                    <span>{{ crumb.name }}</span>
+                {% endif %}
+            {% endfor %}
+        </div>        
     </div>
     <div class="container">
         <div class="sidebar">

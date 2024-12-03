@@ -1,7 +1,7 @@
 # app/webapp.py
 
 import json
-from flask import Flask, Blueprint, request, jsonify, send_from_directory, render_template
+from flask import Flask, Blueprint, request, jsonify, send_from_directory, render_template, url_for
 from dotenv import load_dotenv
 import logging
 import subprocess
@@ -87,6 +87,24 @@ def inject_base_path():
     Inject base_path into all templates.
     """
     return {'base_path': BASE_PATH}
+
+
+@app.context_processor
+def inject_breadcrumbs():
+    def generate_breadcrumbs(vrf=None, prefix=None):
+        breadcrumbs = [{"name": "NetBox", "url": get_netbox_url()}]
+        breadcrumbs.append({"name": "Prefix Map", "url": url_for('app.index')})
+        
+        if vrf:
+            vrf_name = vrf.get('name', 'Global') if isinstance(vrf, dict) else 'Global'
+            vrf_id = vrf.get('id') if isinstance(vrf, dict) else vrf
+            breadcrumbs.append({"name": vrf_name, "url": url_for('app.vrf_view', vrf=vrf_id)})
+        
+        if prefix:
+            breadcrumbs.append({"name": prefix, "url": None})  # Current page
+        return breadcrumbs
+
+    return dict(generate_breadcrumbs=generate_breadcrumbs)
 
 
 @bp.route('/webhook', methods=['POST'])

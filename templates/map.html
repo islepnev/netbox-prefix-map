@@ -15,8 +15,17 @@
 
 <body>
     <div class="navbar">
-        <div class="navbar-brand">
-            <a href="/">NetBox</a> >> <a href="{{ url_for('app.index') }}">Prefix Map</a>
+        <div class="breadcrumbs">
+            {% for crumb in generate_breadcrumbs(vrf=vrf, prefix=prefix) %}
+                {% if crumb.url %}
+                    <a href="{{ crumb.url }}">{{ crumb.name }}</a>
+                    {% if not loop.last %}
+                        <span class="separator">&gt;</span>
+                    {% endif %}
+                {% else %}
+                    <span>{{ crumb.name }}</span>
+                {% endif %}
+            {% endfor %}
         </div>
     </div>
     <div class="container">
@@ -25,25 +34,23 @@
             <div id="prefix-tree">Loading...</div>
         </div>
         <div class="content">
-            <h1>{{ prefix }}</h1>
             <div id="map-container">
                 <img id="map-image" src="{{ base_path }}/images/{{ image_filename }}" alt="Prefix Map">
             </div>
             <div id="prefix-details">
-                <h2>Prefix Details</h2>
                 <table>
                     <tr>
                         <th>Prefix</th>
                         <td><a href="{{ netbox_url }}/ipam/prefixes/{{ prefix_id }}/">{{ prefix }}</a></td>
                     </tr>
-                    {% if vrf %}
                     <tr>
                         <th>VRF</th>
-                        <td><a href="{{ netbox_url }}/ipam/vrfs/{{ vrf.id }}/">{{ vrf.name }}</a> {{ vrf.description }}
-                        </td>
-                        </td>
+                        {% if vrf %}
+                        <td><a href="{{ netbox_url }}/ipam/vrfs/{{ vrf.id }}/">{{ vrf.name }}</a> {{ vrf.description }}</td>
+                        {% else %}
+                        <td>Global</td>
+                        {% endif %}
                     </tr>
-                    {% endif %}
                 </table>
             </div>
         </div>
