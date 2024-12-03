@@ -3,9 +3,26 @@
 document.addEventListener("DOMContentLoaded", () => {
     const prefixTreeContainer = document.getElementById("prefix-tree");
 
+    // Function to sanitize prefix for URL (replace '.' and '/' with '_')
+    function sanitizePrefix(prefix) {
+        return prefix.replace(/\./g, '_').replace(/\//g, '_');
+    }
+
+    // Function to reconstruct prefix from sanitized version
+    function reconstructPrefix(sanitized) {
+        const parts = sanitized.split('_');
+        if (parts.length >= 5) {
+            const prefix_length = parts.pop();
+            const ip_address = parts.join('.');
+            return `${ip_address}/${prefix_length}`;
+        } else {
+            return sanitized.replace(/_/g, '.');
+        }
+    }
+
     // Fetch and render the prefix tree
     function fetchAndRenderTree(vrf, prefix, parentElement) {
-        const sanitizedPrefix = prefix.replace(/\./g, '_').replace(/\//g, '_');
+        const sanitizedPrefix = sanitizePrefix(prefix);
         const treeUrl = `/data/${vrf ?? 'None'}/${sanitizedPrefix}`;
 
         fetch(treeUrl)
@@ -16,6 +33,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 return response.json();
             })
             .then(data => {
+                parentElement.innerHTML = ""; // Clear the "Loading..." text
                 renderTree(data, parentElement);
             })
             .catch(error => {
@@ -31,8 +49,10 @@ document.addEventListener("DOMContentLoaded", () => {
         // Create list item for the current prefix
         const li = document.createElement("li");
         const link = document.createElement("a");
-        link.href = `/map/${data.vrf ?? 'None'}/${data.prefix.replace(/\./g, '_').replace(/\//g, '_')}`;
-        link.textContent = data.prefix;
+        const displayPrefix = data.prefix;
+        const sanitizedPrefix = sanitizePrefix(displayPrefix);
+        link.href = `/map/${data.vrf ?? 'None'}/${sanitizedPrefix}`;
+        link.textContent = displayPrefix;
         li.appendChild(link);
 
         // If there are child prefixes, add a toggle button
@@ -47,14 +67,16 @@ document.addEventListener("DOMContentLoaded", () => {
                     data.child_prefixes.forEach(child => {
                         const childLi = document.createElement("li");
                         const childLink = document.createElement("a");
-                        childLink.href = `/map/${child.vrf ?? 'None'}/${child.prefix.replace(/\./g, '_').replace(/\//g, '_')}`;
-                        childLink.textContent = child.prefix;
+                        const childDisplayPrefix = child.prefix;
+                        const childSanitizedPrefix = sanitizePrefix(childDisplayPrefix);
+                        childLink.href = `/map/${child.vrf ?? 'None'}/${childSanitizedPrefix}`;
+                        childLink.textContent = childDisplayPrefix;
                         childLi.appendChild(childLink);
                         childUl.appendChild(childLi);
 
                         // Recursively fetch and render children
                         const childVrf = child.vrf ?? 'None';
-                        fetchAndRenderTree(childVrf, child.prefix, childLi);
+                        fetchAndRenderTree(childVrf, childDisplayPrefix, childLi);
                     });
                     li.appendChild(childUl);
                 } else {
@@ -76,9 +98,11 @@ document.addEventListener("DOMContentLoaded", () => {
     const currentUrl = window.location.pathname;
     const urlParts = currentUrl.split("/");
     const vrf = urlParts[2];
-    const prefix = urlParts.slice(3).join("/").replace(/_/g, ".");
+    const sanitizedPrefix = urlParts.slice(3).join("/");
+    const prefix = reconstructPrefix(sanitizedPrefix);
 
     if (prefix) {
+        prefixTreeContainer.innerHTML = "Loading..."; // Set initial "Loading..." text
         fetchAndRenderTree(vrf, prefix, prefixTreeContainer);
     } else {
         prefixTreeContainer.innerHTML = "No prefix specified.";

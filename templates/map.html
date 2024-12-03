@@ -1,33 +1,37 @@
+<!-- templates/map.html -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Prefix Map</title>
+    <title>IP Allocation Map</title>
     <link rel="stylesheet" href="/static/css/styles.css">
     <script src="/static/js/prefix_tree.js" defer></script>
 </head>
 <body>
-    <header>
-        <h1>IP Allocation Map</h1>
-    </header>
-    <main class="layout">
-        <aside id="navigation">
-            <h2>Prefix Tree</h2>
+    <div class="navbar">
+        <div class="navbar-brand">
+            <a href="/">NetBox Visualization</a>
+        </div>
+    </div>
+    <div class="container">
+        <div class="sidebar">
+            <h2>Prefixes</h2>
             <div id="prefix-tree">Loading...</div>
-        </aside>
-        <section id="map-section">
-            <h2>Visualization</h2>
+        </div>
+        <div class="content">
+            <h1>{{ prefix }}</h1>
             <div id="map-container">
                 <img id="map-image" src="/images/{{ image_filename }}" alt="Prefix Map">
             </div>
-        </section>
-        <aside id="data-section">
-            <h2>Prefix Details</h2>
-            <pre id="prefix-data">
-                {{ prefix | tojson(indent=2) }}
-            </pre>
-        </aside>
-    </main>
+            <div id="prefix-details">
+                <h2>Prefix Details</h2>
+                <table>
+                    <tr><th>Prefix</th><td>{{ prefix }}</td></tr>
+                    <tr><th>VRF</th><td>{{ vrf or "Global" }}</td></tr>
+                    <!-- Add more details as needed -->
+                </table>
+            </div>
+        </div>
+    </div>
 </body>
 </html>

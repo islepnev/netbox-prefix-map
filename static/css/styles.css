@@ -1,84 +1,60 @@
 /* static/css/styles.css */
 
 body {
-    font-family: Arial, sans-serif;
     margin: 0;
-    padding: 0;
-    display: flex;
-    flex-direction: column;
-    height: 100%;
+    font-family: "Open Sans", sans-serif;
+    color: #333;
 }
 
-header {
-    background-color: #333;
-    color: white;
-    padding: 10px 15px;
-    text-align: center;
-}
-
-header h1 {
-    margin: 0;
-    font-size: 1.5rem;
-}
-
-main.layout {
-    display: grid;
-    grid-template-columns: 250px 1fr 300px;
-    grid-template-rows: auto;
-    height: calc(100vh - 50px); /* Subtract header height */
-    overflow: hidden;
-}
-
-aside {
-    background-color: #f4f4f4;
-    border-right: 1px solid #ccc;
+.navbar {
+    background-color: #2b3643;
+    color: #fff;
     padding: 10px;
-    overflow-y: auto;
 }
 
-#navigation {
-    border-right: 1px solid #ccc;
+.navbar .navbar-brand a {
+    color: #fff;
+    text-decoration: none;
+    font-size: 1.5em;
 }
 
-#map-section {
+.container {
     display: flex;
-    align-items: center;
-    justify-content: center;
+    height: calc(100vh - 50px);
+}
+
+.sidebar {
+    width: 250px;
+    background-color: #f5f5f5;
+    border-right: 1px solid #ddd;
+    padding: 15px;
     overflow-y: auto;
+}
+
+.content {
+    flex-grow: 1;
     padding: 20px;
+    overflow-y: auto;
+}
+
+h1 {
+    font-size: 1.8em;
+    margin-bottom: 20px;
 }
 
 #map-container {
     text-align: center;
-    max-height: 100%;
+    margin-bottom: 20px;
 }
 
 #map-image {
     max-width: 100%;
-    max-height: 100%;
+    height: auto;
+    border: 1px solid #ddd;
 }
 
-aside#data-section {
-    background-color: #fafafa;
-    border-left: 1px solid #ccc;
-    padding: 10px;
-    overflow-y: auto;
-}
-
-h2 {
-    margin: 0 0 10px 0;
-    font-size: 1.2rem;
-    color: #444;
-}
-
-pre {
-    background-color: #f9f9f9;
-    border: 1px solid #ccc;
-    padding: 10px;
-    font-family: monospace;
-    white-space: pre-wrap;
-    word-wrap: break-word;
-    overflow-y: auto;
+#prefix-tree {
+    font-size: 0.9em;
 }
 
 #prefix-tree ul {
@@ -92,22 +68,39 @@ pre {
 
 #prefix-tree a {
     text-decoration: none;
-    color: blue;
+    color: #337ab7;
 }
 
-#prefix-tree a.selected {
-    font-weight: bold;
-    color: darkred;
+#prefix-tree a:hover {
+    text-decoration: underline;
 }
 
 #prefix-tree button {
     background: none;
     border: none;
-    color: #007BFF;
+    color: #337ab7;
     cursor: pointer;
-    font-size: 1rem;
+    font-size: 1em;
+    padding: 0;
+    margin-left: 5px;
 }
 
-#prefix-tree button:hover {
-    color: #0056b3;
+#prefix-details {
+    margin-top: 20px;
+}
+
+#prefix-details table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+#prefix-details th, #prefix-details td {
+    text-align: left;
+    padding: 8px;
+    border-bottom: 1px solid #ddd;
+}
+
+#prefix-details th {
+    background-color: #f9f9f9;
+    width: 150px;
 }

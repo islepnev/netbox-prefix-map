@@ -25,7 +25,19 @@ setup_logging()
 
 OUTPUT_DIR = os.getenv('OUTPUT_DIR', 'output')
 
-OUTPUT_DIR=os.path.join(os.path.dirname(__file__), '..', OUTPUT_DIR)
+OUTPUT_DIR = os.path.join(os.path.dirname(__file__), '..', OUTPUT_DIR)
+
+
+def reconstruct_prefix(sanitized_prefix):
+    parts = sanitized_prefix.split('_')
+    if len(parts) >= 5:
+        # Reconstruct IP address and prefix length
+        prefix_length = parts[-1]
+        ip_address = '.'.join(parts[:-1])
+        return f"{ip_address}/{prefix_length}"
+    else:
+        # Handle cases with less than 5 parts
+        return sanitized_prefix.replace('_', '.')
 
 
 @app.route('/webhook', methods=['POST'])
@@ -80,6 +92,10 @@ def serve_map(vrf, prefix):
     """
     Serve the visualization page for a given VRF and prefix.
     """
+
+    # Reconstruct the display prefix from the sanitized prefix
+    display_prefix = reconstruct_prefix(prefix)
+
     sanitized_vrf = sanitize_name(vrf)
     sanitized_prefix = sanitize_name(prefix)
 
@@ -92,7 +108,7 @@ def serve_map(vrf, prefix):
     return render_template(
         'map.html',
         vrf=vrf,
-        prefix=prefix,
+        prefix=display_prefix,
         image_filename=image_filename,
         data_filename=data_filename
     )
