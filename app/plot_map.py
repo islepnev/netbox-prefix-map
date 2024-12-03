@@ -80,7 +80,7 @@ def create_allocation_grid(prefix, ip_addresses):
         prefix_obj = ipaddress.ip_network(prefix)
         # if prefix_obj.prefixlen != 16:
             # raise ValueError("Top-level prefix must be /16")
-        logging.info(f"Processing prefix: {prefix_obj}")
+        logging.debug(f"Processing prefix: {prefix_obj}")
     except ValueError as ve:
         logging.error(f"Invalid prefix '{prefix}': {ve}")
         sys.exit(1)
@@ -116,7 +116,7 @@ def create_allocation_grid(prefix, ip_addresses):
             else:
                 logging.debug(f"IP {ip} is outside the prefix {prefix_obj}")
 
-    logging.info(f"Total allocated IPs within prefix {prefix_obj}: {allocated_count}")
+    logging.debug(f"Total allocated IPs within prefix {prefix_obj}: {allocated_count}")
     return grid, ip_details
 
 def get_prefix_rectangles(top_prefix, prefixes, max_bits):
@@ -339,4 +339,4 @@ def plot_allocation_grid(top_level_prefix_entry, child_prefixes, relevant_ips, o
 
     plt.savefig(output_file, dpi=100, bbox_inches='tight', pad_inches=0)
     plt.close()
-    logging.info(f"Allocation grid saved to {output_file}")
+    logging.debug(f"Allocation grid saved to {output_file}")

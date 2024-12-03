@@ -1,14 +1,16 @@
 # app/webapp.py
 
 import json
+from threading import Thread
 from flask import Flask, Blueprint, request, jsonify, send_from_directory, render_template, url_for
 from dotenv import load_dotenv
 import logging
 import subprocess
 import os
 
+from app.cli import full_update
 from app.logging_config import setup_logging
-
+from app.updater_manager import UpdaterManager
 
 load_dotenv()
 setup_logging()
@@ -30,6 +32,7 @@ app = Flask(
 
 bp = Blueprint('app', __name__, url_prefix=BASE_PATH)
 
+updater_manager = UpdaterManager(full_update, debounce_interval=60)
 
 def sanitize_name(name):
     """
@@ -94,12 +97,12 @@ def inject_breadcrumbs():
     def generate_breadcrumbs(vrf=None, prefix=None):
         breadcrumbs = [{"name": "NetBox", "url": get_netbox_url()}]
         breadcrumbs.append({"name": "Prefix Map", "url": url_for('app.index')})
-        
+
         if vrf:
             vrf_name = vrf.get('name', 'Global') if isinstance(vrf, dict) else 'Global'
             vrf_id = vrf.get('id') if isinstance(vrf, dict) else vrf
             breadcrumbs.append({"name": vrf_name, "url": url_for('app.vrf_view', vrf=vrf_id)})
-        
+
         if prefix:
             breadcrumbs.append({"name": prefix, "url": None})  # Current page
         return breadcrumbs
@@ -130,9 +133,9 @@ def webhook():
         logging.info(f"Processing event: {event_type}")
         try:
             # Trigger the visualization script
-            subprocess.run(['python', '-m', 'app.main'], check=True)
-            logging.info("Visualization grid updated successfully.")
-            return jsonify({'status': 'success'}), 200
+            updater_manager.webhook_received()
+            return jsonify({"status": "success", "message": "Update scheduled."}), 200
+
         except subprocess.CalledProcessError as e:
             logging.error(f"Error updating visualization grid: {e}")
             return jsonify({'status': 'error', 'message': str(e)}), 500
@@ -252,5 +255,9 @@ app.register_blueprint(bp)
 
 
 if __name__ == '__main__':
+
+    # Start periodic check in a background thread
+    # Thread(target=updater_manager.periodic_check, args=(full_update,), daemon=True).start()
+
     # Run the Flask app on all interfaces, port 5000
     app.run(host='0.0.0.0', port=5000)

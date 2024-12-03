@@ -156,7 +156,7 @@ def process_prefix(prefix_tree_obj, prefix_entry, prefix_subtree, ip_addresses, 
 
     # Generate image
     create_output_file(prefix_entry, child_prefixes, ip_addresses, cell_size, tenant_color_map, output_filepath)
-    logging.info(f"Generated image for prefix {prefix} at {output_filepath}")
+    logging.debug(f"Generated image for prefix {prefix} at {output_filepath}")
 
     prefix_tree = prefix_tree_obj.build_tree(vrf)
     filtered_ip_addresses = filter_keys_from_dicts(ip_addresses, {"id", "address", "vrf", "tenant"})
@@ -168,7 +168,7 @@ def process_prefix(prefix_tree_obj, prefix_entry, prefix_subtree, ip_addresses, 
 
     with open(json_filepath, 'w') as f:
         json.dump(data_to_save, f, indent=2)
-    logging.info(f"Saved data for prefix {prefix} to {json_filepath}")
+    logging.debug(f"Saved data for prefix {prefix} to {json_filepath}")
 
 
 def process_all_prefixes(prefixes, ip_addresses, cell_size, output_dir):
@@ -211,19 +211,22 @@ def process_all_prefixes(prefixes, ip_addresses, cell_size, output_dir):
 
     save_prefix_tree(prefixes, output_dir)
 
-def cli():
-    args = parse_arguments()
 
-    setup_logging(level=getattr(logging, args.log_level), debug=args.debug)
+def full_update(args = None):
 
     load_dotenv()
 
-    cell_size = int(os.getenv('CELL_SIZE', args.cell_size))
-    output_dir = os.getenv('OUTPUT_DIR', args.output)
+    if (args):
+        cell_size = int(os.getenv('CELL_SIZE', args.cell_size))
+        output_dir = os.getenv('OUTPUT_DIR', args.output)
+    else:
+        cell_size = int(os.getenv('CELL_SIZE', 4))
+        output_dir = os.getenv('OUTPUT_DIR', 'output')
+        
     # TIME_ZONE = os.getenv('TIME_ZONE', 'UTC')
 
     os.makedirs(output_dir, exist_ok=True)
-
+    
     try:
         logging.info("Starting IP Address Allocation Visualization Script")
         mgr = NetboxAddressManager()
@@ -235,7 +238,14 @@ def cli():
 
     except Exception as e:
         logging.error(e)
-        sys.exit(1)
+
+
+def cli():
+    args = parse_arguments()
+
+    setup_logging(level=getattr(logging, args.log_level), debug=args.debug)
+
+    full_update(args)
 
     logging.info("Script completed successfully.")
 
