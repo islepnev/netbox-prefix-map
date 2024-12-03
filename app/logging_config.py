@@ -22,7 +22,7 @@ def setup_logging(level=logging.INFO, debug=False):
     # Console handler for INFO level
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setLevel(level)
-    console_formatter = logging.Formatter('%(levelname)-8s: %(message)s')  # Fixed width for severity
+    console_formatter = logging.Formatter('%(asctime)s %(levelname)-8s %(message)s')  # Fixed width for severity
     console_handler.setFormatter(console_formatter)
     logger.addHandler(console_handler)
 
