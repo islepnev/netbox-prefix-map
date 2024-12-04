@@ -5,13 +5,11 @@ import ipaddress
 import json
 import logging
 import os
-import sys
 from dotenv import load_dotenv
 
 from app.logging_config import setup_logging
 from app.netbox_integration import NetboxAddressManager
-from app.output_file import create_output_file
-from app.plot_map import build_tenant_color_map
+from app.plot_map import build_tenant_color_map, plot_allocation_grid
 from app.prefix_tree import PrefixTree
 from app.utils import filter_keys_from_dicts, ip_in_prefix, sanitize_name
 
@@ -98,7 +96,7 @@ def save_prefix_tree(prefixes, output_dir):
             'display': prefix['prefix'],
         }
         prefix_tree[vrf_id]['prefixes'].append(prefix_entry)
-    
+
     prefix_tree_filepath = os.path.join(output_dir, 'prefix_tree.json')
     with open(prefix_tree_filepath, 'w') as f:
         json.dump(prefix_tree, f, indent=2)
@@ -155,7 +153,8 @@ def process_prefix(prefix_tree_obj, prefix_entry, prefix_subtree, ip_addresses, 
     #     return
 
     # Generate image
-    create_output_file(prefix_entry, child_prefixes, ip_addresses, cell_size, tenant_color_map, output_filepath)
+
+    plot_allocation_grid(prefix_entry, child_prefixes, ip_addresses, output_filepath, cell_size, tenant_color_map)
     logging.debug(f"Generated image for prefix {prefix} at {output_filepath}")
 
     prefix_tree = prefix_tree_obj.build_tree(vrf)
@@ -212,7 +211,7 @@ def process_all_prefixes(prefixes, ip_addresses, cell_size, output_dir):
     save_prefix_tree(prefixes, output_dir)
 
 
-def full_update(args = None):
+def full_update(args=None):
 
     load_dotenv()
 
@@ -222,11 +221,11 @@ def full_update(args = None):
     else:
         cell_size = int(os.getenv('CELL_SIZE', 4))
         output_dir = os.getenv('OUTPUT_DIR', 'output')
-        
+
     # TIME_ZONE = os.getenv('TIME_ZONE', 'UTC')
 
     os.makedirs(output_dir, exist_ok=True)
-    
+
     try:
         logging.info("Starting IP Address Allocation Visualization Script")
         mgr = NetboxAddressManager()

@@ -27,6 +27,7 @@ def morton_decode(z, max_bits):
         y |= ((z >> (2 * i + 1)) & 1) << i
     return x, y
 
+
 def decode_offset(offset, max_bits, grid_width, grid_height):
     """
     Decode the IP offset to (x, y) coordinates based on grid dimensions.
@@ -50,10 +51,10 @@ def decode_offset(offset, max_bits, grid_width, grid_height):
 def calculate_grid_dimensions(prefix):
     """
     Calculate grid dimensions based on the prefix length.
-    
+
     Args:
         prefix_length (int): The prefix length (e.g., 24 for a /24 prefix).
-        
+
     Returns:
         tuple: (grid_width, grid_height)
     """
@@ -63,10 +64,10 @@ def calculate_grid_dimensions(prefix):
     # Split host bits evenly between x and y axes
     y_bits = host_bits // 2
     x_bits = host_bits - y_bits
-    
+
     grid_width = 2 ** x_bits
     grid_height = 2 ** y_bits
-    
+
     return grid_width, grid_height
 
 
@@ -90,7 +91,7 @@ def create_allocation_grid(prefix, ip_addresses):
 
     grid_width, grid_height = calculate_grid_dimensions(prefix)
     max_bits = max(math.ceil(math.log2(grid_width)), math.ceil(math.log2(grid_height)))
-    
+
     grid = np.zeros((grid_height, grid_width), dtype=int)
     ip_details = {}  # (x, y): details
 
@@ -118,6 +119,7 @@ def create_allocation_grid(prefix, ip_addresses):
 
     logging.debug(f"Total allocated IPs within prefix {prefix_obj}: {allocated_count}")
     return grid, ip_details
+
 
 def get_prefix_rectangles(top_prefix, prefixes, max_bits):
     """
@@ -165,7 +167,7 @@ def get_prefix_rectangles(top_prefix, prefixes, max_bits):
     return rectangles
 
 
-def build_tenant_color_map(prefixes, palette = TABLEAU10_PALETTE):
+def build_tenant_color_map(prefixes, palette=TABLEAU10_PALETTE):
     # Extract unique tenant names, allowing for natural numbers and None
     unique_tenants = sorted(
         set(prefix.get('tenant') for prefix in prefixes),
@@ -177,6 +179,7 @@ def build_tenant_color_map(prefixes, palette = TABLEAU10_PALETTE):
         tenant: palette[idx % len(palette)] for idx, tenant in enumerate(unique_tenants)
     }
     return tenant_color_map
+
 
 def get_tenant_color(tenant_id, tenant_color_map):
     if not tenant_id:
@@ -190,9 +193,10 @@ def _unused_get_tenant_color(tenant, tenant_color_map):
     """
     # Normalize tenant name: lowercase and remove non-alphanumeric characters
     normalized = ''.join(filter(str.isalnum, str(tenant).lower()))
-    
+
     # Return the assigned color or default if tenant is unknown
     return tenant_color_map.get(normalized, 'none')
+
 
 def determine_ip_color(details, palette):
     """
@@ -207,6 +211,7 @@ def determine_ip_color(details, palette):
         return ('none', 0)  # Transparent for Inactive
     else:
         return ('black', 1)  # Normal
+
 
 def draw_prefix_rectangles(ax, rectangles, cell_size, tenant_color_map):
     """
@@ -239,6 +244,7 @@ def draw_prefix_rectangles(ax, rectangles, cell_size, tenant_color_map):
             zorder=1 + int(prefix_length) if prefix_length else 0
         ))
 
+
 def draw_sparse_grid(ax, cell_size, grid_width, grid_height, palette):
     """
     Draw a sparse 16x16 grid with low-contrast dotted lines.
@@ -247,6 +253,7 @@ def draw_sparse_grid(ax, cell_size, grid_width, grid_height, palette):
         ax.axhline(i * cell_size, color=palette['grid_lines'], linestyle=':', linewidth=1, zorder=1, aa=False)
     for i in range(0, grid_width + 1, 16):
         ax.axvline(i * cell_size, color=palette['grid_lines'], linestyle=':', linewidth=1, zorder=1, aa=False)
+
 
 def plot_allocated_ips(ax, ip_details, cell_size, palette):
     """
@@ -263,9 +270,10 @@ def plot_allocated_ips(ax, ip_details, cell_size, palette):
                 edgecolor='none',
                 alpha=alpha,
                 aa=False,
-                zorder=100 # on top
+                zorder=100  # on top
             )
             ax.add_patch(rect)
+
 
 def annotate_axes(ax, image_width, image_height, cell_size, grid_width, grid_height):
     """
@@ -287,6 +295,7 @@ def annotate_axes(ax, image_width, image_height, cell_size, grid_width, grid_hei
 
     # Remove tick marks
     ax.tick_params(axis='both', which='both', length=0)
+
 
 def finalize_plot(ax, image_width, image_height, prefix_entry):
     """
@@ -327,6 +336,7 @@ def plot_allocation_grid(top_level_prefix_entry, child_prefixes, relevant_ips, o
 
     # Annotate axes with cell indices
     annotate_axes(ax, image_width, image_height, cell_size, grid_width, grid_height)
+    logging.info(top_level_prefix)
 
     # Draw prefix rectangles with low contrast based on tenant
     draw_prefix_rectangles(ax, rectangles, cell_size, tenant_color_map)
