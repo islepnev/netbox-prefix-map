@@ -34,6 +34,7 @@ bp = Blueprint('app', __name__, url_prefix=BASE_PATH)
 
 updater_manager = UpdaterManager(full_update, debounce_interval=60)
 
+
 def sanitize_name(name):
     """
     Sanitize a string to be used in filenames by replacing non-alphanumeric characters with underscores.
@@ -82,6 +83,14 @@ def load_prefix_tree():
 
 
 prefix_map = Blueprint('prefix_map', __name__)
+
+
+@app.before_request
+def log_real_ip():
+    """Middleware to log the real client IP using X-Forwarded-For."""
+    if request.headers.get('X-Forwarded-For'):
+        real_ip = request.headers.get('X-Forwarded-For').split(',')[0].strip()
+        request.environ['REMOTE_ADDR'] = real_ip
 
 
 @app.context_processor
