@@ -42,7 +42,6 @@ coverage.xml
 # MyPy cache
 .mypy_cache/
 
-
 # App configuration files with sensitive info
 secrets.*
 .env
@@ -57,6 +56,7 @@ secrets.*
 *.backup
 *.cache
 *.swp
+repomix-output.*
 
 # Application input files
 *.csv
