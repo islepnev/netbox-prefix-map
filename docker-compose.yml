@@ -9,4 +9,9 @@ services:
       - .env
     ports:
       - "5000:5000"
-    restart: unless-stopped
+    restart: on-failure
+    deploy:
+      restart_policy:
+        condition: on-failure
+        max_attempts: 5
+
