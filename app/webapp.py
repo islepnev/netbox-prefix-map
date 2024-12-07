@@ -2,7 +2,7 @@
 
 import json
 from threading import Thread
-from flask import Flask, Blueprint, request, jsonify, send_from_directory, render_template, url_for
+from flask import Flask, Blueprint, redirect, request, jsonify, send_from_directory, render_template, url_for
 from dotenv import load_dotenv
 import logging
 import subprocess
@@ -258,6 +258,13 @@ def serve_image(filename):
 
 
 app.register_blueprint(bp)
+
+@app.route('/', methods=['GET'])
+def root_redirect():
+    """
+    Redirect the root URL '/' to the BASE_PATH for convenience.
+    """
+    return redirect(BASE_PATH, code=302)
 
 
 if __name__ == '__main__':

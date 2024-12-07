@@ -32,7 +32,8 @@ def design_color_palette():
         },
         'background': '#ffffff',        # White
         'unallocated': 'none',           # Transparent
-        'grid_lines': '#cccccc'         # Light Gray
+        'grid_lines': '#cccccc',         # Light Gray
+        'grid_text': '#aaaaaa',  # Low-contrast color for grid text
     }
     return palette
 

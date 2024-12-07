@@ -30,7 +30,7 @@
     </div>
     <div class="container">
         <div class="sidebar">
-            <h2>Prefixes</h2>
+            <b>VRF {% if vrf %}<a href="{{ netbox_url }}/ipam/vrfs/{{ vrf.id }}/">{{ vrf.name }}</a>{% else %}Global{% endif %}</b>
             <div id="prefix-tree">Loading...</div>
             <ul>
                 {% for prefix in prefixes %}

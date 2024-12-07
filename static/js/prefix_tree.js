@@ -21,10 +21,29 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     }
 
+    // Show a spinner as the busy indicator
+    function showBusyIndicator(parentElement) {
+        const spinner = document.createElement("div");
+        spinner.className = "spinner";
+        spinner.innerHTML = `
+            <div class="spinner-ring"></div>
+            <p>Loading...</p>
+        `;
+        parentElement.innerHTML = ""; // Clear any existing content
+        parentElement.appendChild(spinner);
+    }
+
+    // Remove the busy indicator
+    function removeBusyIndicator(parentElement) {
+        parentElement.innerHTML = ""; // Clear spinner and loading text
+    }
+
     // Fetch and render the prefix tree
     function fetchAndRenderTree(vrf, prefix, parentElement) {
         const sanitizedPrefix = sanitizePrefix(prefix);
         const treeUrl = `${BASE_PATH}/data/${vrf ?? 'None'}/${sanitizedPrefix}`;
+
+        showBusyIndicator(parentElement);
 
         fetch(treeUrl)
             .then(response => {
@@ -34,11 +53,12 @@ document.addEventListener("DOMContentLoaded", () => {
                 return response.json();
             })
             .then(data => {
-                parentElement.innerHTML = ""; // Clear the "Loading..." text
+                removeBusyIndicator(parentElement);
                 renderTree(data, parentElement);
             })
             .catch(error => {
                 console.error(error);
+                removeBusyIndicator(parentElement);
                 parentElement.innerHTML = `Failed to load prefix tree. URL: ${treeUrl}`;
             });
     }
@@ -103,7 +123,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const prefix = sanitizedPrefix ? reconstructPrefix(sanitizedPrefix) : null;
 
     if (prefix) {
-        prefixTreeContainer.innerHTML = "Loading..."; // Set initial "Loading..." text
+        showBusyIndicator(prefixTreeContainer);
         fetchAndRenderTree(vrf, prefix, prefixTreeContainer);
     } else {
         prefixTreeContainer.innerHTML = "No prefix specified.";

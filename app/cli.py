@@ -43,8 +43,8 @@ def parse_arguments():
     parser.add_argument(
         "-c", "--cell_size",
         type=int,
-        default=4,
-        help="Size of each grid cell in pixels. Default is 4."
+        default=12,
+        help="Size of each grid cell in pixels. Default is 8."
     )
 
     args = parser.parse_args()

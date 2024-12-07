@@ -12,13 +12,10 @@ from app.color_design import TABLEAU10_PALETTE, blend_colors, design_color_palet
 from app.utils import expand_ip_entry, extract_ip_details
 
 
-# GRID_WIDTH = 256  # Grid width in cells, 2^M
-# GRID_HEIGHT = 128  # Grid height in cells, 2^N
-
-# x_bits = math.ceil(math.log2(GRID_WIDTH))
-# y_bits = math.ceil(math.log2(GRID_HEIGHT))
-# max_bits = max(x_bits, y_bits)
-
+Z_DEPTH_IP_CELLS = 110  # on top
+Z_DEPTH_PREFIX_LABEL = 100
+Z_DEPTH_PREFIX_PATCH = 20  # add 0 to 31
+Z_DEPTH_AXES = 10  # on bottom
 
 def morton_decode(z, max_bits):
     x = y = 0
@@ -71,6 +68,10 @@ def calculate_grid_dimensions(prefix):
     return grid_width, grid_height
 
 
+def get_max_bits(grid_width: int, grid_height: int) -> int:
+    return math.ceil(math.log2(max(grid_width, grid_height)))
+
+
 def create_allocation_grid(prefix, ip_addresses):
     """
     Create a grid representation for a prefix using Z-order curve.
@@ -90,7 +91,7 @@ def create_allocation_grid(prefix, ip_addresses):
         sys.exit(1)
 
     grid_width, grid_height = calculate_grid_dimensions(prefix)
-    max_bits = max(math.ceil(math.log2(grid_width)), math.ceil(math.log2(grid_height)))
+    max_bits = get_max_bits(grid_width, grid_height)
 
     grid = np.zeros((grid_height, grid_width), dtype=int)
     ip_details = {}  # (x, y): details
@@ -121,6 +122,27 @@ def create_allocation_grid(prefix, ip_addresses):
     return grid, ip_details
 
 
+def calculate_bounding_box(sub_prefix: ipaddress.IPv4Network, top_network: ipaddress.IPv4Network, max_bits: int):
+    """
+    Calculate the bounding box (x1, y1, x2, y2) for a given sub-prefix within a top-level prefix.
+
+    Args:
+        sub_prefix (ipaddress.IPv4Network): The sub-prefix to calculate the bounding box for.
+        top_network (ipaddress.IPv4Network): The top-level prefix for reference.
+        max_bits (int): Maximum number of bits for Morton decoding.
+
+    Returns:
+        tuple: Bounding box coordinates (x1, y1, x2, y2).
+    """    
+    offset_start = int(sub_prefix.network_address) - int(top_network.network_address)
+    offset_end = int(sub_prefix.broadcast_address) - int(top_network.network_address)
+    x_start, y_start = morton_decode(offset_start, max_bits)
+    x_end, y_end = morton_decode(offset_end, max_bits)
+    x_min, x_max = min(x_start, x_end), max(x_start, x_end)
+    y_min, y_max = min(y_start, y_end), max(y_start, y_end)
+    return x_min, y_min, x_max, y_max
+
+
 def get_prefix_rectangles(top_prefix, prefixes, max_bits):
     """
     Calculate rectangles representing the sub-prefixes within the top_prefix.
@@ -138,27 +160,17 @@ def get_prefix_rectangles(top_prefix, prefixes, max_bits):
             sub_prefix_obj = ipaddress.ip_network(sub_prefix)
             if not sub_prefix_obj.subnet_of(top_network):
                 continue  # Ignore prefixes outside the top_prefix
-            # Calculate offset
-            offset_start = int(sub_prefix_obj.network_address) - int(top_network.network_address)
-            offset_end = int(sub_prefix_obj.broadcast_address) - int(top_network.network_address)
-            # Decode to (x, y)
-            x_start, y_start = morton_decode(offset_start, max_bits)
-            x_end, y_end = morton_decode(offset_end, max_bits)
-            # Determine rectangle bounds
-            x_min = min(x_start, x_end)
-            x_max = max(x_start, x_end)
-            y_min = min(y_start, y_end)
-            y_max = max(y_start, y_end)
+            x1, y1, x2, y2 = calculate_bounding_box(sub_prefix_obj, top_network, max_bits)
             rectangles.append({
-                'x1': x_min,
-                'y1': y_min,
-                'x2': x_max,
-                'y2': y_max,
+                'x1': x1,
+                'y1': y1,
+                'x2': x2,
+                'y2': y2,
                 'prefix': str(sub_prefix_obj),
                 'status': prefix_entry.get('status'),
                 'tenant': prefix_entry.get('tenant'),
             })
-            logging.debug(f"Prefix {sub_prefix_obj} mapped to rectangle: ({x_min},{y_min}) - ({x_max},{y_max})")
+            logging.debug(f"Prefix {sub_prefix_obj} mapped to rectangle: ({x1},{y1}) - ({x2},{y2})")
         except ipaddress.AddressValueError:
             logging.error(f"Invalid prefix format: {sub_prefix}")
             continue
@@ -203,14 +215,42 @@ def determine_ip_color(details, palette):
     Determine the color and opacity for an IP address based on its details.
     Returns a tuple of (color, alpha).
     """
-    if details['role'] or details['tags']:
-        return (palette['tags']['Special'], 1.0)  # Deep red for non-empty role or tag
+    if details['role']:
+        return (palette['tags']['Special'], 1.0)  # Deep red for non-empty role
+    # if details['tags']:
+    #     return (palette['tags']['Special'], 1.0)  # Deep red for non-empty tag
     elif details['status'] == 'Reserved':
         return ('black', 0.25)  # 25% opaque black for Reserved
     elif details['status'] == 'Inactive':
         return ('none', 0)  # Transparent for Inactive
     else:
         return ('black', 1)  # Normal
+
+
+def get_prefix_label(prefix):
+    """
+    Extract a relevant part of the prefix to use as a unique label on the map.
+
+    Args:
+        prefix (str): The IP prefix (e.g., '10.0.123.0/24').
+
+    Returns:
+        str: A short label derived from the prefix, such as '123' for '10.0.123.0/24'.
+    """
+    try:
+        network, length = prefix.split('/')
+        parts = network.split('.')
+        prefix_length = int(length)
+        if prefix_length > 24:
+            return parts[3]  # Use the fourth octet for /25 to /32
+        elif prefix_length > 16:
+            return parts[2]  # Use the third octet for /17 to /24
+        elif prefix_length > 8:
+            return parts[1]  # Use the second octet for /9 to /16
+        else:
+            return parts[0]  # Use the first octet for /1 to /8
+    except Exception:
+        return ""
 
 
 def draw_prefix_rectangles(ax, rectangles, cell_size, tenant_color_map):
@@ -231,28 +271,44 @@ def draw_prefix_rectangles(ax, rectangles, cell_size, tenant_color_map):
         # else:
         #     facecolor = color
         color = blend_colors(color, "#FFFFFF", 0.5)
-        ax.add_patch(Rectangle(
-            (x1, y1),
-            width,
-            height,
-            edgecolor='black',
-            facecolor=color,
-            linewidth=0.5,
-            linestyle=':',
-            # alpha=0.25,
-            aa=False,
-            zorder=1 + int(prefix_length) if prefix_length else 0
-        ))
+        zorder = Z_DEPTH_PREFIX_PATCH + int(prefix_length) if prefix_length else 0
+        ax.add_patch(
+            Rectangle(
+                (x1, y1),
+                width,
+                height,
+                edgecolor="black",
+                facecolor=color,
+                linewidth=0.5,
+                linestyle=":",
+                # alpha=0.25,
+                aa=False,
+                zorder=zorder,
+            )
+        )
 
+        # prefix = rect_info['prefix']
+        # label = get_prefix_label(prefix)
+        # ax.text(
+        #     x1 + width / 2,
+        #     y1 + height / 2,
+        #     label,
+        #     color='black',
+        #     fontsize=8,
+        #     weight='bold',
+        #     ha='center',
+        #     va='center',
+        #     zorder=Z_DEPTH_PREFIX_LABEL
+        # )
 
 def draw_sparse_grid(ax, cell_size, grid_width, grid_height, palette):
     """
     Draw a sparse 16x16 grid with low-contrast dotted lines.
     """
     for i in range(0, grid_height + 1, 16):
-        ax.axhline(i * cell_size, color=palette['grid_lines'], linestyle=':', linewidth=1, zorder=1, aa=False)
+        ax.axhline(i * cell_size, color=palette['grid_lines'], linestyle=':', linewidth=1, zorder=Z_DEPTH_AXES, aa=False)
     for i in range(0, grid_width + 1, 16):
-        ax.axvline(i * cell_size, color=palette['grid_lines'], linestyle=':', linewidth=1, zorder=1, aa=False)
+        ax.axvline(i * cell_size, color=palette['grid_lines'], linestyle=':', linewidth=1, zorder=Z_DEPTH_AXES, aa=False)
 
 
 def plot_allocated_ips(ax, ip_details, cell_size, palette):
@@ -270,7 +326,7 @@ def plot_allocated_ips(ax, ip_details, cell_size, palette):
                 edgecolor='none',
                 alpha=alpha,
                 aa=False,
-                zorder=100  # on top
+                zorder=Z_DEPTH_IP_CELLS  # on top
             )
             ax.add_patch(rect)
 
@@ -301,22 +357,82 @@ def finalize_plot(ax, image_width, image_height, prefix_entry):
     """
     Finalize plot settings.
     """
-    ax.set_xlim(0, image_width)
-    ax.set_ylim(0, image_height)
+    ax.set_xlim(0, image_width+1)
+    ax.set_ylim(0, image_height+1)
     ax.invert_yaxis()  # To have (0,0) at top-left
+    ax.set_axis_off()
     fig = ax.get_figure()
     fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
-    plt.title(f"{prefix_entry.get('prefix')} {prefix_entry.get('description')}", pad=10)
+    # plt.title(f"{prefix_entry.get('prefix')} {prefix_entry.get('description')}", pad=10)
+
+
+def construct_prefix_label(network):
+    """
+    Construct the text label for a given network.
+    Shows the third octet for /24 prefixes (e.g., "123" for 10.0.123.0/24).
+
+    Args:
+        network (ipaddress.IPv4Network): The network to construct a label for.
+
+    Returns:
+        str: The text label for the network.
+    """
+    if network.prefixlen == 24:
+        return str(network.network_address).split('.')[2]
+    return ""
+
+
+def draw_navigation_labels(ax, top_level_prefix, cell_size, grid_width, grid_height, palette):
+    """
+    Draw navigation labels for /24 prefixes on the grid.
+
+    Args:
+        ax: The Matplotlib axes object.
+        top_level_prefix (str): The top-level prefix (e.g., "10.0.0.0/16").
+        cell_size (int): Size of each grid cell in pixels.
+        grid_width (int): Width of the grid in cells.
+        grid_height (int): Height of the grid in cells.
+        palette (dict): Color palette for styling.
+    """
+    top_network = ipaddress.ip_network(top_level_prefix)
+
+    if top_network.prefixlen > 24:
+        return
+
+    max_bits = get_max_bits(grid_width, grid_height)
+    # Iterate over /24 subnets
+    for subnet in top_network.subnets(new_prefix=24):
+        try:
+            x1, y1, x2, y2 = calculate_bounding_box(subnet, top_network, max_bits)
+            # Calculate the position for the label
+            label_x = (x1 + x2) * cell_size / 2
+            label_y = (y1 + y2) * cell_size / 2
+            label = construct_prefix_label(subnet)
+            ax.text(
+                label_x,
+                label_y,
+                label,
+                fontsize=cell_size * 2,
+                ha='center',
+                va='center',
+                weight='bold',
+                color=palette.get('grid_text', '#cccccc'),
+                bbox=dict(facecolor='white', alpha=0.3, edgecolor='none', boxstyle='round,pad=0.3'),
+                zorder=Z_DEPTH_PREFIX_LABEL
+            )
+        except ValueError:
+            logging.error(f"Error generating label for subnet: {subnet}")
 
 
 def plot_allocation_grid(top_level_prefix_entry, child_prefixes, relevant_ips, output_file, cell_size, tenant_color_map):
     """Visualize the allocation grid and save it as a PNG."""
     top_level_prefix = top_level_prefix_entry.get("prefix", "").strip()
+    logging.info(top_level_prefix)
 
     # Create a grid for IP allocation
     grid, ip_details = create_allocation_grid(top_level_prefix, relevant_ips)
     grid_width, grid_height = calculate_grid_dimensions(top_level_prefix)
-    max_bits = max(math.ceil(math.log2(grid_width)), math.ceil(math.log2(grid_height)))
+    max_bits = get_max_bits(grid_width, grid_height)
 
     # Get rectangles for prefixes
     rectangles = get_prefix_rectangles(top_level_prefix, child_prefixes, max_bits)
@@ -334,9 +450,11 @@ def plot_allocation_grid(top_level_prefix_entry, child_prefixes, relevant_ips, o
     # Draw sparse 16x16 grid lines with low contrast dotted lines
     draw_sparse_grid(ax, cell_size, grid_width, grid_height, palette)
 
-    # Annotate axes with cell indices
-    annotate_axes(ax, image_width, image_height, cell_size, grid_width, grid_height)
-    logging.info(top_level_prefix)
+    # Draw navigation labels
+    draw_navigation_labels(ax, top_level_prefix, cell_size, grid_width, grid_height, palette)
+
+    # # Annotate axes with cell indices
+    # annotate_axes(ax, image_width, image_height, cell_size, grid_width, grid_height)
 
     # Draw prefix rectangles with low contrast based on tenant
     draw_prefix_rectangles(ax, rectangles, cell_size, tenant_color_map)
@@ -349,4 +467,4 @@ def plot_allocation_grid(top_level_prefix_entry, child_prefixes, relevant_ips, o
 
     plt.savefig(output_file, dpi=100, bbox_inches='tight', pad_inches=0)
     plt.close()
-    logging.debug(f"Allocation grid saved to {output_file}")
+    logging.debug(f"Prefix map {top_level_prefix} saved to {output_file}")

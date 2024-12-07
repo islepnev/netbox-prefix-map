@@ -234,3 +234,38 @@ button:hover {
 ::-webkit-scrollbar-thumb:hover {
     background: var(--color-accent);
 }
+
+/* Spinner Styles */
+.spinner {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 5px; /* Reduced gap for smaller size */
+    padding: 10px;
+}
+
+.spinner-ring {
+    width: 20px; /* Reduced width */
+    height: 20px; /* Reduced height */
+    border: 3px solid #ccc; /* Thinner border */
+    border-top: 3px solid #337ab7; /* Accent color */
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+.spinner p {
+    font-size: 0.8em; /* Smaller font size */
+    margin: 0;
+    color: var(--color-text);
+}
+
+/* Keyframes for spinner animation */
+@keyframes spin {
+    from {
+        transform: rotate(0deg);
+    }
+    to {
+        transform: rotate(360deg);
+    }
+}
