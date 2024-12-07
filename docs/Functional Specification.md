@@ -1,102 +1,90 @@
-# Functional Specification for IP Address Allocation Visualization
+# Functional Specification for NetBox Prefix Map
 
 ## 1. Introduction
 
-The IP Address Allocation Visualization application provides real-time, interactive visualizations of IP address allocations within a network. It integrates with NetBox, a network resource modeling tool, to fetch network data and responds to updates via webhooks. The application aims to assist network administrators in understanding and managing IP address space efficiently.
+The NetBox Prefix Map application provides real-time, interactive visualizations of IP address allocations within a network. It integrates closely with NetBox, a network source of truth, to fetch network data and respond promptly to updates triggered by webhooks. The application aims to help network administrators understand, manage, and navigate their IP address space effectively. All application routes and the web interface are served from a configurable base path (e.g., `/prefix-map`), allowing seamless coexistence with a NetBox instance on the same host.
 
 ## 2. Purpose and Scope
 
 ### 2.1 Purpose
 
-The purpose of this application is to visualize IP address allocations across the network in an interactive and user-friendly manner. It enables administrators to:
+The purpose of this application is to visualize IP address allocations across the network in an interactive, user-friendly manner. It enables administrators to:
 
 - View real-time allocation of IP addresses and prefixes.
-- Navigate through different network segments and prefixes.
-- Identify and analyze the utilization of IP address space.
-- Receive updates and reflect changes promptly upon network modifications.
+- Navigate through hierarchical prefix structures and VRFs.
+- Identify and analyze IP address space utilization trends.
+- Reflect changes promptly upon receiving updates from NetBox.
 
 ### 2.2 Scope
 
 The application focuses on:
 
-- Integration with NetBox via its API and webhooks.
+- Integrating with NetBox via its API and webhooks.
 - Generating visual representations of IP address allocations.
-- Providing an interactive web interface for navigation and analysis.
-- Ensuring consistent visualization across different network segments and VRFs (Virtual Routing and Forwarding instances).
+- Providing an interactive web interface for analysis and navigation, accessible under a configurable subdirectory for compatibility with co-located NetBox installations.
+- Ensuring consistent color mapping and stable visuals across different prefixes and VRFs.
 
 ## 3. User Expectations
 
-Users of the application, primarily network administrators, expect:
+Users, primarily network administrators, expect:
 
-- **Real-Time Updates**: The visualization reflects the latest state of the network, updating promptly after changes in NetBox.
-- **Interactive Navigation**: Ability to drill down into specific prefixes, view details on hover, and navigate through the network hierarchy.
-- **Consistent Visuals**: Stable color mapping for tenants and clear representations that remain consistent across sessions.
-- **Ease of Access**: Accessible via a web interface without requiring authentication (for the initial version), with plans for future authentication mechanisms.
-- **Diagnostic Tools**: Ability to view error logs and receive feedback on processing errors in a user-friendly format.
+- **Real-Time Updates**: The visualization promptly reflects changes made in NetBox.
+- **Interactive Navigation**: Ability to drill down into prefixes, hover to see details, and move through the prefix hierarchy seamlessly.
+- **Consistent Visuals**: Stable and recognizable color schemes for tenants and roles, remaining consistent across sessions.
+- **Easy Access**: The interface should be accessible via a web browser under the configured base path (e.g., `/prefix-map`) without initial authentication.
+- **Diagnostic Tools**: An interface to view error logs and technical details for debugging and analysis.
 
 ## 4. Functional Requirements
 
 ### 4.1 Integration with NetBox
 
 - **API Integration**: Fetch prefixes, IP addresses, and related data from NetBox using its API.
-- **Webhook Handling**: Receive and process webhook events from NetBox when prefixes or IP addresses are created, updated, or deleted.
-- **Data Consistency**: Ensure that the visualization data is up-to-date with the current state of NetBox.
+- **Webhook Handling**: Receive and process webhook events from NetBox whenever prefixes or IP addresses change.
+- **Data Consistency**: Maintain up-to-date visualization data, ensuring that network changes are accurately represented.
 
 ### 4.2 Visualization Generation
 
-- **Recursive Prefix Traversal**: Traverse all prefixes, starting from top-level prefixes, and include their child prefixes in the visualization.
-- **Dynamic Output Generation**: Generate visualization outputs (images and data files) for each prefix, stored in a configurable output directory.
-- **Conditional Regeneration**: Regenerate visualization outputs only when relevant data has changed, optimizing performance and resource usage.
-- **Tenant Color Mapping**: Map tenants to colors consistently across sessions, ensuring that each tenant is represented by the same color in all visualizations.
+- **Recursive Prefix Traversal**: Explore all prefixes starting from top-level prefixes, including their child prefixes.
+- **Dynamic Output Generation**: Produce visualization outputs (images, data files) for each prefix, stored in a configurable output directory.
+- **Conditional Regeneration**: Regenerate outputs only when data changes, optimizing resource usage.
+- **Tenant Color Mapping**: Assign stable, consistent colors to tenants for recognizable and clear visual differentiation.
 
 ### 4.3 Interactive Web Interface
 
-- **Visualization Display**: Serve the generated visualizations through a web interface, accessible via a web browser.
+- **Visualization Display**: Provide a web interface (served from a configurable base path) to view the generated visualizations.
 - **Interactive Features**:
-  - **Hover Details**: Display IP address or prefix details when hovering over elements in the visualization.
-  - **Drill-Down Navigation**: Allow users to double-click on prefixes to navigate deeper into the network hierarchy.
-  - **Prefix Tree Navigation**: Provide a visual representation of the prefix hierarchy for easy navigation, highlighting the current prefix.
+  - **Hover Details**: Reveal IP or prefix details on hover.
+  - **Drill-Down Navigation**: Double-click or interact with prefixes to navigate deeper into the hierarchy.
+  - **Prefix Tree Navigation**: Display a hierarchical tree of prefixes for intuitive exploration, highlighting the current prefix.
 
-### 4.4 Error Reporting
+### 4.4 Configuration and Customization
 
-- **Error Logs Access**: Provide a web interface to view recent error logs.
-- **User-Friendly Presentation**: Display logs with color-coded severity levels and highlighted key-value pairs for readability.
-
-### 4.5 Configuration and Customization
-
-- **Output Directory Configuration**: Allow the output directory for generated files to be configurable via environment variables.
-- **Time Zone Configuration**: Use a single time zone for timestamp handling, configurable via environment variables, defaulting to UTC.
+- **Output Directory Configuration**: Allow the output directory to be set via environment variables.
+- **Base Path Configuration**: Serve the entire application under a configurable subdirectory (e.g., `/prefix-map`) set via environment variables, ensuring no conflicts with NetBox’s own URLs.
 
 ## 5. Non-Functional Requirements
 
 ### 5.1 Performance
 
-- **Efficient Processing**: Optimize data fetching and processing to handle updates promptly without significant delays.
-- **Scalability**: Design the application to handle growth in network size and complexity.
+- **Efficient Processing**: Optimize data fetching and rendering to handle updates rapidly.
 
 ### 5.2 Usability
 
-- **User-Friendly Interface**: Provide an intuitive and responsive web interface that is easy to navigate.
-- **Accessibility**: Ensure the application is accessible without requiring authentication for the initial version.
+- **User-Friendly Interface**: Offer an intuitive, responsive UI.
+- **Accessibility**: Initially no authentication required, with a clear, easy-to-navigate interface.
 
 ### 5.3 Maintainability
 
-- **Modular Code Structure**: Organize code into modules for ease of maintenance and future enhancements.
-- **Logging and Diagnostics**: Implement comprehensive logging to aid in troubleshooting and monitoring.
+- **Modular Code Structure**: Organize code into logical modules.
+- **Logging and Diagnostics**: Implement comprehensive logging for debugging and operational monitoring.
 
 ### 5.4 Security
 
-- **Future Authentication Plans**: Plan for future integration with authentication mechanisms (e.g., OIDC) to restrict access as needed.
-- **Secure Configuration Handling**: Store sensitive configuration data, such as API tokens, securely using environment variables.
+- **Future Authentication Plans**: Plan for future integration with authentication/authorization solutions (e.g., OIDC).
+- **Secure Configuration Handling**: Store sensitive configuration details (e.g., API tokens) securely via environment variables.
 
 ## 6. Constraints and Assumptions
 
-- The application will run in an environment where NetBox is accessible via its API and can send webhooks to the application.
-- The network administrators using the application have a basic understanding of network concepts and NetBox.
-- Performance considerations are secondary to functionality for the initial version, as the utility is for in-house use.
-
-## 7. Future Enhancements
-
-- **Authentication Integration**: Implement user authentication to control access to the application.
-- **Advanced Analytics**: Provide more detailed analytics on IP address utilization and trends.
-- **Customization Options**: Allow users to customize visualization settings, such as color schemes and display preferences.
+- The application is deployed alongside NetBox on the same host, requiring a distinct base path to avoid URL conflicts.
+- Administrators are assumed to have basic network and NetBox knowledge.
+- Performance is secondary to functionality in initial releases as it’s an internal utility.

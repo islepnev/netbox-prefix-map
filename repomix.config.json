@@ -12,7 +12,7 @@
   "ignore": {
     "useGitignore": true,
     "useDefaultPatterns": true,
-    "customPatterns": ["docs/", "tests/", "static/","*.ru.md"]
+    "customPatterns": ["tests/","*.ru.md"]
   },
   "security": {
     "enableSecurityCheck": true

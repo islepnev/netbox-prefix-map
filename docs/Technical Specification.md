@@ -12,7 +12,7 @@ The application consists of the following primary components:
 - **Data Processing Module**: Processes fetched data, including recursive traversal of prefixes, filtering of relevant IP addresses, and preparation for visualization.
 - **Visualization Generation Module**: Generates visual representations of IP address allocations, including images and data files.
 - **Web Server Module (Flask App)**: Serves the web interface, handles webhook events, and provides endpoints for interactive features and error reporting.
-- **Utility Module**: Contains shared utility functions, such as data sanitization, time zone handling, and tenant color mapping.
+- **Utility Module**: Contains shared utility functions, such as data sanitization and tenant color mapping.
 
 ## 3. Components and Interactions
 
@@ -59,9 +59,6 @@ The application consists of the following primary components:
 - **Interactive Features**:
   - Implements hover details and drill-down navigation using D3.js or a similar JavaScript library.
   - Provides a prefix tree navigation component for hierarchical exploration.
-- **Error Reporting**:
-  - Defines an endpoint to display error logs.
-  - Formats logs with color-coded severity levels and highlighted key-value pairs for readability.
 
 ### 3.5 Utility Module
 
@@ -100,7 +97,6 @@ The application consists of the following primary components:
 - **NETBOX_API_URL**: URL of the NetBox API.
 - **NETBOX_API_TOKEN**: Authentication token for the NetBox API.
 - **OUTPUT_DIR**: Directory where output files are stored, defaulting to `output`.
-- **TIME_ZONE**: Time zone for timestamp handling, defaulting to `UTC`.
 
 ### 5.2 Deployment Considerations
 
@@ -110,15 +106,11 @@ The application consists of the following primary components:
   - The Flask app runs as a web server, listening for incoming webhook events and serving the web interface.
 - **Security**:
   - Sensitive configurations are stored securely using environment variables.
-  - Plans for future integration with authentication mechanisms for access control.
 
 ## 6. Error Handling and Logging
 
 - **Logging Mechanisms**:
-  - Logs are written to both syslog (without timestamps and severity labels) and console for real-time feedback.
-- **Error Reporting**:
-  - Errors and warnings are captured and made accessible via the web interface.
-  - Logs are formatted for readability, aiding in diagnostics and troubleshooting.
+  - Logs are written to console.
 
 ## 7. Technology Stack
 
@@ -130,12 +122,3 @@ The application consists of the following primary components:
   - **D3.js** (or similar): For implementing interactive features on the web interface.
 - **Data Formats**:
   - JSON: For storing processed data and configuration where applicable.
-
-## 8. Future Considerations
-
-- **Scalability**:
-  - Modular design allows for scaling components as needed.
-- **Authentication and Security Enhancements**:
-  - Integration with OIDC or similar authentication mechanisms to control access.
-- **Enhanced Interactive Features**:
-  - Potential to incorporate more advanced visualization techniques and user interactions.
