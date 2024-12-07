@@ -5,6 +5,7 @@ import ipaddress
 import json
 import logging
 import os
+import sys
 from dotenv import load_dotenv
 
 from app.logging_config import setup_logging
@@ -211,7 +212,7 @@ def process_all_prefixes(prefixes, ip_addresses, cell_size, output_dir):
     save_prefix_tree(prefixes, output_dir)
 
 
-def full_update(args=None):
+def full_update(args=None) -> bool:
 
     load_dotenv()
 
@@ -234,9 +235,11 @@ def full_update(args=None):
         vrfs = mgr.get_vrfs()
         save_vrf_data(vrfs, output_dir)
         process_all_prefixes(prefixes, ip_addresses, cell_size, output_dir)
+        return True
 
     except Exception as e:
         logging.error(e)
+        return False
 
 
 def cli():
@@ -244,9 +247,12 @@ def cli():
 
     setup_logging(level=getattr(logging, args.log_level), debug=args.debug)
 
-    full_update(args)
-
-    logging.info("Script completed successfully.")
+    result = full_update(args)
+    if result:
+        logging.info("Script completed successfully")
+    else:
+        logging.error("Script failed")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
