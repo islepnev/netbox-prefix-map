@@ -39,7 +39,7 @@ The NetBox Prefix Map application fetches network data from NetBox and generates
    - `NETBOX_API_TOKEN`: Authentication token.
    - `OUTPUT_DIR`: Output directory for generated files (default: `output`).
    - `BASE_PATH`: Base path for serving the application (default: `/prefix-map`).
-   - `CELL_SIZE`: Size of one IP cell in pixels (default: `12`).
+   - `CELL_SIZE`: Size of one IP cell in pixels (default: `4`).
    - `WEBHOOK_SECRET`: Secret configured on the NetBox webhook; when set, requests without a valid `X-Hook-Signature` are rejected (recommended).
    - `UPDATE_DEBOUNCE_SECONDS`: Minimum interval between webhook-triggered updates (default: `60`).
 
