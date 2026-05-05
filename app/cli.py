@@ -18,7 +18,9 @@ logging_levels = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 MAX_PREFIX_LEN = 32
 # Shorter prefixes (e.g. a sparse /8) would need a 4096x4096+ grid; they get navigation data but no image.
 MIN_RENDER_PREFIX_LEN = 16
-DEFAULT_CELL_SIZE = 12
+
+# Override via the CELL_SIZE environment variable or the --cell-size CLI flag.
+DEFAULT_CELL_SIZE = 4
 
 
 def parse_arguments():
@@ -40,13 +42,14 @@ def parse_arguments():
         "-o", "--output",
         type=str,
         default="output",
-        help="Output directory"
+        help="Output directory (default: output).",
     )
     parser.add_argument(
-        "-c", "--cell_size",
+        "-c", "--cell-size",
+        dest="cell_size",
         type=int,
         default=DEFAULT_CELL_SIZE,
-        help=f"Size of each grid cell in pixels. Default is {DEFAULT_CELL_SIZE}."
+        help=f"Size of each grid cell in pixels (default: {DEFAULT_CELL_SIZE}).",
     )
 
     args = parser.parse_args()
