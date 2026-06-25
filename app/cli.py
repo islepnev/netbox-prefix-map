@@ -1,5 +1,6 @@
 import argparse
 import ipaddress
+import json
 import logging
 import os
 import sys
@@ -133,12 +134,6 @@ def process_prefix(prefix_entry, prefix_subtree, descendants, ip_addresses, cell
     child_prefixes = filter_keys_from_dicts(prefix_subtree.get("children", []), prefix_keys)
     nested_prefixes = filter_keys_from_dicts(descendants, prefix_keys)
 
-    if render:
-        plot_allocation_grid(prefix_entry, nested_prefixes, ip_addresses, output_filepath, cell_size, tenant_color_map)
-        logging.debug(f"Generated image for prefix {prefix} at {output_filepath}")
-    elif os.path.exists(output_filepath):
-        os.remove(output_filepath)
-
     filtered_ip_addresses = filter_keys_from_dicts(ip_addresses, {"id", "address", "vrf", "tenant"})
     data_to_save = {
         'prefix': prefix_entry["prefix"],
@@ -147,6 +142,22 @@ def process_prefix(prefix_entry, prefix_subtree, descendants, ip_addresses, cell
         'child_prefixes': child_prefixes,
         'ip_addresses': filtered_ip_addresses,
     }
+
+    if render and os.path.exists(json_filepath) and os.path.exists(output_filepath):
+        try:
+            with open(json_filepath, 'r') as f:
+                existing_data = json.load(f)
+            if existing_data == data_to_save:
+                logging.debug(f"No changes detected for prefix {prefix}. Skipping regeneration.")
+                return
+        except Exception:
+            pass
+
+    if render:
+        plot_allocation_grid(prefix_entry, nested_prefixes, ip_addresses, output_filepath, cell_size, tenant_color_map)
+        logging.debug(f"Generated image for prefix {prefix} at {output_filepath}")
+    elif os.path.exists(output_filepath):
+        os.remove(output_filepath)
 
     write_json_atomic(json_filepath, data_to_save)
     logging.debug(f"Saved data for prefix {prefix} to {json_filepath}")
