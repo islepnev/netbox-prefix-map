@@ -4,7 +4,19 @@ import logging
 import os
 from dotenv import load_dotenv
 
+import requests
 from pynetbox.core.api import Api
+
+
+class TimeoutSession(requests.Session):
+    def __init__(self, timeout):
+        super().__init__()
+        self.timeout = timeout
+
+    def request(self, *args, **kwargs):
+        kwargs.setdefault('timeout', self.timeout)
+        return super().request(*args, **kwargs)
+
 
 class NetboxAddressManager:
 
@@ -38,7 +50,9 @@ class NetboxAddressManager:
         if not api_url or not api_token:
             raise ValueError("NetBox API URL and token must be provided.")
         
-        return Api(api_url, token=api_token)
+        api = Api(api_url, token=api_token)
+        api.http_session = TimeoutSession(float(os.getenv('NETBOX_TIMEOUT', 30)))
+        return api
 
     @staticmethod
     def _fetch_data(fetch_method, data_type: str) -> list:

@@ -1,12 +1,14 @@
 import hashlib
 import hmac
 import json
-from flask import Flask, Blueprint, redirect, request, jsonify, send_from_directory, render_template, url_for
+from flask import Flask, Blueprint, Response, redirect, request, jsonify, send_from_directory, render_template, url_for
 from dotenv import load_dotenv
 import logging
 import os
+import threading
+import time
 
-from app.cli import full_update
+from app.cli import run_update
 from app.logging_config import recent_log_handler, setup_logging
 from app.updater_manager import UpdaterManager
 from app.utils import resolve_output_dir
@@ -36,7 +38,18 @@ if not WEBHOOK_SECRET:
 
 WEBHOOK_MODELS = {'prefix', 'ipaddress', 'vrf', 'tenant', 'iprange'}
 
-updater_manager = UpdaterManager(full_update, debounce_interval=float(os.getenv('UPDATE_DEBOUNCE_SECONDS', 60)))
+updater_manager = UpdaterManager(run_update, debounce_interval=float(os.getenv('UPDATE_DEBOUNCE_SECONDS', 60)))
+if os.getenv('INITIAL_UPDATE', '1') != '0':
+    updater_manager.request_update()
+
+WEBHOOK_RESULTS = ('accepted', 'ignored', 'rejected', 'invalid')
+_webhook_counts = dict.fromkeys(WEBHOOK_RESULTS, 0)
+_webhook_counts_lock = threading.Lock()
+
+
+def count_webhook(result):
+    with _webhook_counts_lock:
+        _webhook_counts[result] += 1
 
 
 def sanitize_name(name):
@@ -140,10 +153,12 @@ def webhook():
     """
     if WEBHOOK_SECRET and not verify_webhook_signature(request.get_data(), request.headers.get('X-Hook-Signature')):
         logging.warning("Rejected webhook with missing or invalid signature.")
+        count_webhook('rejected')
         return jsonify({'status': 'error', 'message': 'Invalid signature.'}), 403
 
     data = request.get_json(silent=True)
     if not isinstance(data, dict):
+        count_webhook('invalid')
         return jsonify({'status': 'error', 'message': 'Expected a JSON object.'}), 400
     logging.debug(f"Received webhook data: {data}")
 
@@ -157,14 +172,57 @@ def webhook():
     model = data.get('model')
     if event_type not in relevant_events:
         logging.info(f"Ignored event: {event_type}")
+        count_webhook('ignored')
         return jsonify({'status': 'ignored'}), 200
     if model and model not in WEBHOOK_MODELS:
         logging.info(f"Ignored {event_type} event for model: {model}")
+        count_webhook('ignored')
         return jsonify({'status': 'ignored'}), 200
 
     logging.info(f"Processing event: {event_type} {model or ''}".rstrip())
     updater_manager.webhook_received()
+    count_webhook('accepted')
     return jsonify({"status": "success", "message": "Update scheduled."}), 200
+
+
+@bp.route('/healthz', methods=['GET'])
+def healthz():
+    status = updater_manager.status()
+    last_success = status['last_success_at']
+    body = {
+        'status': 'ok' if updater_manager.is_alive() else 'updater thread stopped',
+        'update_running': status['running'],
+        'last_success_at': last_success,
+        'data_age_seconds': round(time.time() - last_success, 1) if last_success else None,
+        'last_error': status['last_error'],
+    }
+    return jsonify(body), 200 if updater_manager.is_alive() else 503
+
+
+@bp.route('/metrics', methods=['GET'])
+def metrics():
+    status = updater_manager.status()
+    with _webhook_counts_lock:
+        webhook_counts = dict(_webhook_counts)
+    lines = []
+
+    def metric(name, kind, help_text, samples):
+        lines.append(f"# HELP {name} {help_text}")
+        lines.append(f"# TYPE {name} {kind}")
+        for labels, value in samples:
+            lines.append(f"{name}{labels} {value}")
+
+    metric('prefix_map_updates_total', 'counter', 'Completed update runs.', [('', status['runs'])])
+    metric('prefix_map_update_failures_total', 'counter', 'Failed update runs.', [('', status['failures'])])
+    metric('prefix_map_update_running', 'gauge', '1 while an update runs.', [('', int(status['running']))])
+    metric('prefix_map_update_pending', 'gauge', '1 while an update is queued.', [('', int(status['pending']))])
+    metric('prefix_map_last_update_duration_seconds', 'gauge', 'Duration of the last update run.',
+           [('', round(status['last_duration'] or 0, 3))])
+    metric('prefix_map_last_success_timestamp_seconds', 'gauge', 'Unix time of the last successful update.',
+           [('', round(status['last_success_at'] or 0, 3))])
+    metric('prefix_map_webhooks_total', 'counter', 'Webhook requests by result.',
+           [(f'{{result="{result}"}}', webhook_counts[result]) for result in WEBHOOK_RESULTS])
+    return Response("\n".join(lines) + "\n", mimetype='text/plain; version=0.0.4')
 
 
 @bp.route('/errors', methods=['GET'])
@@ -280,9 +338,4 @@ def root_redirect():
 
 
 if __name__ == '__main__':
-
-    # Start periodic check in a background thread
-    # Thread(target=updater_manager.periodic_check, args=(full_update,), daemon=True).start()
-
-    # Run the Flask app on all interfaces, port 5000
-    app.run(host='0.0.0.0', port=5000)
+    app.run(host='0.0.0.0', port=int(os.getenv('PORT', 5000)))

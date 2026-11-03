@@ -42,6 +42,9 @@ The NetBox Prefix Map application fetches network data from NetBox and generates
    - `CELL_SIZE`: Size of one IP cell in pixels (default: `4`).
    - `WEBHOOK_SECRET`: Secret configured on the NetBox webhook; when set, requests without a valid `X-Hook-Signature` are rejected (recommended).
    - `UPDATE_DEBOUNCE_SECONDS`: Minimum interval between webhook-triggered updates (default: `60`).
+   - `NETBOX_TIMEOUT`: NetBox API request timeout in seconds (default: `30`).
+   - `INITIAL_UPDATE`: Set to `0` to skip the update at web app startup (default: `1`).
+   - `PORT`: Web app port (default: `5000`).
 
    A relative `OUTPUT_DIR` is resolved against the project root for both the CLI and the web app.
 
@@ -59,19 +62,16 @@ The NetBox Prefix Map application fetches network data from NetBox and generates
 
 ## Running with Docker
 
-1. Build the Docker Image:
+```bash
+make up
+```
 
-    ```bash
-    docker-compose build
-    ```
+The application will be available at `http://localhost:5000/prefix-map`. It starts serving immediately; maps are updated in the background. Generated files are kept in the `output` volume.
 
-2. Start the Application:
+Endpoints for monitoring:
 
-    ```bash
-    docker-compose up
-    ```
-
-The application will be available at `http://localhost:5000/prefix-map`.
+- `<BASE_PATH>/healthz`: health and data freshness (JSON); used by the container healthcheck
+- `<BASE_PATH>/metrics`: Prometheus metrics
 
 ## Integrating with Apache Reverse Proxy
 
@@ -118,7 +118,7 @@ The application will be available under the `/prefix-map` path of your NetBox si
 - IPv4 only; IPv6 prefixes are skipped
 - Map images are drawn for /16 and smaller prefixes; larger prefixes (e.g. 10.0.0.0/8) are available for navigation only
 - The application assumes deployment alongside NetBox on the same host, with a distinct base path to avoid URL conflicts
-- WSGI not supported yet
+- Run a single web worker: the updater runs inside the web process
 
 ## Development
 
