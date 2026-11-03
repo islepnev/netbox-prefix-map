@@ -33,6 +33,7 @@ class NetboxAddressManager:
         self.tenants = {item["id"]: item for item in self.tenants_list}
         self.vrf_list = self._fetch_data(self.nb.ipam.vrfs.all, "vrfs")
         self.vrfs = {item["id"]: item for item in self.vrf_list}
+        self.roles_list = self._fetch_data(self.nb.ipam.roles.all, "prefix roles")
 
     @staticmethod
     def nb_connect(api_url: str = None, api_token: str = None) -> Api:
@@ -78,6 +79,12 @@ class NetboxAddressManager:
 
     def get_vrfs(self) -> list:
         return self.vrf_list
+
+    def get_tenants(self) -> list:
+        return self.tenants_list
+
+    def get_roles(self) -> list:
+        return self.roles_list
 
     def get_tenant(self, tenant_id):
         return self.tenants.get(tenant_id)

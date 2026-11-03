@@ -14,7 +14,7 @@
 <body>
     <div class="navbar">
         <div class="breadcrumbs">
-            {% for crumb in generate_breadcrumbs(vrf=vrf, prefix=prefix) %}
+            {% for crumb in generate_breadcrumbs(vrf=vrf or 'None', prefix=prefix) %}
                 {% if crumb.url %}
                     <a href="{{ crumb.url }}">{{ crumb.name }}</a>
                     {% if not loop.last %}
