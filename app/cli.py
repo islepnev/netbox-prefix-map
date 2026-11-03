@@ -233,9 +233,9 @@ def process_all_prefixes(prefixes, ip_addresses, cell_size, output_dir):
     save_prefix_tree(prefixes, output_dir)
 
 
-def full_update(args=None, mgr=None) -> bool:
+def run_update(args=None, mgr=None):
     """
-    Fetch everything from NetBox and regenerate all outputs.
+    Fetch everything from NetBox and regenerate all outputs. Raises on failure.
     :param args: parsed CLI arguments (optional).
     :param mgr: data source with the NetboxAddressManager interface (optional, used by tests).
     """
@@ -247,16 +247,19 @@ def full_update(args=None, mgr=None) -> bool:
 
     os.makedirs(output_dir, exist_ok=True)
 
-    try:
-        logging.info("Starting IP Address Allocation Visualization Script")
-        mgr = mgr or NetboxAddressManager()
-        prefixes = mgr.get_prefixes()
-        ip_addresses = mgr.get_ip_addresses()
-        vrfs = mgr.get_vrfs()
-        save_vrf_data(vrfs, output_dir)
-        process_all_prefixes(prefixes, ip_addresses, cell_size, output_dir)
-        return True
+    logging.info("Starting IP Address Allocation Visualization Script")
+    mgr = mgr or NetboxAddressManager()
+    prefixes = mgr.get_prefixes()
+    ip_addresses = mgr.get_ip_addresses()
+    vrfs = mgr.get_vrfs()
+    save_vrf_data(vrfs, output_dir)
+    process_all_prefixes(prefixes, ip_addresses, cell_size, output_dir)
 
+
+def full_update(args=None, mgr=None) -> bool:
+    try:
+        run_update(args, mgr)
+        return True
     except Exception as e:
         logging.error(e)
         return False

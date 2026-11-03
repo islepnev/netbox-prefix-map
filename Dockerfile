@@ -1,32 +1,30 @@
-# Dockerfile
+# Full image: has the compiler needed for pytricia (source-only)
+FROM python:3.13 AS build
+
+COPY requirements.txt .
+RUN pip wheel --no-cache-dir --wheel-dir /wheels -r requirements.txt
+
 
 FROM python:3.13-slim
 
-# Set environment variables
-ENV PYTHONDONTWRITEBYTECODE=1
-ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PORT=5000 \
+    MPLCONFIGDIR=/tmp/matplotlib
 
-# Set work directory
+RUN useradd --system --uid 10001 --home-dir /app app
 WORKDIR /app
 
-# Install build dependencies
-RUN apt-get update && \
-    apt-get install -y gcc build-essential && \
-    rm -rf /var/lib/apt/lists/*
+COPY --from=build /wheels /wheels
+RUN pip install --no-cache-dir --no-index /wheels/* && rm -rf /wheels
 
-# Install Python dependencies
-COPY requirements.txt .
-RUN pip install --upgrade pip && pip install -r requirements.txt
+COPY app app
+COPY static static
+COPY templates templates
+COPY entrypoint.sh .
+RUN mkdir output && chown app:app output
 
-# Copy project
-COPY . .
-
-# Copy and set permissions for entrypoint script
-COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
-
-# Set entrypoint
-ENTRYPOINT ["/entrypoint.sh"]
-
-# Expose port 5000
+USER app
 EXPOSE 5000
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 CMD ["python", "-m", "app.healthcheck"]
+ENTRYPOINT ["/app/entrypoint.sh"]

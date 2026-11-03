@@ -4,7 +4,7 @@
 DOCKER_COMPOSE = docker-compose.yml
 APP_SERVICE = web
 VENV_DIR = .venv
-REQ_FILE = requirements.txt
+REQ_FILE = requirements-dev.txt
 OUTPUT_DIR = output
 TIMEOUT = 60
 INTERVAL = 5
@@ -37,12 +37,12 @@ clean-venv: ## Remove the virtual environment
 # Build the application Docker image
 .PHONY: build
 build: ## Build the application Docker image
-	@docker-compose -f $(DOCKER_COMPOSE) build $(APP_SERVICE)
+	@docker compose -f $(DOCKER_COMPOSE) build $(APP_SERVICE)
 
 # Start the application container
 .PHONY: up
 up: build ## Start the application container
-	@docker-compose -f $(DOCKER_COMPOSE) up -d
+	@docker compose -f $(DOCKER_COMPOSE) up -d
 	@echo "Starting the application container..."
 	@$(MAKE) wait-for-container
 
@@ -52,31 +52,31 @@ wait-for-container: ## Wait until the application container is healthy
 	@echo "Waiting for the application container to become healthy..."
 	@elapsed=0; \
 	while [ $$elapsed -lt $(TIMEOUT) ]; do \
-		status=$$(docker-compose -f $(DOCKER_COMPOSE) ps --filter "service=$(APP_SERVICE)" --format "{{.State}}"); \
-		if [[ "$$status" == "healthy" || "$$status" == "running" ]]; then \
+		cid=$$(docker compose -f $(DOCKER_COMPOSE) ps -q $(APP_SERVICE)); \
+		status=$$(docker inspect -f '{{.State.Health.Status}}' $$cid 2>/dev/null); \
+		if [ "$$status" = "healthy" ]; then \
 			echo "Service '$(APP_SERVICE)' is healthy."; \
 			break; \
-		else \
-			echo "Service '$(APP_SERVICE)' status: $$status. Waiting..."; \
-			sleep $(INTERVAL); \
-			elapsed=$$((elapsed + $(INTERVAL))); \
-		fi \
+		fi; \
+		echo "Service '$(APP_SERVICE)' status: $$status. Waiting..."; \
+		sleep $(INTERVAL); \
+		elapsed=$$((elapsed + $(INTERVAL))); \
 	done; \
 	if [ $$elapsed -ge $(TIMEOUT) ]; then \
 		echo "Error: Service '$(APP_SERVICE)' did not become healthy within $(TIMEOUT) seconds."; \
-		docker-compose -f $(DOCKER_COMPOSE) logs $(APP_SERVICE); \
+		docker compose -f $(DOCKER_COMPOSE) logs $(APP_SERVICE); \
 		exit 1; \
 	fi
 
 # Check logs of the application container
 .PHONY: logs
 logs: ## Display logs for the application container
-	@docker-compose -f $(DOCKER_COMPOSE) logs $(APP_SERVICE)
+	@docker compose -f $(DOCKER_COMPOSE) logs $(APP_SERVICE)
 
 # Stop and clean up the application container
 .PHONY: down
 down: ## Stop and clean up the application container
-	@docker-compose -f $(DOCKER_COMPOSE) down --volumes
+	@docker compose -f $(DOCKER_COMPOSE) down
 	@echo "Application container cleaned up."
 
 # Clean the generated output directory

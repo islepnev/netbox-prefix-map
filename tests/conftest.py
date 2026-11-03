@@ -14,6 +14,7 @@ os.environ['CELL_SIZE'] = '12'
 os.environ['BASE_PATH'] = '/prefix-map'
 os.environ['NETBOX_API_URL'] = 'https://netbox.example.test'
 os.environ.pop('WEBHOOK_SECRET', None)
+os.environ['INITIAL_UPDATE'] = '0'
 os.environ.pop('NETBOX_API_TOKEN', None)
 
 CELL_SIZE = 12
