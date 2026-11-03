@@ -66,10 +66,19 @@ def wait_for_map(page):
 
 
 def cell_center(page, x, y):
-    box = page.eval_on_selector('#map-img', '''img => {
-        const r = img.getBoundingClientRect();
-        return {left: r.left, top: r.top, k: r.width / img.naturalWidth};
-    }''')
+    """Viewport coordinates of a cell center, scrolling the map so that the cell is visible."""
+    box = page.evaluate('''([x, y, cs]) => {
+        const img = document.getElementById("map-img"), vp = document.getElementById("viewport");
+        let r = img.getBoundingClientRect();
+        const k = r.width / img.naturalWidth, v = vp.getBoundingClientRect();
+        const cx = r.left + (x * cs + cs / 2) * k, cy = r.top + (y * cs + cs / 2) * k;
+        if (cx < v.left + 8 || cx > v.right - 60 || cy < v.top + 8 || cy > v.bottom - 60) {
+            vp.scrollLeft += cx - (v.left + v.width / 2);
+            vp.scrollTop += cy - (v.top + v.height / 2);
+            r = img.getBoundingClientRect();
+        }
+        return {left: r.left, top: r.top, k};
+    }''', [x, y, CELL_SIZE])
     cs = CELL_SIZE
     return box['left'] + (x * cs + cs / 2) * box['k'], box['top'] + (y * cs + cs / 2) * box['k']
 
@@ -276,28 +285,77 @@ def test_search_pins_address_in_map(open_page):
     assert page.url.endswith(f'{BASE}/map/1/10_20_49_0_24')
 
 
-def test_page_without_image(open_page):
+def layer_cell(prefix, block_len, address):
+    net = ipaddress.ip_network(prefix)
+    bits = block_len - net.prefixlen
+    width, height = 2 ** (bits - bits // 2), 2 ** (bits // 2)
+    index = (int(ipaddress.ip_address(address)) - int(net.network_address)) >> (32 - block_len)
+    return decode_offset(index, get_max_bits(width, height), width, height)
+
+
+def test_layered_map_hover_and_drill_down(open_page):
     page = open_page(f'{BASE}/map/1/10_0_0_0_8')
     wait_for_map(page)
-    assert page.is_visible('.map-empty')
     assert page.inner_text('#tree .row.current .pfx') == '10.0.0.0/8'
-    assert '6,111 / 16,777,216 used' in page.inner_text('#legend')
+    assert '6,111 / 16,777,216 used' in page.inner_text('#legend') and '1 cell = /24' in page.inner_text('#legend')
+    page.mouse.move(*cell_center(page, *layer_cell('10.0.0.0/8', 24, '10.20.0.0')))
+    detail = page.inner_text('#insp-detail')
+    assert '10.20.0.0/24' in detail and '134 used' in detail
+    assert 'Double-click to open map of 10.20.0.0/16' in detail
+    inside = page.eval_on_selector_all('#insp-detail section:has-text("Prefixes in this block") .p',
+                                       'els => els.map(e => e.textContent)')
+    assert inside == ['10.20.0.64/26', '10.20.0.192/28']
+    page.mouse.move(*cell_center(page, *layer_cell('10.0.0.0/8', 24, '10.99.0.0')))
+    assert 'No prefix in this block' in page.inner_text('#insp-detail')
+    with page.expect_navigation():
+        page.mouse.dblclick(*cell_center(page, *layer_cell('10.0.0.0/8', 24, '10.30.7.0')))
+    assert page.url.endswith(f'{BASE}/map/1/10_30_0_0_16')
     assert page.errors == []
 
 
-def test_search_outside_map_uses_server(open_page):
-    page = open_page(f'{BASE}/map/1/10_0_0_0_8')
+@pytest.mark.parametrize("dpr", [1, 2])
+def test_layered_overlays_align(open_page, dpr):
+    page = open_page(f'{BASE}/map/1/10_0_0_0_8', device_scale_factor=dpr)
     wait_for_map(page)
-    page.fill('#search', '10.20.48.1')
-    page.wait_for_selector('#search-msg li')
-    assert '10.20.48.0/24' in page.inner_text('#search-msg li >> nth=0')
-    assert 'gw-48.example.test' in page.inner_text('#search-msg li >> nth=0')
-    with page.expect_navigation():
-        page.press('#search', 'Enter')
-    assert page.url.endswith(f'{BASE}/map/1/10_20_48_0_24?focus=10.20.48.1')
+    page.mouse.move(*cell_center(page, *layer_cell('10.0.0.0/8', 24, '10.30.7.0')))
+    k = page.evaluate('window.__prefixMap.k')
+    unit = CELL_SIZE * k
+    boxes = page.evaluate("""() => {
+        const img = document.getElementById("map-img").getBoundingClientRect();
+        return ["ov-hover", "ov-prefix"].map(id => {
+            const r = document.getElementById(id).getBoundingClientRect();
+            return [r.left - img.left, r.top - img.top, r.width, r.height].map(v => v * devicePixelRatio);
+        });
+    }""")
+    hover, prefix = [[round(v / unit, 6) for v in box] for box in boxes]
+    x, y = layer_cell('10.0.0.0/8', 24, '10.30.7.0')
+    assert hover == [x, y, 1, 1]
+    x0, y0 = layer_cell('10.0.0.0/8', 24, '10.30.0.0')
+    assert prefix == [x0, y0, 16, 16], "the /16 child covers 16x16 cells"
+
+
+def test_layered_search_pins_block(open_page):
+    page = open_page(f'{BASE}/map/1/10_0_0_0_8?focus=10.20.48.1')
     wait_for_map(page)
     assert page.is_visible('#ov-pin')
-    assert '10.20.48.1/' in page.inner_text('#insp-detail .big')
+    assert '10.20.48.0/24' in page.inner_text('#insp-detail .big')
+    page.fill('#search', '10.30.1.1')
+    assert 'block 10.30.1.0/24' in page.inner_text('#search-msg')
+
+
+def test_search_outside_map_uses_server(open_page):
+    page = open_page(f'{BASE}/map/1/10_20_48_0_24')
+    wait_for_map(page)
+    page.fill('#search', '10.20.0.1')
+    page.wait_for_selector('#search-msg li')
+    assert '10.20.0.0/24' in page.inner_text('#search-msg li >> nth=0')
+    assert 'gw-0.example.test' in page.inner_text('#search-msg li >> nth=0')
+    with page.expect_navigation():
+        page.press('#search', 'Enter')
+    assert page.url.endswith(f'{BASE}/map/1/10_20_0_0_24?focus=10.20.0.1')
+    wait_for_map(page)
+    assert page.is_visible('#ov-pin')
+    assert '10.20.0.1/' in page.inner_text('#insp-detail .big')
 
 
 def test_search_from_index_page(open_page):
@@ -335,6 +393,9 @@ def test_old_data_file_without_usage(open_page):
     wait_for_map(page)
     assert '16,777,216 addresses' in page.inner_text('#legend')
     assert page.inner_text('#sum-usage .stat b >> nth=0') == '—'
+    page.mouse.move(*cell_center(page, *layer_cell('10.0.0.0/8', 24, '10.20.0.0')))
+    assert '10.20.0.0/24' in page.inner_text('#insp-detail')
+    assert page.errors == []
 
 
 def test_free_block_highlight_cleared_on_rerender(open_page):

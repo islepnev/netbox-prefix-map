@@ -53,10 +53,10 @@ def test_map_page_links_prefix_in_netbox(client, dataset):
     assert b'address_map-1-10_20_0_0_17.png' in r.data
 
 
-def test_map_page_for_large_prefix_explains_missing_image(client):
+def test_map_page_for_large_prefix_shows_layered_map(client):
     r = client.get(f'{BASE}/map/1/10_0_0_0_8')
     assert r.status_code == 200
-    assert b'No map image' in r.data
+    assert b'address_map-1-10_0_0_0_8.png' in r.data and b'No map image' not in r.data
 
 
 def test_missing_map_is_404(client):

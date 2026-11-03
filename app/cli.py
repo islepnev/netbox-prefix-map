@@ -11,7 +11,8 @@ from dotenv import load_dotenv
 from app.logging_config import setup_logging
 from app.netbox_integration import NetboxAddressManager
 from app.plot_map import (
-    build_tenant_color_map, calculate_grid_dimensions, get_tenant_color, plot_allocation_grid, prefix_fill_color,
+    build_tenant_color_map, calculate_grid_dimensions, get_tenant_color, layer_block_len, plot_allocation_grid,
+    plot_layered_grid, prefix_fill_color,
 )
 from app.prefix_tree import PrefixTree
 from app.utils import (
@@ -22,10 +23,10 @@ from app.utils import (
 logging_levels = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 
 MAX_PREFIX_LEN = 32
-# Shorter prefixes (e.g. a sparse /8) would need a 4096x4096+ grid; they get navigation data but no image.
+# Shorter prefixes (e.g. a sparse /8) would need a 4096x4096+ grid; they get a layered map of blocks instead.
 MIN_RENDER_PREFIX_LEN = 16
 # Bump when drawing code changes, to redraw unchanged prefixes
-RENDER_VERSION = 1
+RENDER_VERSION = 2
 
 # Override via the CELL_SIZE environment variable or the --cell-size CLI flag.
 DEFAULT_CELL_SIZE = 4
@@ -165,9 +166,21 @@ def save_summary(prefixes, prefix_tree_obj, ip_addresses, ip_counts, tenant_colo
     write_json_atomic(os.path.join(output_dir, 'summary.json'), summary)
 
 
-def render_fingerprint(prefix, nested_prefixes, ip_addresses, cell_size, tenant_color_map):
+def block_counts(prefix, ip_addresses, block_len):
+    """IP addresses per aligned /block_len block, keyed by block index within the prefix."""
+    network = ipaddress.ip_network(prefix)
+    start, shift = int(network.network_address), 32 - block_len
+    counts = {}
+    for ip in ip_addresses:
+        index = (int(ipaddress.ip_address(ip['address'].split('/')[0])) - start) >> shift
+        counts[index] = counts.get(index, 0) + 1
+    return counts
+
+
+def render_fingerprint(prefix, nested_prefixes, ip_addresses, cell_size, tenant_color_map, layer=None):
     state = {
         'version': RENDER_VERSION,
+        'layer': layer,
         'prefix': prefix,
         'cell_size': cell_size,
         'nested': sorted(
@@ -182,10 +195,12 @@ def render_fingerprint(prefix, nested_prefixes, ip_addresses, cell_size, tenant_
 
 
 def process_prefix(prefix_entry, prefix_subtree, descendants, ip_addresses, cell_size, tenant_color_map, output_dir,
-                   render=True, ancestors=(), ip_counts=None):
+                   render=True, ancestors=(), ip_counts=None, layer=None):
     """
     :param prefix_subtree: tree node of this prefix; its direct children go to the data file (navigation).
     :param descendants: all nested prefixes at any depth; drawn on the map.
+    :param layer: for prefixes too short for an address map, {'block_len', 'counts'}: a layered map is drawn and
+        the data file carries block counts instead of IP addresses.
     """
     prefix = prefix_entry.get("prefix", "").strip()
     if not prefix:
@@ -219,6 +234,9 @@ def process_prefix(prefix_entry, prefix_subtree, descendants, ip_addresses, cell
     fingerprint = None
     if render:
         fingerprint = render_fingerprint(prefix, nested_prefixes, ip_addresses, cell_size, tenant_color_map)
+    elif layer:
+        fingerprint = render_fingerprint(prefix, nested_prefixes, [], cell_size, tenant_color_map,
+                                         layer=[layer['block_len'], sorted(layer['counts'].items())])
     filtered_ip_addresses = [
         dict(ip, status=choice_value(ip.get('status')), role=choice_value(ip.get('role')))
         for ip in filter_keys_from_dicts(
@@ -244,14 +262,23 @@ def process_prefix(prefix_entry, prefix_subtree, descendants, ip_addresses, cell
     if render:
         data_to_save['cell_size'] = cell_size
         data_to_save['grid'] = list(calculate_grid_dimensions(prefix))
+    elif layer:
+        cell_bits = layer['block_len'] - ipaddress.ip_network(prefix).prefixlen
+        data_to_save['cell_size'] = cell_size
+        data_to_save['grid'] = [2 ** (cell_bits - cell_bits // 2), 2 ** (cell_bits // 2)]
+        data_to_save['layer'] = {'block_len': layer['block_len'], 'blocks': sorted(layer['counts'].items())}
 
-    if render:
-        if os.path.exists(output_filepath) and load_json(json_filepath).get('render_hash') == fingerprint:
-            logging.debug(f"No changes detected for prefix {prefix}. Skipping regeneration.")
-        else:
-            plot_allocation_grid(prefix_entry, nested_prefixes, ip_addresses, output_filepath, cell_size,
-                                 tenant_color_map)
-            logging.debug(f"Generated image for prefix {prefix} at {output_filepath}")
+    if fingerprint and os.path.exists(output_filepath) \
+            and load_json(json_filepath).get('render_hash') == fingerprint:
+        logging.debug(f"No changes detected for prefix {prefix}. Skipping regeneration.")
+    elif render:
+        plot_allocation_grid(prefix_entry, nested_prefixes, ip_addresses, output_filepath, cell_size,
+                             tenant_color_map)
+        logging.debug(f"Generated image for prefix {prefix} at {output_filepath}")
+    elif layer:
+        plot_layered_grid(prefix, layer['block_len'], layer['counts'], data_to_save['nested_prefixes'],
+                          child_prefixes, output_filepath, cell_size, tenant_color_map)
+        logging.debug(f"Generated layered image for prefix {prefix} at {output_filepath}")
     elif os.path.exists(output_filepath):
         os.remove(output_filepath)
 
@@ -299,6 +326,11 @@ def process_all_prefixes(prefixes, ip_addresses, cell_size, output_dir):
             render = prefix_length >= MIN_RENDER_PREFIX_LEN
 
             filtered_ip_addresses = ip_index.lookup(prefix_entry) if render else []
+            layer = None
+            if not render:
+                block_len = layer_block_len(prefix_length)
+                layer = {'block_len': block_len,
+                         'counts': block_counts(prefix, ip_index.lookup(prefix_entry), block_len)}
 
             if vrf is None and choice_value(prefix_entry.get('status')) == 'container':
                 # NetBox semantics: a Global container spans all VRFs
@@ -307,7 +339,7 @@ def process_all_prefixes(prefixes, ip_addresses, cell_size, output_dir):
                 descendants = prefix_tree_obj.get_descendants(prefix, vrf)
             process_prefix(prefix_entry, prefix_subtree, descendants, filtered_ip_addresses, cell_size,
                            tenant_color_map, output_dir, render=render,
-                           ancestors=prefix_tree_obj.get_ancestors(prefix, vrf), ip_counts=ip_counts)
+                           ancestors=prefix_tree_obj.get_ancestors(prefix, vrf), ip_counts=ip_counts, layer=layer)
         except Exception as e:
             logging.error(f"Error processing prefix '{prefix}': {e}")
             continue

@@ -95,7 +95,7 @@ All paths are relative to `BASE_PATH`.
 ## Limitations
 
 - IPv4 only; IPv6 prefixes are skipped.
-- Images are drawn for prefixes of /16 and longer. Shorter prefixes are listed for navigation only.
+- Prefixes of /16 and longer get one cell per address. Shorter prefixes get a layered map with one cell per aligned block (/24 for a /8, at most 65,536 cells), shaded by the number of IP addresses in it.
 - The updater runs inside the web process; run a single web worker.
 - No authentication; restrict access at the reverse proxy if needed.
 
