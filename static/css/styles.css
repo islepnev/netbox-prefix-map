@@ -131,14 +131,113 @@ h2 {
 
 /* Map Container */
 #map-container {
-    text-align: center;
     margin-bottom: 20px;
 }
 
+#map-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 0;
+    font-size: 0.9em;
+}
+
+#map-toolbar button {
+    min-width: 28px;
+    padding: 2px 6px;
+}
+
+#zoom-level {
+    min-width: 2.5em;
+    text-align: center;
+}
+
+#map-usage {
+    margin-left: 12px;
+}
+
+#map-updated {
+    margin-left: auto;
+    color: var(--color-breadcrumb-text);
+}
+
+#map-scroll {
+    overflow: auto;
+    max-height: 80vh;
+}
+
+#map-stage {
+    position: relative;
+    display: inline-block;
+    line-height: 0;
+}
+
 #map-image {
-    max-width: 100%;
-    height: auto;
-    /* border: 1px solid var(--color-border); */
+    display: block;
+    image-rendering: pixelated;
+}
+
+.hover-box {
+    position: absolute;
+    pointer-events: none;
+    box-sizing: border-box;
+}
+
+#hover-cell {
+    outline: 2px solid var(--color-accent);
+}
+
+#hover-prefix {
+    outline: 2px dashed var(--color-accent);
+}
+
+#map-tooltip {
+    position: fixed;
+    z-index: 10;
+    max-width: 360px;
+    padding: 6px 8px;
+    font-size: 0.85em;
+    line-height: 1.4;
+    color: var(--color-text);
+    background: var(--color-background);
+    border: 1px solid var(--color-border);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+    pointer-events: none;
+}
+
+#map-tooltip .tt-title {
+    font-weight: 600;
+    font-family: monospace;
+}
+
+#map-tooltip .tt-prefix {
+    margin-top: 4px;
+}
+
+#map-tooltip .tt-hint {
+    margin-top: 4px;
+    color: var(--color-breadcrumb-text);
+}
+
+#map-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 14px;
+    padding: 6px 0;
+    font-size: 0.85em;
+}
+
+.legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.swatch {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border: 1px solid var(--color-border);
 }
 
 /* Prefix Tree */
@@ -163,18 +262,25 @@ h2 {
     text-decoration: underline;
 }
 
-#prefix-tree button {
+#prefix-tree a.current {
+    font-weight: 600;
+    color: var(--color-text);
+}
+
+#prefix-tree .tree-toggle {
     background: none;
     border: none;
     color: var(--color-accent);
     cursor: pointer;
+    font-family: monospace;
     font-size: 1em;
+    width: 1.2em;
     padding: 0;
-    margin-left: 5px;
+    margin-left: -1.2em;
 }
 
-#prefix-tree button:hover {
-    text-decoration: underline;
+#prefix-tree .tree-toggle:hover {
+    font-weight: 600;
 }
 
 /* Prefix Details */

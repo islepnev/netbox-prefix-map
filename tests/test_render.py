@@ -206,3 +206,17 @@ def test_unchanged_skip_still_redraws_on_relevant_change(tmp_path, change):
     else:
         kwargs["cell_size"] = CELL_SIZE + 1
     assert _render_24(tmp_path, [ip], **kwargs) != first
+
+
+def test_data_file_has_browser_fields(output_dir, dataset):
+    with open(data_path(output_dir, LAN, "10.20.48.0/20")) as f:
+        data = json.load(f)
+    assert data['cell_size'] == CELL_SIZE and data['grid'] == [64, 64]
+    assert [p['prefix'] for p in data['parents']] == ["10.0.0.0/8", "10.20.0.0/16", "10.20.0.0/17"]
+    assert data['generated_at'] > 0
+    child = next(c for c in data['child_prefixes'] if c['prefix'] == "10.20.50.0/24")
+    assert child['has_children'] is True
+    nested = {p['prefix']: p for p in data['nested_prefixes']}
+    assert nested["10.20.50.0/25"]['color'] and nested["10.20.48.0/24"]['color'] == '#ea9393'
+    gw = next(ip for ip in data['ip_addresses'] if ip['address'] == "10.20.48.1/24")
+    assert gw['role'] == 'anycast' and gw['status'] == 'active' and gw['dns_name']

@@ -5,16 +5,18 @@
     <meta charset="UTF-8">
     <title>VRF {{ vrf.name or 'Global' }}, prefix {{ prefix }}</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
     <script>
         const BASE_PATH = "{{ base_path }}";
     </script>
     <script src="{{ url_for('static', filename='js/prefix_tree.js') }}" defer></script>
+    <script src="{{ url_for('static', filename='js/map.js') }}" defer></script>
 </head>
 
 <body>
     <div class="navbar">
         <div class="breadcrumbs">
-            {% for crumb in generate_breadcrumbs(vrf=vrf or 'None', prefix=prefix) %}
+            {% for crumb in generate_breadcrumbs(vrf=vrf or 'None', prefix=prefix, parents=parents) %}
                 {% if crumb.url %}
                     <a href="{{ crumb.url }}">{{ crumb.name }}</a>
                     {% if not loop.last %}
@@ -29,12 +31,32 @@
     <div class="container">
         <div class="sidebar">
             <b>VRF {% if vrf %}<a href="{{ netbox_url }}/ipam/vrfs/{{ vrf.id }}/">{{ vrf.name }}</a>{% else %}Global{% endif %}</b>
-            <div id="prefix-tree">Loading...</div>
+            <div id="prefix-tree" data-vrf="{{ vrf_key }}" data-prefix="{{ prefix }}">Loading…</div>
         </div>
         <div class="content">
             <div id="map-container">
                 {% if image_filename %}
-                <img id="map-image" src="{{ base_path }}/images/{{ image_filename }}" alt="Prefix Map">
+                <div id="map-view" data-data-url="{{ base_path }}/data/{{ vrf_key }}/{{ sanitized_prefix }}"
+                     data-netbox-url="{{ netbox_url }}">
+                    <div id="map-toolbar">
+                        <button type="button" id="zoom-out" title="Zoom out">−</button>
+                        <span id="zoom-level"></span>
+                        <button type="button" id="zoom-in" title="Zoom in">+</button>
+                        <button type="button" id="zoom-fit" title="Fit to width">Fit</button>
+                        <span id="map-usage"></span>
+                        <span id="map-updated"></span>
+                    </div>
+                    <div id="map-scroll">
+                        <div id="map-stage">
+                            <img id="map-image" src="{{ base_path }}/images/{{ image_filename }}" alt="Map of {{ prefix }}">
+                            <div id="hover-prefix" class="hover-box" hidden></div>
+                            <div id="hover-cell" class="hover-box" hidden></div>
+                        </div>
+                    </div>
+                    <div id="map-legend"></div>
+                </div>
+                <div id="map-tooltip" hidden></div>
+                <script type="application/json" id="map-names">{{ names | tojson }}</script>
                 {% else %}
                 <p>No map image for {{ prefix }}: maps are drawn for /16 and smaller prefixes. Choose a child prefix in the tree.</p>
                 {% endif %}

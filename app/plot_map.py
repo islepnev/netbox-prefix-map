@@ -188,6 +188,11 @@ def build_tenant_color_map(prefixes, palette=TABLEAU10_PALETTE):
     return {tenant: tenant_color(tenant, palette) for tenant in tenants}
 
 
+def prefix_fill_color(tenant_id, tenant_color_map):
+    color = get_tenant_color(tenant_id, tenant_color_map)
+    return None if color == 'none' else blend_colors(color, "#FFFFFF", 0.5)
+
+
 def get_tenant_color(tenant_id, tenant_color_map):
     if not tenant_id:
         return 'none'
@@ -256,23 +261,12 @@ def get_prefix_label(prefix):
 
 
 def draw_prefix_rectangles(ax, rectangles, cell_size, tenant_color_map):
-    """
-    Draw low-contrast prefix rectangles based on tenant.
-    """
     for rect_info in rectangles:
         x1 = rect_info['x1'] * cell_size
         y1 = rect_info['y1'] * cell_size
         width = (rect_info['x2'] - rect_info['x1'] + 1) * cell_size
         height = (rect_info['y2'] - rect_info['y1'] + 1) * cell_size
-        tenant = rect_info['tenant']
-        status = rect_info['status']
-        color = get_tenant_color(tenant, tenant_color_map)
         prefix_length = rect_info['prefix'].split('/')[1]
-        # if status == "Container":
-        #     facecolor = 'none'
-        # else:
-        #     facecolor = color
-        color = blend_colors(color, "#FFFFFF", 0.5)
         zorder = Z_DEPTH_PREFIX_PATCH + int(prefix_length) if prefix_length else 0
         ax.add_patch(
             Rectangle(
@@ -280,28 +274,14 @@ def draw_prefix_rectangles(ax, rectangles, cell_size, tenant_color_map):
                 width,
                 height,
                 edgecolor="black",
-                facecolor=color,
+                facecolor=prefix_fill_color(rect_info['tenant'], tenant_color_map) or 'none',
                 linewidth=0.5,
                 linestyle=":",
-                # alpha=0.25,
                 aa=False,
                 zorder=zorder,
             )
         )
 
-        # prefix = rect_info['prefix']
-        # label = get_prefix_label(prefix)
-        # ax.text(
-        #     x1 + width / 2,
-        #     y1 + height / 2,
-        #     label,
-        #     color='black',
-        #     fontsize=8,
-        #     weight='bold',
-        #     ha='center',
-        #     va='center',
-        #     zorder=Z_DEPTH_PREFIX_LABEL
-        # )
 
 def draw_sparse_grid(ax, cell_size, grid_width, grid_height, palette):
     """

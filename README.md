@@ -1,129 +1,106 @@
-# NetBox Prefix Map Application
+# NetBox Prefix Map
 
-## Overview
+Renders IPv4 prefixes from [NetBox](https://github.com/netbox-community/netbox) as pixel grids: one cell per address, laid out along a Z-order curve so that every aligned subnet is a rectangle. Child prefixes are shaded by tenant, used addresses are drawn on top. Maps are regenerated when NetBox reports changes through a webhook.
 
-The NetBox Prefix Map application fetches network data from NetBox and generates visual grid representations of IP address allocations. It integrates with NetBox via its API and processes webhook events for real-time updates.
+The web interface is served under a base path (default `/prefix-map`) so it can share a host and reverse proxy with NetBox.
 
-## Features
+## Requirements
 
-- ✔️ **Grid Visualization**: Displays IP address allocations using a Z-order (Morton) curve.
-- ✔️ **Dynamic Data Integration**: Fetches data from NetBox and updates visualizations on webhook events.
-- ⚠️ **Interactive Web Interface**: Basic functionality implemented; further enhancements needed for drill-down navigation and prefix tree.
-- ✔️ **Color Coding**: Differentiates IPs based on tenant assignments, roles, statuses, and tags.
-- 🔧 **Logging and Error Reporting**: Logs errors and provides an interface for review.
+- NetBox 4.x and an API token with read access to IPAM (prefixes, IP addresses, VRFs, roles) and Tenancy (tenants)
+- Docker with Compose, or Python 3.13
 
-## Installation
+## Configuration
 
-### Prerequisites
+Settings are read from the environment or from a `.env` file in the project directory.
 
-- Python 3.13+
-- Valid NetBox API URL and token with read access to IPAM (IP address, prefix, VRF) and Tenancy (tenant)
+| Variable | Default | Description |
+|---|---|---|
+| `NETBOX_API_URL` | | NetBox base URL, e.g. `https://netbox.example.com` |
+| `NETBOX_API_TOKEN` | | API token |
+| `NETBOX_TIMEOUT` | `30` | API request timeout, seconds |
+| `BASE_PATH` | `/prefix-map` | URL path prefix of the web interface |
+| `OUTPUT_DIR` | `output` | Generated files; relative paths are resolved against the project directory |
+| `CELL_SIZE` | `4` | Cell size in pixels |
+| `WEBHOOK_SECRET` | | Shared secret of the NetBox webhook; when set, unsigned requests are rejected |
+| `UPDATE_DEBOUNCE_SECONDS` | `60` | Minimum interval between webhook-triggered updates |
+| `INITIAL_UPDATE` | `1` | Set to `0` to skip the update at startup |
+| `PORT` | `5000` | Listening port |
 
-### Installation Steps
+## Running
 
-1. Clone the Repository:
-
-    ```bash
-    git clone https://github.com/islepnev/netbox-prefix-map.git
-    cd netbox-prefix-map
-    ```
-
-2. Install Dependencies:
-
-    ```bash
-    pip install -r requirements.txt
-    ```
-
-3. Configure Environment Variables:
-   - `NETBOX_API_URL`: NetBox API URL.
-   - `NETBOX_API_TOKEN`: Authentication token.
-   - `OUTPUT_DIR`: Output directory for generated files (default: `output`).
-   - `BASE_PATH`: Base path for serving the application (default: `/prefix-map`).
-   - `CELL_SIZE`: Size of one IP cell in pixels (default: `4`).
-   - `WEBHOOK_SECRET`: Secret configured on the NetBox webhook; when set, requests without a valid `X-Hook-Signature` are rejected (recommended).
-   - `UPDATE_DEBOUNCE_SECONDS`: Minimum interval between webhook-triggered updates (default: `60`).
-   - `NETBOX_TIMEOUT`: NetBox API request timeout in seconds (default: `30`).
-   - `INITIAL_UPDATE`: Set to `0` to skip the update at web app startup (default: `1`).
-   - `PORT`: Web app port (default: `5000`).
-
-   A relative `OUTPUT_DIR` is resolved against the project root for both the CLI and the web app.
-
-4. Run the CLI Script:
-
-    ```bash
-    python -m app.cli
-    ```
-
-5. Start the Flask Application:
-
-    ```bash
-    python -m app.webapp
-    ```
-
-## Running with Docker
+With Docker:
 
 ```bash
 make up
 ```
 
-The application will be available at `http://localhost:5000/prefix-map`. It starts serving immediately; maps are updated in the background. Generated files are kept in the `output` volume.
+The container serves requests immediately and updates the maps in the background. Generated files are kept in the `output` volume. `make logs` and `make down` show the logs and stop the container.
 
-Endpoints for monitoring:
+Without Docker:
 
-- `<BASE_PATH>/healthz`: health and data freshness (JSON); used by the container healthcheck
-- `<BASE_PATH>/metrics`: Prometheus metrics
+```bash
+pip install -r requirements.txt
+python -m app.cli       # one-off update
+python -m app.webapp    # development server
+```
 
-## Integrating with Apache Reverse Proxy
+## NetBox setup
 
-1. Enable the necessary Apache modules:
+### Webhook
 
-    ```bash
-    sudo a2enmod proxy proxy_http rewrite
-    sudo systemctl restart apache2
-    ```
+1. Operations › Integrations › Webhooks › Add: URL `http://<host>:5000/prefix-map/webhook`, method `POST`, content type `application/json`, secret as in `WEBHOOK_SECRET`.
+2. Operations › Integrations › Event Rules › Add: object types IPAM › Prefix, IPAM › IP Address, IPAM › VRF, Tenancy › Tenant; events created, updated, deleted; action: the webhook above.
 
-2. Add the following configuration to your Apache virtual host file for the NetBox site:
+Events for other object types are ignored. A burst of events triggers one update immediately and at most one follow-up after `UPDATE_DEBOUNCE_SECONDS`.
 
-    ```apache
-    <Location /prefix-map>
-        ProxyPass http://localhost:5000/prefix-map
-        ProxyPassReverse http://localhost:5000/prefix-map
-    </Location>
-    ```
+### Map button on prefix pages
 
-3. Reload Apache:
+Customization › Custom Links › Add, object type IPAM › Prefix:
 
-    ```bash
-    sudo systemctl reload apache2
-    ```
+- Link text: `Map`
+- Link URL:
 
-The application will be available under the `/prefix-map` path of your NetBox site.
+  ```
+  /prefix-map/map/{{ object.vrf.pk if object.vrf else 'None' }}/{{ (object.prefix | string).replace('.', '_').replace('/', '_') }}
+  ```
 
-## Data Processing and Visualization
+## Reverse proxy
 
-- ✔️ **Data Fetching**: Retrieves prefix and IP data from NetBox
-- ✔️ **Recursive Prefix Traversal**: Identifies hierarchical relationships in prefixes
-- ✔️ **Image Generation**: Generates PNG visualizations with `matplotlib`
-- ✔️ **Color Mapping**: Assigns stable colors to tenants for consistent visuals
+Apache, in the NetBox virtual host:
 
-## Webhook Integration
+```apache
+<Location /prefix-map>
+    ProxyPass http://localhost:5000/prefix-map
+    ProxyPassReverse http://localhost:5000/prefix-map
+</Location>
+```
 
-- Expects NetBox to send webhook events (created, updated, deleted) to the `<BASE_PATH>/webhook` endpoint, e.g. via an Event Rule for IPAM prefixes, IP addresses, VRFs and tenants
-- Events for other object types are ignored
-- Set the same secret in the NetBox webhook and in `WEBHOOK_SECRET` to authenticate requests
-- Bursts of events are coalesced: one update starts immediately, further changes are picked up by a single follow-up run after `UPDATE_DEBOUNCE_SECONDS`
+Requires `mod_proxy` and `mod_proxy_http`.
 
-## Constraints and Assumptions
+## Endpoints
 
-- IPv4 only; IPv6 prefixes are skipped
-- Map images are drawn for /16 and smaller prefixes; larger prefixes (e.g. 10.0.0.0/8) are available for navigation only
-- The application assumes deployment alongside NetBox on the same host, with a distinct base path to avoid URL conflicts
-- Run a single web worker: the updater runs inside the web process
+All paths are relative to `BASE_PATH`.
+
+| Path | Description |
+|---|---|
+| `/` | VRF list |
+| `/map/<vrf>/<prefix>` | Map page; `<vrf>` is the VRF id or `None` for Global, `<prefix>` uses `_` for `.` and `/` |
+| `/webhook` | NetBox webhook receiver |
+| `/healthz` | Liveness and data age (JSON); used by the container healthcheck |
+| `/metrics` | Prometheus metrics |
+| `/errors` | Recent warnings and errors |
+
+## Limitations
+
+- IPv4 only; IPv6 prefixes are skipped.
+- Images are drawn for prefixes of /16 and longer. Shorter prefixes are listed for navigation only.
+- The updater runs inside the web process; run a single web worker.
+- No authentication; restrict access at the reverse proxy if needed.
 
 ## Development
-
-Tests run offline against a synthetic, deterministic NetBox dataset (`tests/synthetic_data.py`); no NetBox access is needed:
 
 ```bash
 make test
 ```
+
+Tests run offline against a synthetic dataset (`tests/synthetic_data.py`). Design notes: [docs/design.md](docs/design.md).
