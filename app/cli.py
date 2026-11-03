@@ -26,7 +26,7 @@ MAX_PREFIX_LEN = 32
 # Shorter prefixes (e.g. a sparse /8) would need a 4096x4096+ grid; they get a layered map of blocks instead.
 MIN_RENDER_PREFIX_LEN = 16
 # Bump when drawing code changes, to redraw unchanged prefixes
-RENDER_VERSION = 2
+RENDER_VERSION = 3
 
 # Override via the CELL_SIZE environment variable or the --cell-size CLI flag.
 DEFAULT_CELL_SIZE = 4
