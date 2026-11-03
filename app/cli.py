@@ -15,7 +15,7 @@ from app.plot_map import (
 )
 from app.prefix_tree import PrefixTree
 from app.utils import (
-    choice_value, filter_keys_from_dicts, ip_belongs_to_prefix, load_json, resolve_output_dir, sanitize_name,
+    IpIndex, choice_value, filter_keys_from_dicts, load_json, resolve_output_dir, sanitize_name,
     write_json_atomic,
 )
 
@@ -142,7 +142,7 @@ def render_fingerprint(prefix, nested_prefixes, ip_addresses, cell_size, tenant_
 
 
 def process_prefix(prefix_entry, prefix_subtree, descendants, ip_addresses, cell_size, tenant_color_map, output_dir,
-                   render=True, ancestors=()):
+                   render=True, ancestors=(), ip_counts=None):
     """
     :param prefix_subtree: tree node of this prefix; its direct children go to the data file (navigation).
     :param descendants: all nested prefixes at any depth; drawn on the map.
@@ -165,8 +165,12 @@ def process_prefix(prefix_entry, prefix_subtree, descendants, ip_addresses, cell
     json_filepath = os.path.join(output_dir, json_filename)
 
     prefix_keys = {"id", "prefix", "vrf", "tenant", "status", "description"}
+    ip_counts = ip_counts or {}
     child_prefixes = [
-        dict(child, has_children=bool(node.get("children")))
+        dict(child, has_children=bool(node.get("children")),
+             color=prefix_fill_color(child.get('tenant'), tenant_color_map),
+             ip_count=ip_counts.get((child.get('vrf'), child['prefix']), 0),
+             size=ipaddress.ip_network(child['prefix']).num_addresses)
         for child, node in zip(filter_keys_from_dicts(prefix_subtree.get("children", []), prefix_keys),
                                prefix_subtree.get("children", []))
     ]
@@ -184,6 +188,10 @@ def process_prefix(prefix_entry, prefix_subtree, descendants, ip_addresses, cell
         'prefix': prefix_entry["prefix"],
         'id': prefix_entry.get("id"),
         'vrf': vrf,
+        'tenant': prefix_entry.get('tenant'),
+        'color': prefix_fill_color(prefix_entry.get('tenant'), tenant_color_map),
+        'ip_count': ip_counts.get((vrf, prefix), len(ip_addresses)),
+        'size': ipaddress.ip_network(prefix).num_addresses,
         'generated_at': time.time(),
         'rendered': render,
         'render_hash': fingerprint,
@@ -227,6 +235,13 @@ def process_all_prefixes(prefixes, ip_addresses, cell_size, output_dir):
 
 
     tenant_color_map = build_tenant_color_map(prefixes)
+    ip_index = IpIndex(ip_addresses)
+    ip_counts = {}
+    for prefix_entry in prefixes:
+        try:
+            ip_counts[(prefix_entry.get('vrf'), prefix_entry['prefix'])] = len(ip_index.lookup(prefix_entry))
+        except ValueError:
+            continue
 
     skipped_ipv6 = 0
     for prefix_entry in prefixes:
@@ -243,10 +258,7 @@ def process_all_prefixes(prefixes, ip_addresses, cell_size, output_dir):
             prefix_subtree = prefix_tree_obj.get_subtree(prefix, vrf)
             render = prefix_length >= MIN_RENDER_PREFIX_LEN
 
-            filtered_ip_addresses = [
-                ip for ip in ip_addresses
-                if ip_belongs_to_prefix(ip, prefix_entry)
-            ] if render else []
+            filtered_ip_addresses = ip_index.lookup(prefix_entry) if render else []
 
             if vrf is None and choice_value(prefix_entry.get('status')) == 'container':
                 # NetBox semantics: a Global container spans all VRFs
@@ -255,7 +267,7 @@ def process_all_prefixes(prefixes, ip_addresses, cell_size, output_dir):
                 descendants = prefix_tree_obj.get_descendants(prefix, vrf)
             process_prefix(prefix_entry, prefix_subtree, descendants, filtered_ip_addresses, cell_size,
                            tenant_color_map, output_dir, render=render,
-                           ancestors=prefix_tree_obj.get_ancestors(prefix, vrf))
+                           ancestors=prefix_tree_obj.get_ancestors(prefix, vrf), ip_counts=ip_counts)
         except Exception as e:
             logging.error(f"Error processing prefix '{prefix}': {e}")
             continue

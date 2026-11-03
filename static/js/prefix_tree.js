@@ -16,29 +16,50 @@
     }
 
     function renderChildren(list, vrf, prefixes) {
-        list.replaceChildren(...prefixes.map((child) => renderNode(child.vrf ?? vrf, child.prefix, child.has_children)));
+        list.replaceChildren(...prefixes.map((child) => renderNode({ ...child, vrf: child.vrf ?? vrf })));
     }
 
-    function renderNode(vrf, prefix, hasChildren, preloaded) {
+    function usageBar(node) {
+        const bar = document.createElement("span");
+        bar.className = "tree-usage";
+        if (node.size) {
+            const fill = document.createElement("span");
+            const ratio = Math.min(1, (node.ip_count || 0) / node.size);
+            fill.style.width = `${(ratio * 100).toFixed(1)}%`;
+            bar.append(fill);
+            bar.title = `${node.ip_count || 0} of ${node.size} addresses`;
+        }
+        return bar;
+    }
+
+    function renderNode(node, preloaded) {
+        const { vrf, prefix } = node;
         const item = document.createElement("li");
+        const row = document.createElement("div");
+        row.className = prefix === current ? "tree-row current" : "tree-row";
+        const dot = document.createElement("span");
+        dot.className = "tree-dot";
+        if (node.color) dot.style.background = node.color;
         const link = document.createElement("a");
         link.href = mapUrl(vrf, prefix);
         link.textContent = prefix;
-        if (prefix === current) link.className = "current";
-
-        if (!hasChildren) {
-            item.append(link);
-            return item;
-        }
-
+        if (node.description) link.title = node.description;
         const toggle = document.createElement("button");
         toggle.type = "button";
         toggle.className = "tree-toggle";
+        row.append(toggle, dot, link, usageBar(node));
+        item.append(row);
+
+        if (!node.has_children) {
+            toggle.disabled = true;
+            return item;
+        }
+
         const list = document.createElement("ul");
         let loaded = false;
 
         function setOpen(open) {
-            toggle.textContent = open ? "−" : "+";
+            toggle.textContent = open ? "▾" : "▸";
             toggle.setAttribute("aria-expanded", String(open));
             list.hidden = !open;
         }
@@ -64,14 +85,15 @@
         } else {
             setOpen(false);
         }
-        item.append(toggle, link, list);
+        item.append(list);
         return item;
     }
 
     fetchNav(container.dataset.vrf === "None" ? null : container.dataset.vrf, current)
         .then((data) => {
             const root = document.createElement("ul");
-            root.append(renderNode(data.vrf, data.prefix, data.child_prefixes.length > 0, data.child_prefixes));
+            const children = data.child_prefixes || [];
+            root.append(renderNode({ ...data, has_children: children.length > 0 }, children));
             container.replaceChildren(root);
         })
         .catch((error) => {

@@ -103,7 +103,9 @@ button:focus {
 }
 
 .sidebar {
-    width: 250px;
+    flex: none;
+    width: 260px;
+    box-sizing: border-box;
     background-color: var(--color-secondary);
     border-right: 1px solid var(--color-border);
     padding: 15px;
@@ -242,45 +244,92 @@ h2 {
 
 /* Prefix Tree */
 #prefix-tree {
-    font-size: 0.9em;
+    font-size: 0.85em;
 }
 
 #prefix-tree ul {
-    list-style-type: none;
-    padding-left: 20px;
-}
-
-#prefix-tree li {
-    margin-bottom: 5px;
-}
-
-#prefix-tree a {
-    color: var(--color-accent);
-}
-
-#prefix-tree a:hover {
-    text-decoration: underline;
-}
-
-#prefix-tree a.current {
-    font-weight: 600;
-    color: var(--color-text);
-}
-
-#prefix-tree .tree-toggle {
-    background: none;
-    border: none;
-    color: var(--color-accent);
-    cursor: pointer;
-    font-family: monospace;
-    font-size: 1em;
-    width: 1.2em;
+    list-style: none;
+    margin: 0;
     padding: 0;
-    margin-left: -1.2em;
 }
 
-#prefix-tree .tree-toggle:hover {
+#prefix-tree ul ul {
+    margin-left: 7px;
+    padding-left: 6px;
+    border-left: 1px solid var(--color-border);
+}
+
+.tree-row {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 1px 4px 1px 0;
+    border-radius: 3px;
+}
+
+.tree-row:hover {
+    background: var(--color-background);
+}
+
+.tree-row.current {
+    background: var(--color-background);
+    box-shadow: inset 2px 0 0 var(--color-accent);
+}
+
+.tree-row.current a {
+    color: var(--color-text);
     font-weight: 600;
+}
+
+.tree-row a {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-variant-numeric: tabular-nums;
+    color: var(--color-accent);
+}
+
+.tree-toggle {
+    flex: none;
+    width: 14px;
+    padding: 0;
+    border: none;
+    background: none;
+    color: var(--color-breadcrumb-text);
+    font-size: 0.9em;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.tree-toggle:disabled {
+    cursor: default;
+}
+
+.tree-dot {
+    flex: none;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    border: 1px solid var(--color-border);
+    box-sizing: border-box;
+}
+
+.tree-usage {
+    flex: none;
+    width: 36px;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--color-border);
+    overflow: hidden;
+}
+
+.tree-usage span {
+    display: block;
+    height: 100%;
+    background: var(--color-breadcrumb-text);
 }
 
 /* Prefix Details */
@@ -374,4 +423,8 @@ button:hover {
     to {
         transform: rotate(360deg);
     }
+}
+
+.tree-toggle:focus:not(:focus-visible) {
+    outline: none;
 }
