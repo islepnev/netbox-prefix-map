@@ -16,7 +16,7 @@ The NetBox Prefix Map application fetches network data from NetBox and generates
 
 ### Prerequisites
 
-- Python 3.9+
+- Python 3.13+
 - Valid NetBox API URL and token with read access to IPAM (IP address, prefix, VRF) and Tenancy (tenant)
 
 ### Installation Steps
