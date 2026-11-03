@@ -6,7 +6,7 @@ The web interface is served under a base path (default `/prefix-map`) so it can 
 
 ## Requirements
 
-- NetBox 4.x and an API token with read access to IPAM (prefixes, IP addresses, VRFs, roles) and Tenancy (tenants)
+- NetBox 4.x and an API token with read access to IPAM (prefixes, IP addresses, VRFs; roles optional) and Tenancy (tenants)
 - Docker with Compose, or Python 3.13
 
 ## Configuration
