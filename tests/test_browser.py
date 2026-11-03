@@ -394,7 +394,8 @@ def test_old_data_file_without_usage(open_page):
     assert '16,777,216 addresses' in page.inner_text('#legend')
     assert page.inner_text('#sum-usage .stat b >> nth=0') == '—'
     page.mouse.move(*cell_center(page, *layer_cell('10.0.0.0/8', 24, '10.20.0.0')))
-    assert '10.20.0.0/24' in page.inner_text('#insp-detail')
+    assert '10.20.0.0/24' in page.inner_text('#insp-detail') and 'IPs unknown' in page.inner_text('#insp-detail')
+    assert page.locator('#insp-detail table.free').count() == 0 and page.locator('#sum-free *').count() == 0
     assert page.errors == []
 
 

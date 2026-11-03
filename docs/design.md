@@ -44,7 +44,8 @@ Each cell is `CELL_SIZE` pixels: a 1 px gap followed by the cell body. The axes 
 | Reserved IP | Black at 25% opacity |
 | Inactive IP | Not drawn |
 | Other IP | Black |
-| Grid | Dotted lines every 16 cells, /24 labels |
+| Grid | Dotted lines every 16 cells |
+| Labels | Third octet of each /24 in a 3×5 pixel font, gray, on a free spot near the block center; none when the block has no room |
 
 ### Layered maps
 
@@ -53,10 +54,11 @@ Prefixes shorter than /16 would need a grid of 4096 × 4096 cells or more. They 
 | Element | Style |
 |---|---|
 | Block covered by a nested prefix | Fill color of the longest such prefix |
-| Block with nested prefixes inside | Checkerboard of the first such prefix's fill color |
+| Block with nested prefixes inside | Checkerboard of the shortest such prefix with a tenant, gray when none has one |
 | IP addresses in the block | Black overlay, 25% opacity for one address up to 90% for a full block |
 | Direct child prefix of a block or larger | Dark outline on the cell gap lines |
 | Grid | Light lines every 16 cells |
+| Labels | As on address maps, for each 16 × 16-cell group (the second octet of a /16 on a /8 map); none when no single octet tells the groups apart (/1 to /7) |
 
 The data file carries `layer` (`block_len`, `blocks`: block index and IP count) instead of the IP list. On the page a cell is a block: the inspector shows its IP count, the prefix chain, prefixes inside it and free blocks down to the block size; double-click opens the map of the child prefix covering the block, or of the first prefix inside it.
 
