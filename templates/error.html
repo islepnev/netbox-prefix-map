@@ -1,22 +1,17 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <title>Prefix Map: not found</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
-    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
+{% include '_head.html' %}
+    <title>Not found · Prefix Map</title>
 </head>
-<body>
-    <div class="navbar">
-        <div class="breadcrumbs">
-            <a href="{{ url_for('app.index') }}">Prefix Map</a>
-        </div>
-    </div>
-    <div class="container">
-        <div class="content">
-            <p>{{ message }}</p>
-            <p><a href="{{ url_for('app.index') }}">Back to the VRF list</a></p>
-        </div>
-    </div>
+<body class="doc-page">
+{% include '_topbar.html' %}
+<main class="page-main">
+    <div class="page-head"><h1>Not found</h1></div>
+    <div class="card"><div class="empty">
+        <p>{{ message }}</p>
+        <p><a href="{{ url_for('app.index') }}">Back to the VRF list</a></p>
+    </div></div>
+</main>
 </body>
 </html>

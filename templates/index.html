@@ -1,43 +1,38 @@
-<!-- templates/index.html -->
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <title>IP Allocation Maps</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
-    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
+{% include '_head.html' %}
+    <title>VRFs · Prefix Map</title>
 </head>
-<body>
-    <div class="navbar">
-        <div class="breadcrumbs">
-            {% for crumb in generate_breadcrumbs(vrf=vrf, prefix=prefix) %}
-                {% if crumb.url %}
-                    <a href="{{ crumb.url }}">{{ crumb.name }}</a>
-                    {% if not loop.last %}
-                        <span class="separator">&gt;</span>
-                    {% endif %}
-                {% else %}
-                    <span>{{ crumb.name }}</span>
-                {% endif %}
-            {% endfor %}
-        </div>        
+<body class="doc-page">
+{% include '_topbar.html' %}
+{% from '_usage.html' import count %}
+<main class="page-main">
+    <div class="page-head">
+        <div>
+            <h1>VRFs</h1>
+            <div class="sub">IPv4 prefixes and IP addresses by VRF</div>
+        </div>
     </div>
-    <div class="container">
-        <div class="sidebar">
-            <h2>VRFs</h2>
-            <ul>
-                <!-- Add Global VRF -->
-                <li><a href="{{ url_for('app.vrf_view', vrf='None') }}">Global</a></li>
-                {% for vrf in vrfs %}
-                    <li><a href="{{ url_for('app.vrf_view', vrf=vrf.id) }}">{{ vrf.name or 'Global' }}</a></li>
+    <div class="card">
+        <table class="list" id="vrf-list">
+            <thead>
+                <tr><th>VRF</th><th class="hide-narrow">Description</th><th class="hide-narrow">RD</th><th class="num">Prefixes</th><th class="num">Addresses</th><th class="num">NetBox</th></tr>
+            </thead>
+            <tbody>
+                {% for row in rows %}
+                <tr>
+                    <td class="name"><a href="{{ url_for('app.vrf_view', vrf=row.key) }}">{{ row.name }}</a></td>
+                    <td class="desc hide-narrow">{{ row.description or '' }}</td>
+                    <td class="mono hide-narrow">{{ row.rd or '' }}</td>
+                    <td class="num">{{ count(row.prefix_count) }}</td>
+                    <td class="num">{{ count(row.ip_count) }}</td>
+                    <td class="num">{% if row.id is not none %}<a class="ext" href="{{ netbox_url }}/ipam/vrfs/{{ row.id }}/" target="_blank" rel="noopener">VRF</a>{% endif %}</td>
+                </tr>
                 {% endfor %}
-            </ul>
-        </div>
-        <div class="content">
-            <h1>Welcome to the IP Address Allocation Visualization</h1>
-            <p>Select a VRF from the left to view its prefixes.</p>
-        </div>
+            </tbody>
+        </table>
     </div>
+</main>
 </body>
 </html>

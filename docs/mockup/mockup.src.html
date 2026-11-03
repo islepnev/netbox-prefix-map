@@ -1,0 +1,818 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Prefix Map Redesign</title>
+<style>
+:root {
+  color-scheme: light;
+  --bg: #f4f4f3;
+  --panel: #ffffff;
+  --panel-2: #fafaf9;
+  --line: #e2e2df;
+  --line-2: #ececea;
+  --text: #1c1c1e;
+  --muted: #6c6c72;
+  --faint: #9c9ca2;
+  --surround: #e6e6e3;
+  --accent: #1f5fe0;
+  --accent-soft: rgba(31, 95, 224, 0.10);
+  --accent-text: #1a52c4;
+  --ok: #2f9e55;
+  --warn: #d48a0b;
+  --bar-bg: #e7e7e4;
+  --bar: #6f7480;
+  --hot: #c2410c;
+  --hover-row: #f0f0ee;
+  --shadow: 0 1px 2px rgba(0,0,0,.06);
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  --hair: 1px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --bg: #141416;
+    --panel: #1b1b1e;
+    --panel-2: #202024;
+    --line: #2d2d32;
+    --line-2: #26262a;
+    --text: #e7e7ea;
+    --muted: #9d9da6;
+    --faint: #6d6d75;
+    --surround: #2a2a2e;
+    --accent: #5b93ff;
+    --accent-soft: rgba(91, 147, 255, 0.14);
+    --accent-text: #8ab2ff;
+    --ok: #3fbf6a;
+    --warn: #e6a23c;
+    --bar-bg: #303036;
+    --bar: #9aa0ad;
+    --hot: #f08a4b;
+    --hover-row: #25252a;
+    --shadow: none;
+  }
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  font: 13px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  color: var(--text); background: var(--bg);
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr) 320px;
+  grid-template-rows: 44px minmax(0, 1fr) 32px;
+  grid-template-areas: "top top top" "tree map insp" "legend legend legend";
+  overflow: hidden;
+}
+a { color: var(--accent-text); text-decoration: none; }
+a:hover { text-decoration: underline; }
+.mono, .addr { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+button { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* Top bar */
+#top {
+  grid-area: top; display: flex; align-items: center; gap: 12px;
+  padding: 0 12px; background: var(--panel); border-bottom: 1px solid var(--line);
+  min-width: 0;
+}
+.brand { display: flex; align-items: center; gap: 8px; font-weight: 600; white-space: nowrap; color: var(--text); }
+.brand svg { display: block; }
+.vsep { width: 1px; height: 20px; background: var(--line); flex: none; }
+#crumbs { display: flex; align-items: center; gap: 2px; min-width: 0; overflow: hidden; white-space: nowrap; }
+.chip {
+  display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 8px;
+  border: 1px solid var(--line); border-radius: 11px; background: var(--panel-2);
+  font-size: 12px; font-weight: 600; color: var(--text); margin-right: 6px;
+}
+.chip small { font-weight: 400; color: var(--muted); }
+.crumb {
+  font-family: var(--mono); font-size: 12.5px; padding: 3px 6px; border-radius: 4px; color: var(--muted);
+  background: none; border: 0; cursor: pointer;
+}
+.crumb:hover { background: var(--hover-row); color: var(--text); text-decoration: none; }
+.crumb.current { color: var(--text); font-weight: 600; cursor: default; }
+.crumb.current:hover { background: none; }
+.crumb-sep { color: var(--faint); font-size: 11px; }
+.crumb-desc { color: var(--muted); margin-left: 8px; font-size: 12px; overflow: hidden; text-overflow: ellipsis; }
+.spacer { flex: 1; }
+#search-wrap { position: relative; flex: none; }
+#search {
+  width: 240px; height: 28px; padding: 0 30px 0 28px; border-radius: 6px;
+  border: 1px solid var(--line); background: var(--panel-2); color: var(--text);
+  font-family: var(--mono); font-size: 12.5px;
+}
+#search::placeholder { font-family: system-ui, sans-serif; color: var(--faint); }
+#search:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); background: var(--panel); }
+#search.bad { border-color: var(--hot); }
+#search-wrap .icon { position: absolute; left: 9px; top: 8px; color: var(--faint); pointer-events: none; }
+#search-wrap kbd {
+  position: absolute; right: 7px; top: 6px; font: 11px/14px var(--mono); padding: 0 4px;
+  border: 1px solid var(--line); border-radius: 3px; color: var(--faint); background: var(--panel);
+}
+#search-msg {
+  position: absolute; top: 32px; right: 0; width: 280px; z-index: 20;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 6px 9px;
+  box-shadow: 0 4px 16px rgba(0,0,0,.12); font-size: 12px; color: var(--muted);
+}
+#fresh { display: flex; align-items: center; gap: 7px; color: var(--muted); font-size: 12px; white-space: nowrap; cursor: default; }
+#fresh .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 20%, transparent); }
+#fresh.stale .dot { background: var(--warn); box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 22%, transparent); }
+#fresh.stale { color: var(--warn); }
+
+/* Panels */
+.panel { background: var(--panel); min-height: 0; display: flex; flex-direction: column; }
+.panel-head {
+  display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 12px; flex: none;
+  font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted);
+  border-bottom: 1px solid var(--line-2);
+}
+.panel-head .right { margin-left: auto; text-transform: none; letter-spacing: 0; font-weight: 400; }
+.panel-body { overflow: auto; flex: 1; min-height: 0; }
+
+/* Tree */
+#tree-panel { grid-area: tree; border-right: 1px solid var(--line); }
+#tree { padding: 6px 0 12px; font-family: var(--mono); font-size: 12px; font-variant-numeric: tabular-nums; }
+#tree ul { list-style: none; margin: 0; padding: 0; }
+#tree ul ul { margin-left: 13px; border-left: 1px solid var(--line); }
+#tree li { position: relative; }
+.row {
+  display: flex; align-items: center; height: 22px; padding: 0 10px 0 4px; gap: 5px; cursor: pointer;
+  white-space: nowrap; border-left: 2px solid transparent;
+}
+#tree ul ul .row { padding-left: 4px; }
+.row:hover { background: var(--hover-row); }
+.row.current { background: var(--accent-soft); border-left-color: var(--accent); }
+.row.current .pfx { color: var(--accent-text); font-weight: 600; }
+.row.trace { background: var(--hover-row); }
+.row.trace .pfx { color: var(--text); }
+.row.outside .pfx { color: var(--muted); }
+.tog {
+  width: 14px; height: 14px; flex: none; border: 0; background: none; padding: 0; cursor: pointer;
+  color: var(--faint); display: grid; place-items: center;
+}
+.tog svg { transition: transform .12s; }
+.tog[aria-expanded="true"] svg { transform: rotate(90deg); }
+.tog.leaf { visibility: hidden; }
+.tdot { width: 8px; height: 8px; border-radius: 2px; flex: none; box-shadow: inset 0 0 0 1px rgba(0,0,0,.12); }
+.tdot.none { background: transparent; box-shadow: inset 0 0 0 1px var(--faint); }
+.pfx { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.usage { width: 38px; height: 4px; border-radius: 2px; background: var(--bar-bg); flex: none; overflow: hidden; }
+.usage i { display: block; height: 100%; background: var(--bar); border-radius: 2px; }
+.usage.hot i { background: var(--hot); }
+.usage.na { background: repeating-linear-gradient(90deg, var(--bar-bg) 0 3px, transparent 3px 5px); }
+.pct { width: 30px; text-align: right; color: var(--faint); font-size: 10.5px; flex: none; }
+
+/* Map */
+#map-panel { grid-area: map; position: relative; background: var(--surround); min-width: 0; min-height: 0; }
+#viewport { position: absolute; inset: 0; overflow: auto; }
+#stage-wrap { position: relative; }
+#stage { position: absolute; left: 0; top: 0; line-height: 0; background: #fff; box-shadow: 0 0 0 1px rgba(0,0,0,.08); }
+#map-img { display: block; image-rendering: pixelated; image-rendering: crisp-edges; user-select: none; -webkit-user-drag: none; }
+#map-img { image-rendering: pixelated; }
+.ov { position: absolute; pointer-events: none; }
+#ov-prefix { box-shadow: inset 0 0 0 var(--hair) var(--accent); background: rgba(31,95,224,.045); }
+#ov-select { box-shadow: inset 0 0 0 var(--hair) var(--accent); outline: var(--hair) dashed rgba(255,255,255,.9); }
+#ov-free { box-shadow: inset 0 0 0 var(--hair) #0a8f4f; background: rgba(10,143,79,.12); }
+#ov-hover { box-shadow: inset 0 0 0 var(--hair) #111, 0 0 0 var(--hair) #fff; }
+#ov-pin { box-shadow: inset 0 0 0 var(--hair) var(--accent), 0 0 0 var(--hair) #fff, 0 0 0 calc(var(--hair) * 2) var(--accent); }
+#zoom {
+  position: absolute; right: 12px; bottom: 12px; display: flex; align-items: center;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 6px; box-shadow: var(--shadow); z-index: 5;
+}
+#zoom button {
+  height: 28px; min-width: 28px; padding: 0 8px; border: 0; background: none; cursor: pointer; color: var(--text);
+  font-size: 13px;
+}
+#zoom button:hover { background: var(--hover-row); }
+#zoom button:disabled { color: var(--faint); cursor: default; background: none; }
+#zoom .sep { width: 1px; align-self: stretch; background: var(--line); }
+#zoom-level { min-width: 42px; text-align: center; font-family: var(--mono); font-size: 12px; color: var(--muted); cursor: default; }
+#zoom-fit.active { color: var(--accent-text); font-weight: 600; }
+#toast {
+  position: absolute; left: 50%; top: 12px; transform: translateX(-50%); z-index: 6;
+  background: var(--text); color: var(--panel); padding: 6px 12px; border-radius: 6px; font-size: 12px;
+  box-shadow: 0 4px 16px rgba(0,0,0,.2); white-space: nowrap;
+}
+
+/* Inspector */
+#insp-panel { grid-area: insp; border-left: 1px solid var(--line); }
+.pin-badge {
+  margin-left: auto; display: inline-flex; align-items: center; gap: 6px; height: 20px; padding: 0 4px 0 8px;
+  border-radius: 10px; background: var(--accent-soft); color: var(--accent-text); text-transform: none; letter-spacing: 0;
+  font-weight: 600;
+}
+.pin-badge button { border: 0; background: none; color: inherit; cursor: pointer; padding: 0 4px; font-size: 13px; line-height: 1; }
+.hint-badge { margin-left: auto; text-transform: none; letter-spacing: 0; font-weight: 400; color: var(--faint); }
+#insp { padding: 0 0 16px; }
+.sec { padding: 12px 14px; border-bottom: 1px solid var(--line-2); }
+.sec:last-child { border-bottom: 0; }
+.sec h3 { margin: 0 0 8px; font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); display: flex; gap: 6px; align-items: baseline; }
+.sec h3 .mono { text-transform: none; letter-spacing: 0; color: var(--text); font-weight: 500; }
+.sec h3 .right { margin-left: auto; text-transform: none; letter-spacing: 0; font-weight: 400; color: var(--faint); }
+.big { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 20px; font-weight: 600; letter-spacing: -.01em; }
+.big .mask { color: var(--faint); font-weight: 400; }
+.sub { color: var(--muted); margin-top: 2px; font-size: 12px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.pill { display: inline-flex; align-items: center; gap: 5px; height: 18px; padding: 0 7px; border-radius: 9px; font-size: 11px; font-weight: 600; border: 1px solid var(--line); color: var(--muted); }
+.pill .sw { width: 7px; height: 7px; border-radius: 1px; }
+.pill.free { color: #0a8f4f; border-color: color-mix(in srgb, #0a8f4f 35%, transparent); }
+dl.kv { display: grid; grid-template-columns: 84px minmax(0,1fr); gap: 5px 10px; margin: 0; }
+dl.kv dt { color: var(--muted); }
+dl.kv dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+dl.kv dd.none { color: var(--faint); }
+.tswatch { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 6px; vertical-align: 0; box-shadow: inset 0 0 0 1px rgba(0,0,0,.12); }
+ol.chain { list-style: none; margin: 0; padding: 0; position: relative; }
+ol.chain li { position: relative; padding: 3px 0 3px 16px; display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 0 8px; align-items: baseline; }
+ol.chain li::before { content: ""; position: absolute; left: 4px; top: 0; bottom: 0; width: 1px; background: var(--line); }
+ol.chain li:first-child::before { top: 10px; }
+ol.chain li:last-child::before { bottom: calc(100% - 10px); }
+ol.chain li::after { content: ""; position: absolute; left: 1px; top: 8px; width: 7px; height: 7px; border-radius: 50%; background: var(--panel); box-shadow: inset 0 0 0 1px var(--faint); }
+ol.chain li.inner::after { background: var(--accent); box-shadow: none; }
+ol.chain li.here .p { font-weight: 600; }
+ol.chain .p { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 12px; }
+ol.chain li.inner .p { color: var(--accent-text); font-weight: 600; }
+ol.chain .d { grid-column: 1; color: var(--muted); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+ol.chain .l { grid-row: 1; grid-column: 2; font-size: 11.5px; white-space: nowrap; display: flex; gap: 8px; }
+ol.chain .l span { color: var(--faint); }
+table.free { width: 100%; border-collapse: collapse; font-size: 12px; }
+table.free td { padding: 3px 0; border-bottom: 1px solid var(--line-2); }
+table.free tr:last-child td { border-bottom: 0; }
+table.free td.n { text-align: right; color: var(--muted); font-family: var(--mono); font-variant-numeric: tabular-nums; }
+table.free tr { cursor: default; }
+table.free tr:hover td { background: var(--hover-row); }
+table.free td:first-child { font-family: var(--mono); font-variant-numeric: tabular-nums; padding-left: 4px; }
+table.free td:last-child { padding-right: 4px; }
+.empty { color: var(--faint); font-size: 12px; }
+.links { display: flex; flex-direction: column; gap: 4px; }
+.links a::after { content: " \2197"; color: var(--faint); }
+.stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.stat b { display: block; font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 15px; font-weight: 600; }
+.stat span { color: var(--muted); font-size: 11px; }
+.bigbar { height: 6px; border-radius: 3px; background: var(--bar-bg); overflow: hidden; display: flex; margin: 10px 0 4px; }
+.bigbar i { display: block; height: 100%; }
+.howto { color: var(--muted); font-size: 12px; display: grid; gap: 3px; }
+.howto kbd { font: 11px var(--mono); border: 1px solid var(--line); border-radius: 3px; padding: 0 4px; background: var(--panel-2); }
+
+/* Legend */
+#legend {
+  grid-area: legend; display: flex; align-items: center; gap: 16px; padding: 0 12px;
+  background: var(--panel); border-top: 1px solid var(--line); font-size: 12px; color: var(--muted);
+  white-space: nowrap; overflow: hidden; min-width: 0;
+}
+.lg { display: inline-flex; align-items: center; gap: 6px; flex: none; }
+.lg-group:first-child { flex: none; }
+.lg-group.tenants { -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 24px), transparent); mask-image: linear-gradient(90deg, #000 calc(100% - 24px), transparent); }
+.lg .sw { width: 10px; height: 10px; border-radius: 2px; box-shadow: 0 0 0 1px var(--line); }
+.lg-group { display: flex; gap: 12px; align-items: center; min-width: 0; overflow: hidden; }
+.lg-label { font-size: 11px; color: var(--faint); text-transform: uppercase; letter-spacing: .04em; font-weight: 600; }
+#legend .right { flex: none; margin-left: auto; font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+@media (max-width: 1240px) {
+  body { grid-template-columns: 240px minmax(0, 1fr) 296px; }
+  .pct { display: none; }
+  .crumb-desc { display: none; }
+  #search { width: 200px; }
+  #legend .cellnote { display: none; }
+}
+</style>
+</head>
+<body>
+<header id="top">
+  <a class="brand" href="#" data-mock="VRF list" title="All VRFs">
+    <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><rect x="1" y="1" width="7" height="7" rx="1" fill="currentColor"/><rect x="10" y="1" width="7" height="7" rx="1" fill="currentColor" opacity=".35"/><rect x="1" y="10" width="7" height="7" rx="1" fill="currentColor" opacity=".35"/><rect x="10" y="10" width="3" height="3" fill="currentColor"/><rect x="14" y="14" width="3" height="3" fill="currentColor" opacity=".6"/></svg>
+    Prefix Map
+  </a>
+  <span class="vsep"></span>
+  <nav id="crumbs" aria-label="Prefix path"></nav>
+  <span class="spacer"></span>
+  <div id="search-wrap">
+    <svg class="icon" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><circle cx="5" cy="5" r="3.8" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M8 8l3 3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+    <input id="search" type="search" placeholder="Find IP or prefix" autocomplete="off" spellcheck="false" aria-label="Find IP address or prefix">
+    <kbd>/</kbd>
+    <div id="search-msg" hidden></div>
+  </div>
+  <span class="vsep"></span>
+  <div id="fresh"><span class="dot"></span><span id="fresh-text"></span></div>
+</header>
+
+<aside id="tree-panel" class="panel">
+  <div class="panel-head">Prefixes <span class="right" id="tree-count"></span></div>
+  <div class="panel-body"><div id="tree" role="tree"></div></div>
+</aside>
+
+<main id="map-panel">
+  <div id="viewport">
+    <div id="stage-wrap">
+      <div id="stage">
+        <img id="map-img" src="address_map-1-10_20_0_0_17.png" alt="Address map of 10.20.0.0/17">
+        <div class="ov" id="ov-select" hidden></div>
+        <div class="ov" id="ov-prefix" hidden></div>
+        <div class="ov" id="ov-free" hidden></div>
+        <div class="ov" id="ov-hover" hidden></div>
+        <div class="ov" id="ov-pin" hidden></div>
+      </div>
+    </div>
+  </div>
+  <div id="zoom" role="toolbar" aria-label="Zoom">
+    <button type="button" id="zoom-out" title="Zoom out (−)">−</button>
+    <span id="zoom-level"></span>
+    <button type="button" id="zoom-in" title="Zoom in (+)">+</button>
+    <span class="sep"></span>
+    <button type="button" id="zoom-fit" title="Fit to view (0)">Fit</button>
+  </div>
+  <div id="toast" hidden></div>
+</main>
+
+<aside id="insp-panel" class="panel">
+  <div class="panel-head" id="insp-head">Inspector</div>
+  <div class="panel-body"><div id="insp"></div></div>
+</aside>
+
+<footer id="legend"></footer>
+
+<script type="application/json" id="payload">__PAYLOAD__</script>
+<script>
+(() => {
+  "use strict";
+  const P = JSON.parse(document.getElementById("payload").textContent);
+  const data = P.data, names = P.names, NB = P.netbox, VRF = P.vrf;
+  const $ = (id) => document.getElementById(id);
+  const el = (tag, attrs, ...kids) => {
+    const e = document.createElement(tag);
+    if (attrs) for (const [k, v] of Object.entries(attrs)) {
+      if (v === undefined || v === null || v === false) continue;
+      if (k === "class") e.className = v; else if (k === "text") e.textContent = v;
+      else if (k === "style") e.style.cssText = v; else if (k.startsWith("on")) e.addEventListener(k.slice(2), v);
+      else e.setAttribute(k, v);
+    }
+    for (const kid of kids.flat()) if (kid !== null && kid !== undefined && kid !== false) e.append(kid);
+    return e;
+  };
+
+  // ---------- address helpers ----------
+  const ipToInt = (ip) => ip.split(".").reduce((a, o) => a * 256 + Number(o), 0);
+  const intToIp = (n) => [24, 16, 8, 0].map((s) => Math.floor(n / 2 ** s) % 256).join(".");
+  const parsePrefix = (prefix) => {
+    const [a, l] = prefix.split("/"); const len = Number(l); const start = ipToInt(a);
+    return { start, end: start + 2 ** (32 - len) - 1, len, size: 2 ** (32 - len) };
+  };
+  const IPV4 = /^(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$/;
+  const fmt = (n) => n.toLocaleString("en-US");
+  const pct = (u, t) => { const v = 100 * u / t; return v === 0 ? "0%" : v < 1 ? "<1%" : `${Math.round(v)}%`; };
+  const tenantName = (id) => id ? (names.tenants[String(id)] || `Tenant ${id}`) : null;
+  const tenantColor = (id) => id ? P.tenantColors[String(id)] : null;
+  const sanitize = (p) => p.replace(/[./]/g, "_");
+
+  const net = parsePrefix(data.prefix);
+  const cs = data.cell_size;
+  const [GW, GH] = data.grid;
+
+  // ---------- Morton layout (same as static/js/map.js) ----------
+  function interleave(x, y) {
+    let offset = 0;
+    for (let bit = 0; bit < 16; bit++) offset += (((x >> bit) & 1) * 2 ** (2 * bit)) + (((y >> bit) & 1) * 2 ** (2 * bit + 1));
+    return offset;
+  }
+  function deinterleave(offset) {
+    let x = 0, y = 0;
+    for (let bit = 0; bit < 16; bit++) {
+      x |= (Math.floor(offset / 2 ** (2 * bit)) & 1) << bit;
+      y |= (Math.floor(offset / 2 ** (2 * bit + 1)) & 1) << bit;
+    }
+    return [x, y];
+  }
+  function cellToOffset(x, y) {
+    if (GW === 2 * GH && x >= GH) return GH * GH + interleave(x - GH, y);
+    return interleave(x, y);
+  }
+  function offsetToCell(offset) {
+    if (GW === 2 * GH && offset >= GH * GH) { const [x, y] = deinterleave(offset - GH * GH); return [x + GH, y]; }
+    return deinterleave(offset);
+  }
+  function rangeBounds(start, end) {
+    const [x1, y1] = offsetToCell(start - net.start), [x2, y2] = offsetToCell(end - net.start);
+    return [Math.min(x1, x2), Math.min(y1, y2), Math.max(x1, x2), Math.max(y1, y2)];
+  }
+
+  // ---------- indexes ----------
+  const ipsByAddr = new Map();
+  for (const ip of data.ip_addresses) ipsByAddr.set(ipToInt(ip.address.split("/")[0]), ip);
+  const ipSorted = Float64Array.from(ipsByAddr.keys()).sort();
+  const lowerBound = (v) => { let lo = 0, hi = ipSorted.length; while (lo < hi) { const m = (lo + hi) >> 1; if (ipSorted[m] < v) lo = m + 1; else hi = m; } return lo; };
+  const countIps = (s, e) => lowerBound(e + 1) - lowerBound(s);
+  const nested = data.nested_prefixes.map((p) => ({ ...parsePrefix(p.prefix), p })).sort((a, b) => a.start - b.start || a.len - b.len);
+  const parentsInfo = new Map(P.tree.map((n) => [n.prefix, n]));
+  const thisNode = parentsInfo.get(data.prefix) || { description: "", id: data.id };
+  const containing = (addr) => nested.filter((n) => addr >= n.start && addr <= n.end).sort((a, b) => a.len - b.len);
+  const childrenOf = (range) => {
+    // direct children of a range among nested prefixes
+    const inside = nested.filter((n) => n.start >= range.start && n.end <= range.end && n.len > range.len);
+    return inside.filter((n) => !inside.some((m) => m !== n && m.len < n.len && n.start >= m.start && n.end <= m.end));
+  };
+
+  // Largest aligned free blocks (no IP record, no child prefix) inside a range
+  const freeCache = new Map();
+  function freeBlocks(range) {
+    const key = `${range.start}/${range.len}`;
+    if (freeCache.has(key)) return freeCache.get(key);
+    const kids = childrenOf(range);
+    const blocks = [];
+    (function walk(start, len) {
+      const size = 2 ** (32 - len), end = start + size - 1;
+      if (kids.some((k) => k.start <= start && k.end >= end)) return;            // inside a child prefix
+      const overlapsKid = kids.some((k) => k.start <= end && k.end >= start);
+      if (!overlapsKid && countIps(start, end) === 0) { blocks.push({ start, len, size }); return; }
+      if (len >= 32) return;
+      walk(start, len + 1); walk(start + size / 2, len + 1);
+    })(range.start, range.len);
+    blocks.sort((a, b) => b.size - a.size || a.start - b.start);
+    const total = blocks.reduce((s, b) => s + b.size, 0);
+    const res = { blocks, total };
+    freeCache.set(key, res);
+    return res;
+  }
+
+  // ---------- state ----------
+  let k = 1, fitMode = true, dpr = window.devicePixelRatio || 1;
+  let hover = null, pinned = null, selected = null, freeHi = null;
+  const img = $("map-img"), stage = $("stage"), wrap = $("stage-wrap"), viewport = $("viewport");
+  const ov = { hover: $("ov-hover"), pin: $("ov-pin"), prefix: $("ov-prefix"), select: $("ov-select"), free: $("ov-free") };
+
+  // ---------- zoom: integer device pixels per image pixel ----------
+  const PAD = 16;
+  function fitK() {
+    if (!img.naturalWidth) return 1;
+    const w = (viewport.clientWidth - 2 * PAD) * dpr, h = (viewport.clientHeight - 2 * PAD) * dpr;
+    return Math.max(1, Math.min(Math.floor(w / img.naturalWidth), Math.floor(h / img.naturalHeight)));
+  }
+  function layout(keepCenter) {
+    if (!img.naturalWidth) return;
+    const vw = viewport.clientWidth, vh = viewport.clientHeight;
+    const cx = keepCenter ? (viewport.scrollLeft + vw / 2 - stage.offsetLeft) / stage.offsetWidth : 0.5;
+    const cy = keepCenter ? (viewport.scrollTop + vh / 2 - stage.offsetTop) / stage.offsetHeight : 0.5;
+    const w = img.naturalWidth * k / dpr, h = img.naturalHeight * k / dpr;
+    img.style.width = `${w}px`; img.style.height = `${h}px`;
+    // margins snapped to device pixels so cell edges land on device pixels
+    const snap = (v) => Math.floor(v * dpr) / dpr;
+    const left = snap(Math.max(PAD, (vw - w) / 2)), top = snap(Math.max(PAD, (vh - h) / 2));
+    stage.style.left = `${left}px`; stage.style.top = `${top}px`;
+    wrap.style.width = `${left + w + PAD}px`; wrap.style.height = `${top + h + PAD}px`;
+    if (keepCenter) { viewport.scrollLeft = cx * w + left - vw / 2; viewport.scrollTop = cy * h + top - vh / 2; }
+    document.documentElement.style.setProperty("--hair", `${1 / dpr}px`);
+    $("zoom-level").textContent = `${k}×`;
+    $("zoom-level").title = `${k} device px per image px · 1 address = ${cs * k} device px`;
+    $("zoom-out").disabled = k <= 1; $("zoom-in").disabled = k >= 16;
+    $("zoom-fit").classList.toggle("active", fitMode);
+    drawOverlays();
+  }
+  function setK(v, byUser) { k = Math.max(1, Math.min(16, v)); fitMode = !byUser; layout(byUser); }
+  $("zoom-in").onclick = () => setK(k + 1, true);
+  $("zoom-out").onclick = () => setK(k - 1, true);
+  $("zoom-fit").onclick = () => setK(fitK(), false);
+  new ResizeObserver(() => { if (fitMode) k = fitK(); layout(!fitMode); }).observe(viewport);
+  const watchDpr = () => matchMedia(`(resolution: ${dpr}dppx)`).addEventListener("change", () => {
+    dpr = window.devicePixelRatio || 1; if (fitMode) k = fitK(); layout(false); watchDpr();
+  }, { once: true });
+  watchDpr();
+
+  // ---------- overlays (device-pixel aligned) ----------
+  function place(box, b) {
+    if (!b) { box.hidden = true; return; }
+    const u = cs * k / dpr; // css px per cell, an integer number of device px
+    const [x1, y1, x2, y2] = b;
+    box.style.left = `${x1 * u}px`; box.style.top = `${y1 * u}px`;
+    box.style.width = `${(x2 - x1 + 1) * u}px`; box.style.height = `${(y2 - y1 + 1) * u}px`;
+    box.hidden = false;
+  }
+  const cellB = (a) => { const [x, y] = offsetToCell(a - net.start); return [x, y, x, y]; };
+  function drawOverlays() {
+    const focus = pinned ?? hover;
+    place(ov.hover, hover !== null && hover !== pinned ? cellB(hover) : null);
+    place(ov.pin, pinned !== null ? cellB(pinned) : null);
+    const inner = focus !== null ? containing(focus).at(-1) : null;
+    place(ov.prefix, inner ? rangeBounds(inner.start, inner.end) : null);
+    place(ov.select, selected && selected !== inner ? rangeBounds(selected.start, selected.end) : null);
+    place(ov.free, freeHi ? rangeBounds(freeHi.start, freeHi.start + freeHi.size - 1) : null);
+  }
+
+  function hitTest(ev) {
+    const r = img.getBoundingClientRect();
+    const px = Math.floor((ev.clientX - r.left) * dpr / k), py = Math.floor((ev.clientY - r.top) * dpr / k);
+    const x = Math.floor(px / cs), y = Math.floor(py / cs);
+    if (x < 0 || y < 0 || x >= GW || y >= GH) return null;
+    return net.start + cellToOffset(x, y);
+  }
+  stage.addEventListener("mousemove", (ev) => {
+    const a = hitTest(ev);
+    if (a === hover) return;
+    hover = a; drawOverlays(); if (pinned === null) renderInspector(); traceTree();
+  });
+  stage.addEventListener("mouseleave", () => { hover = null; drawOverlays(); if (pinned === null) renderInspector(); traceTree(); });
+  stage.addEventListener("click", (ev) => {
+    const a = hitTest(ev); if (a === null) return;
+    pin(pinned === a ? null : a);
+  });
+  function pin(a, scroll) {
+    pinned = a; drawOverlays(); renderInspector(); traceTree();
+    if (scroll && a !== null) scrollToBounds(cellB(a));
+  }
+  function scrollToBounds([x1, y1, x2, y2]) {
+    const u = cs * k / dpr;
+    const cx = stage.offsetLeft + (x1 + x2 + 1) / 2 * u, cy = stage.offsetTop + (y1 + y2 + 1) / 2 * u;
+    viewport.scrollTo({ left: cx - viewport.clientWidth / 2, top: cy - viewport.clientHeight / 2 });
+  }
+  document.addEventListener("keydown", (ev) => {
+    const typing = ev.target instanceof HTMLInputElement;
+    if (ev.key === "Escape") {
+      if (typing) { ev.target.value = ""; ev.target.blur(); onSearch(""); return; }
+      if (pinned !== null) pin(null); else if (selected) { selected = null; drawOverlays(); renderTreeSel(); }
+      return;
+    }
+    if (typing) return;
+    if (ev.key === "/") { ev.preventDefault(); $("search").focus(); }
+    else if (ev.key === "+" || ev.key === "=") setK(k + 1, true);
+    else if (ev.key === "-") setK(k - 1, true);
+    else if (ev.key === "0") setK(fitK(), false);
+  });
+
+  // ---------- mock navigation ----------
+  let toastTimer;
+  function toast(msg) {
+    const t = $("toast"); t.textContent = msg; t.hidden = false;
+    clearTimeout(toastTimer); toastTimer = setTimeout(() => (t.hidden = true), 2200);
+  }
+  const openMap = (prefix) => toast(`Mockup: would open map ${prefix}  (/map/${VRF.id}/${sanitize(prefix)})`);
+  document.addEventListener("click", (ev) => {
+    const a = ev.target.closest("[data-mock]");
+    if (a) { ev.preventDefault(); toast(`Mockup: would open ${a.dataset.mock}`); }
+  });
+
+  // ---------- top bar ----------
+  function renderCrumbs() {
+    const c = $("crumbs");
+    c.append(el("a", { class: "chip", href: `${NB}/ipam/vrfs/${VRF.id}/`, target: "_blank", rel: "noopener", title: `VRF ${VRF.name} in NetBox` }, "VRF ", el("span", { text: VRF.name }), VRF.description ? el("small", { text: VRF.description }) : null));
+    const chain = [...data.parents.map((p) => p.prefix), data.prefix];
+    chain.forEach((p, i) => {
+      if (i) c.append(el("span", { class: "crumb-sep", text: "›" }));
+      const cur = p === data.prefix;
+      c.append(el("button", { class: `crumb${cur ? " current" : ""}`, type: "button", text: p, title: parentsInfo.get(p)?.description || p, "aria-current": cur ? "page" : null, onclick: cur ? null : () => openMap(p) }));
+    });
+    if (thisNode.description) c.append(el("span", { class: "crumb-desc", text: thisNode.description }));
+  }
+  function renderFresh() {
+    const t = new Date(data.generated_at * 1000);
+    const ageMin = (Date.now() - t) / 60000;
+    const forced = new URLSearchParams(location.search).has("stale");
+    const stale = forced || ageMin > 24 * 60;
+    const rel = ageMin < 1 ? "just now" : ageMin < 60 ? `${Math.round(ageMin)} min ago` : ageMin < 48 * 60 ? `${Math.round(ageMin / 60)} h ago` : `${Math.round(ageMin / 1440)} days ago`;
+    const hhmm = t.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    $("fresh").classList.toggle("stale", stale);
+    $("fresh-text").textContent = `updated ${hhmm}`;
+    $("fresh").title = `${stale ? "Stale: last update failed or data older than 24 h. " : "Data is current. "}Generated ${t.toLocaleString()} (${rel}). Updates run on NetBox webhooks.`;
+  }
+
+  // ---------- tree ----------
+  const treeNodes = P.tree.map((n) => ({ ...n, ...parsePrefix(n.prefix), kids: [] })).sort((a, b) => a.start - b.start || a.len - b.len);
+  const roots = [];
+  { const stack = [];
+    for (const n of treeNodes) {
+      while (stack.length && !(n.start >= stack.at(-1).start && n.end <= stack.at(-1).end)) stack.pop();
+      (stack.length ? stack.at(-1).kids : roots).push(n); stack.push(n);
+    } }
+  const inMap = (n) => n.start >= net.start && n.end <= net.end;
+  const nodeUsed = (n) => inMap(n) ? countIps(n.start, n.end) : n.used;
+  const rowsByPrefix = new Map();
+  const openSet = new Set([...data.parents.map((p) => p.prefix), data.prefix]);
+  function renderTree() {
+    const ul = el("ul", { role: "group" });
+    roots.forEach((n) => ul.append(treeItem(n)));
+    $("tree").replaceChildren(ul);
+    $("tree-count").textContent = `${treeNodes.length} in ${VRF.name}`;
+  }
+  function treeItem(n) {
+    const hasKids = n.kids.length > 0;
+    const open = openSet.has(n.prefix);
+    const used = nodeUsed(n);
+    const ratio = used == null ? null : used / n.size;
+    const color = tenantColor(n.tenant);
+    const tog = el("button", { class: `tog${hasKids ? "" : " leaf"}`, type: "button", "aria-expanded": String(open), "aria-label": `Expand ${n.prefix}`, tabindex: hasKids ? null : "-1" },
+      svgChevron());
+    const bar = el("span", { class: `usage${ratio == null ? " na" : ratio > 0.8 ? " hot" : ""}`, title: used == null ? "No usage data" : `${fmt(used)} of ${fmt(n.size)} addresses` },
+      ratio == null ? null : el("i", { style: `width:${Math.max(ratio > 0 ? 6 : 0, ratio * 100).toFixed(1)}%` }));
+    const row = el("div", {
+      class: `row${n.prefix === data.prefix ? " current" : ""}${inMap(n) || n.prefix === data.prefix ? "" : " outside"}`,
+      role: "treeitem", title: [n.prefix, n.description, tenantName(n.tenant), n.status].filter(Boolean).join(" · "),
+    }, tog,
+      el("span", { class: `tdot${color ? "" : " none"}`, style: color ? `background:${color}` : null }),
+      el("span", { class: "pfx", text: n.prefix }),
+      bar, el("span", { class: "pct", text: used == null ? "" : pct(used, n.size) }));
+    rowsByPrefix.set(n.prefix, row);
+    const li = el("li", null, row);
+    let list = null;
+    const setOpen = (o) => {
+      tog.setAttribute("aria-expanded", String(o));
+      if (o && !list) { list = el("ul", { role: "group" }); n.kids.forEach((c) => list.append(treeItem(c))); li.append(list); }
+      if (list) list.hidden = !o;
+    };
+    if (hasKids) { setOpen(open); tog.addEventListener("click", (ev) => { ev.stopPropagation(); setOpen(tog.getAttribute("aria-expanded") !== "true"); }); }
+    row.addEventListener("click", () => {
+      if (n.prefix === data.prefix) { selected = null; drawOverlays(); renderTreeSel(); return; }
+      if (inMap(n)) { selected = selected && selected.prefix === n.prefix ? null : n; drawOverlays(); renderTreeSel(); if (selected) scrollToBounds(rangeBounds(n.start, n.end)); }
+      else openMap(n.prefix);
+    });
+    row.addEventListener("dblclick", () => { if (n.rendered && n.prefix !== data.prefix) openMap(n.prefix); });
+    return li;
+  }
+  function svgChevron() {
+    const ns = "http://www.w3.org/2000/svg";
+    const s = document.createElementNS(ns, "svg"); s.setAttribute("width", "8"); s.setAttribute("height", "8"); s.setAttribute("viewBox", "0 0 8 8");
+    const p = document.createElementNS(ns, "path"); p.setAttribute("d", "M2.5 1l3 3-3 3"); p.setAttribute("fill", "none"); p.setAttribute("stroke", "currentColor"); p.setAttribute("stroke-width", "1.4");
+    s.append(p); return s;
+  }
+  function renderTreeSel() {
+    for (const [p, r] of rowsByPrefix) r.classList.toggle("trace", !!selected && selected.prefix === p);
+  }
+  let traced = null;
+  function traceTree() {
+    const f = pinned ?? hover;
+    const inner = f !== null ? containing(f).at(-1) : null;
+    const p = inner ? inner.p.prefix : null;
+    if (p === traced) return;
+    if (traced && rowsByPrefix.get(traced) && !(selected && selected.prefix === traced)) rowsByPrefix.get(traced).classList.remove("trace");
+    traced = p;
+    if (p && rowsByPrefix.get(p)) rowsByPrefix.get(p).classList.add("trace");
+  }
+
+  // ---------- inspector ----------
+  const nbLink = (path, text) => el("a", { href: `${NB}${path}`, target: "_blank", rel: "noopener", text });
+  const sec = (title, right, ...kids) => el("section", { class: "sec" }, el("h3", null, title, right ? el("span", { class: "right" }, right) : null), ...kids);
+  const kv = (pairs) => el("dl", { class: "kv" }, pairs.flatMap(([k, v]) => [el("dt", { text: k }), v == null || v === "" ? el("dd", { class: "none", text: "—" }) : el("dd", null, v)]));
+  const statusLabel = (s) => s ? s[0].toUpperCase() + s.slice(1) : s;
+  const ipSwatch = (ip) => ip.role ? "#ff0000" : ip.status === "reserved" ? "rgba(0,0,0,.25)" : "#000";
+  const tenantNode = (id) => id ? el("span", null, el("span", { class: "tswatch", style: `background:${tenantColor(id) || "transparent"}` }), nbLink(`/tenancy/tenants/${id}/`, tenantName(id))) : null;
+
+  function freeSection(range, label) {
+    const fb = freeBlocks(range);
+    const top = fb.blocks.slice(0, 6);
+    const body = top.length ? el("table", { class: "free" }, el("tbody", null, top.map((b) => el("tr", {
+      onmouseenter: () => { freeHi = b; drawOverlays(); }, onmouseleave: () => { freeHi = null; drawOverlays(); },
+      title: "Hover to outline on the map",
+    }, el("td", { text: `${intToIp(b.start)}/${b.len}` }), el("td", { class: "n", text: b.size === 1 ? "1 address" : `${fmt(b.size)} addr` }))))) : el("div", { class: "empty", text: "No free addresses." });
+    return sec(el("span", null, "Free blocks in ", el("span", { class: "mono", text: label })), `${fmt(fb.total)} free`, body);
+  }
+
+  function renderInspector() {
+    const head = $("insp-head");
+    const a = pinned ?? hover;
+    const box = $("insp");
+    if (a === null) {
+      head.replaceChildren("Inspector", el("span", { class: "hint-badge", text: "hover the map" }));
+      box.replaceChildren(...summary());
+      return;
+    }
+    head.replaceChildren("Inspector", pinned !== null
+      ? el("span", { class: "pin-badge" }, "Pinned", el("button", { type: "button", title: "Unpin (Esc)", "aria-label": "Unpin", text: "×", onclick: () => pin(null) }))
+      : el("span", { class: "hint-badge", text: "click to pin" }));
+    const ip = ipsByAddr.get(a);
+    const chainN = containing(a);
+    const inner = chainN.at(-1);
+    const mask = ip ? ip.address.split("/")[1] : inner ? inner.len : net.len;
+    const [cx, cy] = offsetToCell(a - net.start);
+    const out = [];
+    out.push(el("section", { class: "sec" },
+      el("div", { class: "big" }, intToIp(a), el("span", { class: "mask", text: `/${mask}` })),
+      el("div", { class: "sub" },
+        ip ? el("span", { class: "pill" }, el("span", { class: "sw", style: `background:linear-gradient(${ipSwatch(ip)},${ipSwatch(ip)}),#fff` }), statusLabel(ip.status)) : el("span", { class: "pill free", text: "Free" }),
+        el("span", { class: "mono", text: `offset ${fmt(a - net.start)} · cell ${cx},${cy}` }))));
+    if (ip) {
+      out.push(sec("IP address", nbLink(`/ipam/ip-addresses/${ip.id}/`, "NetBox ↗"), kv([
+        ["Status", statusLabel(ip.status)],
+        ["Role", ip.role ? statusLabel(ip.role) : null],
+        ["DNS name", ip.dns_name ? el("span", { class: "mono", text: ip.dns_name }) : null],
+        ["Description", ip.description || null],
+        ["Tenant", tenantNode(ip.tenant)],
+      ])));
+    } else {
+      out.push(sec("IP address", null, el("div", { class: "empty" }, "No IP record. ",
+        nbLink(`/ipam/ip-addresses/add/?address=${intToIp(a)}/${mask}&vrf=${VRF.id}`, "Add in NetBox ↗"))));
+    }
+    // prefix chain outer -> inner
+    const chain = [
+      ...data.parents.map((p) => ({ prefix: p.prefix, id: p.id, desc: parentsInfo.get(p.prefix)?.description, tenant: parentsInfo.get(p.prefix)?.tenant })),
+      { prefix: data.prefix, id: data.id, desc: thisNode.description, tenant: thisNode.tenant, here: true },
+      ...chainN.map((n) => ({ prefix: n.p.prefix, id: n.p.id, desc: n.p.description, tenant: n.p.tenant })),
+    ];
+    const innerPrefix = chain.at(-1).prefix;
+    out.push(sec("Prefix chain", `${chain.length} levels`, el("ol", { class: "chain" }, chain.map((c) => {
+      const node = parentsInfo.get(c.prefix);
+      const links = el("span", { class: "l" },
+        c.here ? el("span", { text: "this map" }) : node && node.rendered ? el("a", { href: "#", onclick: (ev) => { ev.preventDefault(); openMap(c.prefix); }, text: "map" }) : null,
+        nbLink(`/ipam/prefixes/${c.id}/`, "NetBox ↗"));
+      const desc = [c.desc, tenantName(c.tenant)].filter(Boolean).join(" · ");
+      return el("li", { class: `${c.here ? "here" : ""}${c.prefix === innerPrefix ? " inner" : ""}` },
+        el("span", { class: "p", text: c.prefix }), links, desc ? el("span", { class: "d", text: desc, title: desc }) : null);
+    }))));
+    out.push(freeSection(inner || net, innerPrefix));
+    box.replaceChildren(...out);
+  }
+
+  function summary() {
+    const total = net.size, used = data.ip_addresses.length;
+    const counts = { role: 0, active: 0, reserved: 0, other: 0 };
+    for (const ip of data.ip_addresses) { if (ip.role) counts.role++; else if (ip.status === "reserved") counts.reserved++; else counts.active++; }
+    const bar = el("div", { class: "bigbar", title: "In use · with role · reserved" },
+      el("i", { style: `width:${100 * counts.active / total}%;background:var(--text)` }),
+      el("i", { style: `width:${100 * counts.role / total}%;background:#ff0000` }),
+      el("i", { style: `width:${100 * counts.reserved / total}%;background:var(--faint)` }));
+    return [
+      el("section", { class: "sec" },
+        el("div", { class: "big", text: data.prefix }),
+        el("div", { class: "sub" }, thisNode.description || "", el("span", { text: `VRF ${VRF.name}` }), thisNode.status ? el("span", { class: "pill", text: statusLabel(thisNode.status) }) : null),
+        bar,
+        el("div", { class: "stats" },
+          el("div", { class: "stat" }, el("b", { text: fmt(used) }), el("span", { text: `IPs · ${pct(used, total)}` })),
+          el("div", { class: "stat" }, el("b", { text: fmt(data.child_prefixes.length) }), el("span", { text: "child prefixes" })),
+          el("div", { class: "stat" }, el("b", { text: fmt(total) }), el("span", { text: "addresses" })))),
+      freeSection(net, data.prefix),
+      sec("Links", null, el("div", { class: "links" },
+        nbLink(`/ipam/prefixes/${data.id}/`, `Prefix ${data.prefix}`),
+        nbLink(`/ipam/prefixes/${data.id}/ip-addresses/`, "IP addresses in this prefix"),
+        nbLink(`/ipam/vrfs/${VRF.id}/`, `VRF ${VRF.name}`))),
+      sec("Keys", null, el("div", { class: "howto" },
+        el("div", null, "Hover to inspect, click to pin, ", el("kbd", { text: "Esc" }), " to unpin"),
+        el("div", null, el("kbd", { text: "/" }), " find IP or prefix · ", el("kbd", { text: "+" }), " ", el("kbd", { text: "−" }), " ", el("kbd", { text: "0" }), " zoom"))),
+    ];
+  }
+
+  // ---------- legend ----------
+  function renderLegend() {
+    const sw = (c, extra) => el("span", { class: "sw", style: `background:linear-gradient(${c},${c}),#fff;${extra || ""}` });
+    const tenants = new Map();
+    for (const p of data.nested_prefixes) if (p.tenant && p.color && !tenants.has(p.tenant)) tenants.set(p.tenant, p.color);
+    const used = data.ip_addresses.length;
+    $("legend").replaceChildren(
+      el("span", { class: "lg-group" },
+        el("span", { class: "lg" }, sw("#000"), "In use"),
+        el("span", { class: "lg" }, sw("rgba(0,0,0,.25)"), "Reserved"),
+        el("span", { class: "lg" }, sw("#ff0000"), "With role")),
+      el("span", { class: "vsep" }),
+      el("span", { class: "lg-group tenants" }, el("span", { class: "lg-label", text: "Tenants" }),
+        [...tenants].sort((a, b) => tenantName(a[0]).localeCompare(tenantName(b[0]))).map(([id, c]) => el("span", { class: "lg" }, sw(c), tenantName(id)))),
+      el("span", { class: "right" }, `${fmt(used)} / ${fmt(net.size)} used · ${(100 * used / net.size).toFixed(1)}%`, el("span", { class: "cellnote", text: " · 1 cell = 1 address" })));
+  }
+
+  // ---------- search ----------
+  const msg = $("search-msg");
+  function onSearch(raw, commit) {
+    const q = raw.trim();
+    const input = $("search");
+    input.classList.remove("bad"); msg.hidden = true;
+    if (!q) return;
+    const say = (t) => { msg.textContent = t; msg.hidden = false; };
+    const ipPart = q.split("/")[0];
+    if (!IPV4.test(ipPart)) { if (commit || /^\d+\.\d+\.\d+\.\d+/.test(q)) { input.classList.add("bad"); say("Enter an IPv4 address or prefix, e.g. 10.20.0.1 or 10.20.36.0/24"); } return; }
+    const addr = ipToInt(ipPart);
+    if (q.includes("/")) {
+      const len = Number(q.split("/")[1]);
+      if (!(len >= 0 && len <= 32)) { input.classList.add("bad"); return; }
+      const start = addr - (addr % 2 ** (32 - len));
+      const pfx = `${intToIp(start)}/${len}`;
+      const node = treeNodes.find((n) => n.prefix === pfx);
+      if (pfx === data.prefix) { selected = null; drawOverlays(); say("This map."); return; }
+      if (node && inMap(node)) {
+        selected = node; drawOverlays(); renderTreeSel(); scrollToBounds(rangeBounds(node.start, node.end));
+        say(`${pfx}${node.description ? " · " + node.description : ""} — outlined on the map. Enter opens its map.`);
+        if (commit && node.rendered) openMap(pfx);
+        return;
+      }
+      if (node) { say(`${pfx} is outside this map. Enter opens it.`); if (commit) openMap(pfx); return; }
+      if (start >= net.start && start <= net.end) {
+        selected = { prefix: pfx, ...parsePrefix(pfx) }; drawOverlays(); scrollToBounds(rangeBounds(selected.start, selected.end));
+        say(`${pfx} is not a NetBox prefix; outlined as a range.`); return;
+      }
+      say(`${pfx}: not found in VRF ${VRF.name}.`); return;
+    }
+    if (addr >= net.start && addr <= net.end) {
+      pin(addr, true);
+      const ip = ipsByAddr.get(addr);
+      say(`${intToIp(addr)} · ${ip ? statusLabel(ip.status) + (ip.dns_name ? " · " + ip.dns_name : "") : "free"} — pinned.`);
+      return;
+    }
+    const owner = treeNodes.filter((n) => addr >= n.start && addr <= n.end && n.rendered).sort((a, b) => b.len - a.len)[0];
+    say(owner ? `${intToIp(addr)} is outside this map. Enter opens ${owner.prefix}.` : `${intToIp(addr)}: no map in VRF ${VRF.name}.`);
+    if (commit && owner) openMap(owner.prefix);
+  }
+  $("search").addEventListener("input", (e) => onSearch(e.target.value, false));
+  $("search").addEventListener("keydown", (e) => { if (e.key === "Enter") onSearch(e.target.value, true); });
+  $("search").addEventListener("blur", () => setTimeout(() => (msg.hidden = true), 150));
+
+  // ---------- init ----------
+  renderCrumbs(); renderFresh(); setInterval(renderFresh, 60000);
+  renderTree(); renderLegend(); renderInspector();
+  const start = () => { k = fitK(); layout(false); window.__mockReady = true; };
+  if (img.complete && img.naturalWidth) start(); else img.addEventListener("load", start);
+  window.__mock = { get k() { return k; }, get dpr() { return dpr; }, pin, cellToOffset, offsetToCell, freeBlocks };
+})();
+</script>
+</body>
+</html>

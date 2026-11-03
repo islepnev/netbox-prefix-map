@@ -188,3 +188,131 @@ def test_data_is_gzipped_when_accepted(client):
     assert r.headers['Content-Encoding'] == 'gzip'
     assert json.loads(gzip.decompress(r.data))['prefix'] == '10.20.0.0/17'
     assert 'Content-Encoding' not in client.get(f'{BASE}/data/1/10_20_0_0_17').headers
+
+
+def test_duplicate_parent_prefixes_listed_once(webapp, monkeypatch):
+    tree = {'1': {'prefixes': [
+        {'id': 1, 'prefix': '10.0.0.0/8', 'description': 'first'},
+        {'id': 2, 'prefix': '10.0.0.0/8', 'description': 'duplicate'},
+        {'id': 3, 'prefix': '10.1.0.0/16'},
+        {'id': 4, 'prefix': '10.1.2.0/24'},
+    ]}}
+    monkeypatch.setattr(webapp, 'load_prefix_tree', lambda: tree)
+    parents = webapp.find_parents('1', '10.1.2.0/24')
+    assert [(p['prefix'], p['id']) for p in parents] == [('10.0.0.0/8', 1), ('10.1.0.0/16', 3)]
+    assert parents[0]['sanitized'] == '10_0_0_0_8'
+
+
+def ipv4_counts(dataset, vrf):
+    prefixes = [p for p in dataset['prefixes'] if p['vrf'] == vrf and ':' not in p['prefix']]
+    ips = [ip for ip in dataset['ip_addresses'] if ip['vrf'] == vrf and ':' not in ip['address']]
+    return len(prefixes), len(ips)
+
+
+def test_summary_file(output_dir, dataset):
+    import json
+    import os
+    with open(os.path.join(output_dir, 'summary.json')) as f:
+        summary = json.load(f)
+    for key, vrf in (('1', 1), ('None', None)):
+        assert (summary[key]['prefix_count'], summary[key]['ip_count']) == ipv4_counts(dataset, vrf)
+    assert [p['prefix'] for p in summary['1']['top_prefixes']] == ['10.0.0.0/8']
+    assert [p['prefix'] for p in summary['None']['top_prefixes']] == ['172.31.0.0/16', '192.168.0.0/24']
+    top = summary['1']['top_prefixes'][0]
+    assert top['size'] == 2 ** 24 and top['has_children'] and top['ip_count'] == summary['1']['ip_count']
+
+
+def test_index_shows_counts(client, dataset):
+    html = client.get(f'{BASE}/').data.decode()
+    prefixes, ips = ipv4_counts(dataset, 1)
+    row = html[html.index(f'href="{BASE}/map/1"'):]
+    row = row[:row.index('</tr>')]
+    assert f'>{prefixes:,}<' in row and f'>{ips:,}<' in row
+    assert f'href="{BASE}/map/None"' in html
+
+
+def test_vrf_page_lists_top_level_prefixes_with_usage(client):
+    html = client.get(f'{BASE}/map/None').data.decode()
+    assert f'href="{BASE}/map/None/172_31_0_0_16"' in html
+    assert f'href="{BASE}/map/None/192_168_0_0_24"' in html
+    assert '172_31_4_0_24' not in html, "nested prefixes are reached through maps"
+    assert 'Management' in html and 'title="7 of 256 addresses"' in html
+
+
+def test_vrf_page_without_summary_file(client, webapp, monkeypatch):
+    monkeypatch.setattr(webapp, 'load_summary', lambda: {})
+    html = client.get(f'{BASE}/map/1').data.decode()
+    assert f'href="{BASE}/map/1/10_0_0_0_8"' in html and '10_20_0_0_16' not in html
+    assert 'No usage data' in html
+    assert client.get(f'{BASE}/').status_code == 200
+
+
+def test_top_level_prefixes(webapp):
+    entries = [{'prefix': p} for p in ('10.1.0.0/16', '10.0.0.0/8', '10.0.0.0/8', '192.168.0.0/24', '2001:db8::/32')]
+    assert [str(n) for n, _ in webapp.top_level_prefixes(entries)] == ['10.0.0.0/8', '192.168.0.0/24']
+
+
+def search(client, q):
+    r = client.get(f'{BASE}/search', query_string={'q': q})
+    return r.status_code, r.get_json()
+
+
+def test_search_address(client, dataset):
+    status, body = search(client, '10.20.48.1')
+    assert status == 200
+    first = body['results'][0]
+    assert (first['vrf'], first['vrf_name'], first['prefix'], first['match']) == ('1', 'LAN', '10.20.48.0/24', 'within')
+    assert first['url'] == f'{BASE}/map/1/10_20_48_0_24?focus=10.20.48.1'
+    assert first['ip']['dns_name'] == 'gw-48.example.test' and first['ip']['role'] == 'anycast'
+
+
+def test_search_prefix(client):
+    _, body = search(client, '10.20.48.0/20')
+    assert body['results'][0]['match'] == 'exact'
+    assert body['results'][0]['url'] == f'{BASE}/map/1/10_20_48_0_20'
+    _, body = search(client, '10.20.48.0/25')
+    assert body['results'][0]['prefix'] == '10.20.48.0/24'
+    assert body['results'][0]['url'].endswith('?focus=10.20.48.0/25')
+    _, body = search(client, '10.20.48.7/24')
+    assert body['results'][0]['prefix'] == '10.20.48.0/24' and body['results'][0]['match'] == 'exact'
+
+
+def test_search_global_and_misses(client):
+    _, body = search(client, '192.168.0.5')
+    assert [(r['vrf'], r['prefix']) for r in body['results']] == [('None', '192.168.0.0/24')]
+    assert search(client, '8.8.8.8') == (200, {'query': '8.8.8.8', 'results': []})
+    for bad in ('', 'foo', '300.1.1.1', '10.0.0.0/33', '2001:db8::1', '010.0.0.1'):
+        status, body = search(client, bad)
+        assert status == 400 and 'error' in body, bad
+
+
+def test_output_json_cache_follows_file(webapp, output_dir):
+    import json
+    import os
+    path = os.path.join(output_dir, 'cache-test.json')
+    with open(path, 'w') as f:
+        json.dump({'v': 1}, f)
+    assert webapp.load_output_json('cache-test.json', {}) == {'v': 1}
+    with open(path, 'w') as f:
+        json.dump({'v': 2}, f)
+    os.utime(path, ns=(1, 1))
+    assert webapp.load_output_json('cache-test.json', {}) == {'v': 2}
+    os.remove(path)
+    assert webapp.load_output_json('cache-test.json', None) is None
+
+
+def test_usage_percent_is_capped(webapp):
+    from flask import render_template_string
+    with webapp.app.test_request_context():
+        html = render_template_string(
+            "{% from '_usage.html' import percent %}{{ percent(3, 2) }} {{ percent(1, 1000) }} {{ percent(None, 2) }}")
+    assert html == '100% &lt;1% —'
+
+
+def test_search_ip_record_unknown_without_ip_list(client):
+    _, body = search(client, '10.40.0.1')
+    result = body['results'][0]
+    assert result['prefix'] == '10.0.0.0/8' and 'ip' not in result
+    _, body = search(client, '10.20.48.1/32')
+    assert body['results'][0]['url'].endswith('?focus=10.20.48.1')
+    assert body['results'][0]['ip']['dns_name'] == 'gw-48.example.test'

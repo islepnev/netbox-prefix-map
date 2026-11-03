@@ -1,108 +1,121 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
     <meta charset="UTF-8">
-    <title>VRF {{ vrf.name or 'Global' }}, prefix {{ prefix }}</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ prefix }} · VRF {{ vrf.name if vrf else 'Global' }} · Prefix Map</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
     <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
-    <script>
-        const BASE_PATH = "{{ base_path }}";
-    </script>
+    <script src="{{ url_for('static', filename='js/topbar.js') }}" defer></script>
     <script src="{{ url_for('static', filename='js/prefix_tree.js') }}" defer></script>
     <script src="{{ url_for('static', filename='js/map.js') }}" defer></script>
 </head>
+<body class="map-page">
+{% include '_topbar.html' %}
 
-<body>
-    <div class="navbar">
-        <div class="breadcrumbs">
-            {% for crumb in generate_breadcrumbs(vrf=vrf or 'None', prefix=prefix, parents=parents) %}
-                {% if crumb.url %}
-                    <a href="{{ crumb.url }}">{{ crumb.name }}</a>
-                    {% if not loop.last %}
-                        <span class="separator">&gt;</span>
-                    {% endif %}
-                {% else %}
-                    <span>{{ crumb.name }}</span>
-                {% endif %}
-            {% endfor %}
+<aside id="tree-panel" class="panel" aria-label="Prefix tree">
+    <div class="panel-head">Prefixes
+        <span class="spacer"></span>
+        <button type="button" class="icon-btn" data-toggle-panel="tree" title="Hide prefix tree ([)" aria-label="Hide prefix tree">
+            <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M7.5 2.5L4 6l3.5 3.5" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>
+        </button>
+    </div>
+    <div class="panel-body"><div id="tree" role="tree"><div class="msg">Loading…</div></div></div>
+</aside>
+
+<main id="map-panel">
+    {% if image_url %}
+    <div id="viewport">
+        <div id="stage-wrap">
+            <div id="stage">
+                <img id="map-img" src="{{ image_url }}" alt="Address map of {{ prefix }}">
+                <div class="ov" id="ov-select" hidden></div>
+                <div class="ov" id="ov-prefix" hidden></div>
+                <div class="ov" id="ov-free" hidden></div>
+                <div class="ov" id="ov-hover" hidden></div>
+                <div class="ov" id="ov-pin" hidden></div>
+            </div>
         </div>
     </div>
-    <div class="container">
-        <div class="sidebar">
-            <b>VRF {% if vrf %}<a href="{{ netbox_url }}/ipam/vrfs/{{ vrf.id }}/">{{ vrf.name }}</a>{% else %}Global{% endif %}</b>
-            <div id="prefix-tree" data-vrf="{{ vrf_key }}" data-prefix="{{ prefix }}">Loading…</div>
-        </div>
-        <div class="content">
-            <div id="map-container">
-                {% if image_filename %}
-                <div id="map-view" data-data-url="{{ base_path }}/data/{{ vrf_key }}/{{ sanitized_prefix }}"
-                     data-netbox-url="{{ netbox_url }}">
-                    <div id="map-toolbar">
-                        <button type="button" id="zoom-out" title="Zoom out">−</button>
-                        <span id="zoom-level"></span>
-                        <button type="button" id="zoom-in" title="Zoom in">+</button>
-                        <button type="button" id="zoom-fit" title="Fit to width">Fit</button>
-                        <span id="map-usage"></span>
-                        <span id="map-updated"></span>
-                    </div>
-                    <div id="map-scroll">
-                        <div id="map-stage">
-                            <img id="map-image" src="{{ base_path }}/images/{{ image_filename }}" alt="Map of {{ prefix }}">
-                            <div id="hover-prefix" class="hover-box" hidden></div>
-                            <div id="hover-cell" class="hover-box" hidden></div>
-                        </div>
-                    </div>
-                    <div id="map-legend"></div>
+    {% else %}
+    <div class="map-empty"><p>No map image for {{ prefix }}: maps are drawn for /16 and longer prefixes. Choose a child prefix in the tree.</p></div>
+    {% endif %}
+    <div id="zoom" role="toolbar" aria-label="Map view">
+        <button type="button" data-toggle-panel="tree" title="Prefix tree ([)" aria-label="Toggle prefix tree">
+            <svg width="14" height="12" viewBox="0 0 14 12" aria-hidden="true"><rect x=".7" y=".7" width="12.6" height="10.6" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.2"/><rect x="1.5" y="1.5" width="3.5" height="9" fill="currentColor"/></svg>
+        </button>
+        {% if image_url %}
+        <span class="sep"></span>
+        <button type="button" id="zoom-out" title="Zoom out (−)" aria-label="Zoom out">−</button>
+        <span id="zoom-level"></span>
+        <button type="button" id="zoom-in" title="Zoom in (+)" aria-label="Zoom in">+</button>
+        <span class="sep"></span>
+        <button type="button" id="zoom-fit" title="Fit to view (0)">Fit</button>
+        {% endif %}
+        <span class="sep"></span>
+        <button type="button" data-toggle-panel="insp" title="Inspector (])" aria-label="Toggle inspector">
+            <svg width="14" height="12" viewBox="0 0 14 12" aria-hidden="true"><rect x=".7" y=".7" width="12.6" height="10.6" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.2"/><rect x="9" y="1.5" width="3.5" height="9" fill="currentColor"/></svg>
+        </button>
+    </div>
+</main>
+
+<aside id="insp-panel" class="panel" aria-label="Inspector">
+    <div class="panel-head"><span id="insp-title">Inspector</span><span id="insp-badge" class="badge">{% if image_url %}hover the map{% endif %}</span>
+        <button type="button" class="icon-btn" data-toggle-panel="insp" title="Hide inspector (])" aria-label="Hide inspector">
+            <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M4.5 2.5L8 6l-3.5 3.5" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>
+        </button>
+    </div>
+    <div class="panel-body">
+        <div id="insp-detail" hidden></div>
+        <div id="insp-summary">
+            <section class="sec">
+                <div class="big">{{ prefix }}</div>
+                <div class="sub">
+                    {% if details.description %}<span>{{ details.description }}</span>{% endif %}
+                    {% if details.status %}<span class="pill">{{ details.status | capitalize }}</span>{% endif %}
                 </div>
-                <div id="map-tooltip" hidden></div>
-                <script type="application/json" id="map-names">{{ names | tojson }}</script>
-                {% else %}
-                <p>No map image for {{ prefix }}: maps are drawn for /16 and smaller prefixes. Choose a child prefix in the tree.</p>
-                {% endif %}
-            </div>
-            <div id="prefix-details">
-                <table>
-                    <tr>
-                        <th>Prefix</th>
-                        <td>{% if prefix_id %}<a href="{{ netbox_url }}/ipam/prefixes/{{ prefix_id }}/">{{ prefix }}</a>{% else %}{{ prefix }}{% endif %}</td>
-                    </tr>
-                    {% if details.description %}
-                    <tr>
-                        <th>Description</th>
-                        <td>{{ details.description }}</td>
-                    </tr>
+                <div id="sum-usage"></div>
+            </section>
+            <section class="sec">
+                <h3>Prefix</h3>
+                <dl class="kv">
+                    <dt>VRF</dt>
+                    <dd>{% if vrf %}<a class="ext" href="{{ netbox_url }}/ipam/vrfs/{{ vrf.id }}/" target="_blank" rel="noopener">{{ vrf.name }}</a>{% else %}Global{% endif %}</dd>
+                    <dt>Status</dt>
+                    {% if details.status %}<dd>{{ details.status | capitalize }}</dd>{% else %}<dd class="none">—</dd>{% endif %}
+                    <dt>Tenant</dt>
+                    {% if details.tenant_id %}<dd><a class="ext" href="{{ netbox_url }}/tenancy/tenants/{{ details.tenant_id }}/" target="_blank" rel="noopener">{{ details.tenant_name or details.tenant_id }}</a></dd>{% else %}<dd class="none">—</dd>{% endif %}
+                    <dt>Role</dt>
+                    {% if details.role_id %}<dd><a class="ext" href="{{ netbox_url }}/ipam/roles/{{ details.role_id }}/" target="_blank" rel="noopener">{{ details.role_name or details.role_id }}</a></dd>{% else %}<dd class="none">—</dd>{% endif %}
+                </dl>
+            </section>
+            <div id="sum-free"></div>
+            <section class="sec">
+                <h3>Links</h3>
+                <div class="links">
+                    {% if prefix_id %}
+                    <a class="ext" href="{{ netbox_url }}/ipam/prefixes/{{ prefix_id }}/" target="_blank" rel="noopener">Prefix {{ prefix }} in NetBox</a>
+                    <a class="ext" href="{{ netbox_url }}/ipam/prefixes/{{ prefix_id }}/ip-addresses/" target="_blank" rel="noopener">IP addresses in this prefix</a>
                     {% endif %}
-                    <tr>
-                        <th>VRF</th>
-                        {% if vrf %}
-                        <td><a href="{{ netbox_url }}/ipam/vrfs/{{ vrf.id }}/">{{ vrf.name }}</a> {{ vrf.description or '' }}</td>
-                        {% else %}
-                        <td>Global</td>
-                        {% endif %}
-                    </tr>
-                    {% if details.tenant_id %}
-                    <tr>
-                        <th>Tenant</th>
-                        <td><a href="{{ netbox_url }}/tenancy/tenants/{{ details.tenant_id }}/">{{ details.tenant_name or details.tenant_id }}</a></td>
-                    </tr>
-                    {% endif %}
-                    {% if details.status %}
-                    <tr>
-                        <th>Status</th>
-                        <td>{{ details.status | capitalize }}</td>
-                    </tr>
-                    {% endif %}
-                    {% if details.role_id %}
-                    <tr>
-                        <th>Role</th>
-                        <td><a href="{{ netbox_url }}/ipam/roles/{{ details.role_id }}/">{{ details.role_name or details.role_id }}</a></td>
-                    </tr>
-                    {% endif %}
-                </table>
-            </div>
+                    {% if vrf %}<a class="ext" href="{{ netbox_url }}/ipam/vrfs/{{ vrf.id }}/" target="_blank" rel="noopener">VRF {{ vrf.name }} in NetBox</a>{% endif %}
+                </div>
+            </section>
+            {% if image_url %}
+            <section class="sec">
+                <h3>Keys</h3>
+                <div class="howto">
+                    <div>Hover to inspect, click to pin, <kbd>Esc</kbd> to unpin</div>
+                    <div>Double-click opens the child prefix or the IP in NetBox</div>
+                    <div><kbd>/</kbd> search · <kbd>+</kbd> <kbd>−</kbd> <kbd>0</kbd> zoom · <kbd>[</kbd> <kbd>]</kbd> panels</div>
+                </div>
+            </section>
+            {% endif %}
         </div>
     </div>
-</body>
+</aside>
 
+<footer id="legend"></footer>
+
+<script type="application/json" id="page-config">{{ config | tojson }}</script>
+</body>
 </html>
