@@ -1,59 +1,125 @@
+# app/updater_manager.py
+
+import logging
 import threading
 import time
-import logging
+
 
 class UpdaterManager:
-    def __init__(self, updater_function, debounce_interval=60):
+    """
+    Runs ``updater_function`` in a background thread in response to webhooks.
+
+    - The first webhook after an idle period starts an update immediately.
+    - Webhooks arriving while an update runs, or within ``debounce_interval``
+      seconds after the previous update started, are coalesced into a single
+      follow-up run, started no earlier than ``debounce_interval`` after the
+      previous start.
+    - Only one update runs at a time (all runs happen in one worker thread).
+    """
+
+    def __init__(self, updater_function, debounce_interval=60, clock=time.monotonic, start=True):
         self.updater_function = updater_function
         self.debounce_interval = debounce_interval
-        self.last_run_time = 0  # Time when the updater last ran
-        self.next_run_time = float('inf')  # Next scheduled run time
-        self.last_webhook_time = 0  # Time of the last webhook received
-        self.updater_running = False
-        self.lock = threading.Lock()
-        self.updater_thread = threading.Thread(target=self._updater_loop)
-        self.updater_thread.daemon = True
-        self.updater_thread.start()
+        self._clock = clock
+        self._lock = threading.Lock()
+        self._wake = threading.Event()
+        self._stop = threading.Event()
+        self._pending = False
+        self._last_start = None  # clock() of the last update start
+
+        # Status, for observability (wall-clock timestamps)
+        self.running = False
+        self.runs = 0
+        self.failures = 0
+        self.last_webhook_at = None
+        self.last_started_at = None
+        self.last_finished_at = None
+        self.last_success_at = None
+        self.last_duration = None
+        self.last_error = None
+
+        self._thread = threading.Thread(target=self._loop, name="updater", daemon=True)
+        if start:
+            self._thread.start()
 
     def webhook_received(self):
-        now = time.time()
-        with self.lock:
-            self.last_webhook_time = now
-            # If the next run time is in the past or infinite, set it to now
-            if self.next_run_time <= now or self.next_run_time == float('inf'):
-                self.next_run_time = now
+        with self._lock:
+            self._pending = True
+            self.last_webhook_at = time.time()
+        self._wake.set()
         logging.info("Webhook received.")
 
-    def _updater_loop(self):
-        while True:
-            now = time.time()
-            with self.lock:
-                # Only run updater if a webhook has been received since the last run
-                if (not self.updater_running and 
-                    self.last_webhook_time > self.last_run_time and 
-                    self.next_run_time <= now):
-                    self.updater_running = True
-                    threading.Thread(target=self._run_updater).start()
-            time.sleep(1)  # Sleep to prevent busy waiting
+    def stop(self, timeout=None):
+        self._stop.set()
+        self._wake.set()
+        if self._thread.is_alive():
+            self._thread.join(timeout)
 
-    def _run_updater(self):
-        start_time = time.time()
+    def status(self):
+        with self._lock:
+            return {
+                'running': self.running,
+                'pending': self._pending,
+                'runs': self.runs,
+                'failures': self.failures,
+                'last_webhook_at': self.last_webhook_at,
+                'last_started_at': self.last_started_at,
+                'last_finished_at': self.last_finished_at,
+                'last_success_at': self.last_success_at,
+                'last_duration': self.last_duration,
+                'last_error': self.last_error,
+            }
+
+    def _seconds_until_allowed(self):
+        if self._last_start is None:
+            return 0
+        return self._last_start + self.debounce_interval - self._clock()
+
+    def _loop(self):
+        while not self._stop.is_set():
+            with self._lock:
+                pending = self._pending
+            if not pending:
+                self._wake.wait()
+                self._wake.clear()
+                continue
+            delay = self._seconds_until_allowed()
+            if delay > 0:
+                # Wait out the debounce interval; further webhooks are coalesced
+                self._stop.wait(delay)
+                continue
+            with self._lock:
+                self._pending = False
+            self._run_once()
+
+    def _run_once(self):
+        self._last_start = self._clock()
+        started = time.time()
+        with self._lock:
+            self.running = True
+            self.last_started_at = started
+        ok, error = False, None
         try:
             logging.info("Starting updater...")
-            self.updater_function()
-            logging.info("Updater finished.")
-        except Exception as e:
+            result = self.updater_function()
+            ok = result is not False  # full_update() reports failure by returning False
+            if not ok:
+                error = "update function reported failure"
+        except (Exception, SystemExit) as e:  # never let the worker thread die
+            error = str(e)
             logging.error(f"Updater encountered an error: {e}")
-        finally:
-            end_time = time.time()
-            with self.lock:
-                self.last_run_time = end_time
-                self.updater_running = False
-                # Check if new webhooks have been received during the updater run
-                if self.last_webhook_time > start_time:
-                    self.next_run_time = end_time  # Schedule the updater to run immediately
-                    logging.info("New webhook received during update; scheduling next run.")
-                else:
-                    # No new webhooks; set next_run_time to infinity
-                    self.next_run_time = float('inf')
-                    logging.info("No recent webhooks; updater will remain idle.")
+        finished = time.time()
+        with self._lock:
+            self.running = False
+            self.runs += 1
+            self.last_finished_at = finished
+            self.last_duration = finished - started
+            if ok:
+                self.last_success_at = finished
+                self.last_error = None
+            else:
+                self.failures += 1
+                self.last_error = error
+            pending = self._pending
+        logging.info(f"Updater finished in {finished - started:.1f}s ({'ok' if ok else 'failed'})."
+                     + (" More changes pending; next run after debounce interval." if pending else ""))

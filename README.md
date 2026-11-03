@@ -39,6 +39,11 @@ The NetBox Prefix Map application fetches network data from NetBox and generates
    - `NETBOX_API_TOKEN`: Authentication token.
    - `OUTPUT_DIR`: Output directory for generated files (default: `output`).
    - `BASE_PATH`: Base path for serving the application (default: `/prefix-map`).
+   - `CELL_SIZE`: Size of one IP cell in pixels (default: `12`).
+   - `WEBHOOK_SECRET`: Secret configured on the NetBox webhook; when set, requests without a valid `X-Hook-Signature` are rejected (recommended).
+   - `UPDATE_DEBOUNCE_SECONDS`: Minimum interval between webhook-triggered updates (default: `60`).
+
+   A relative `OUTPUT_DIR` is resolved against the project root for both the CLI and the web app.
 
 4. Run the CLI Script:
 
@@ -103,10 +108,22 @@ The application will be available under the `/prefix-map` path of your NetBox si
 
 ## Webhook Integration
 
-- Expects NetBox to send webhook events for prefixes and IP addresses to the `/webhook` endpoint
-- Processes events to update visualizations dynamically
+- Expects NetBox to send webhook events (created, updated, deleted) to the `<BASE_PATH>/webhook` endpoint, e.g. via an Event Rule for IPAM prefixes, IP addresses, VRFs and tenants
+- Events for other object types are ignored
+- Set the same secret in the NetBox webhook and in `WEBHOOK_SECRET` to authenticate requests
+- Bursts of events are coalesced: one update starts immediately, further changes are picked up by a single follow-up run after `UPDATE_DEBOUNCE_SECONDS`
 
 ## Constraints and Assumptions
 
+- IPv4 only; IPv6 prefixes are skipped
+- Map images are drawn for /16 and smaller prefixes; larger prefixes (e.g. 10.0.0.0/8) are available for navigation only
 - The application assumes deployment alongside NetBox on the same host, with a distinct base path to avoid URL conflicts
 - WSGI not supported yet
+
+## Development
+
+Tests run offline against a synthetic, deterministic NetBox dataset (`tests/synthetic_data.py`); no NetBox access is needed:
+
+```bash
+make test
+```
