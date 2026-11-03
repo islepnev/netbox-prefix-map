@@ -307,3 +307,12 @@ def test_usage_percent_is_capped(webapp):
         html = render_template_string(
             "{% from '_usage.html' import percent %}{{ percent(3, 2) }} {{ percent(1, 1000) }} {{ percent(None, 2) }}")
     assert html == '100% &lt;1% —'
+
+
+def test_search_ip_record_unknown_without_ip_list(client):
+    _, body = search(client, '10.40.0.1')
+    result = body['results'][0]
+    assert result['prefix'] == '10.0.0.0/8' and 'ip' not in result
+    _, body = search(client, '10.20.48.1/32')
+    assert body['results'][0]['url'].endswith('?focus=10.20.48.1')
+    assert body['results'][0]['ip']['dns_name'] == 'gw-48.example.test'

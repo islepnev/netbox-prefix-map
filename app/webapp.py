@@ -448,9 +448,15 @@ def prefix_index():
     return index
 
 
+UNKNOWN = object()
+
+
 def find_ip_record(vrf_key, prefix, address):
+    """The IP record from the prefix data file; UNKNOWN when the file carries no IP list."""
     data = load_json(os.path.join(OUTPUT_DIR, f"data-{sanitize_name(vrf_key)}-{sanitize_name(prefix)}.json"))
-    for ip in data.get('ip_addresses') or []:
+    if not data.get('rendered', 'ip_addresses' in data) or 'ip_addresses' not in data:
+        return UNKNOWN
+    for ip in data['ip_addresses']:
         if ip.get('address', '').split('/')[0] == address:
             return {k: ip.get(k) for k in ('id', 'address', 'status', 'role', 'dns_name', 'description')}
     return None
@@ -458,11 +464,11 @@ def find_ip_record(vrf_key, prefix, address):
 
 def search_prefixes(query):
     """Maps showing an IPv4 address or prefix, across VRFs: the prefix itself, else the innermost one containing it."""
-    if '/' in query:
+    if '/' in query and not query.endswith('/32'):
         target = ipaddress.ip_network(query, strict=False)
         address = None
     else:
-        address = ipaddress.ip_address(query)
+        address = ipaddress.ip_address(query.split('/')[0])
         target = ipaddress.ip_network(f'{address}/32')
     vrf_names = {str(v['id']): v.get('name') for v in load_vrf_data()}
     results = []
@@ -482,7 +488,9 @@ def search_prefixes(query):
                            **({} if exact else {'focus': str(address or target)})),
         }
         if address is not None:
-            result['ip'] = find_ip_record(vrf_key, str(network), str(address))
+            record = find_ip_record(vrf_key, str(network), str(address))
+            if record is not UNKNOWN:
+                result['ip'] = record
         results.append(result)
     results.sort(key=lambda r: (r['match'] != 'exact', not r.get('ip'), r['vrf'] != 'None',
                                 (r['vrf_name'] or '').lower()))
