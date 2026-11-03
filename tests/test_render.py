@@ -169,3 +169,11 @@ def test_global_container_spans_vrfs(tmp_path):
     assert (rgb[y0:y1, x0:x1].sum(axis=2) == 0).all(), "active record must win over inactive ones"
     bx0, by0, _, _ = cell_box("172.16.0.0/22", "172.16.1.0")
     assert (rgb[by0 - 1, bx0:bx0 + 16 * CELL_SIZE].sum(axis=1) < 100).any()
+
+
+def test_tenant_colors_are_stable_when_tenants_change():
+    from app.plot_map import build_tenant_color_map
+    before = build_tenant_color_map([{"tenant": 3}, {"tenant": 7}, {"tenant": None}])
+    after = build_tenant_color_map([{"tenant": 1}, {"tenant": 3}, {"tenant": 5}, {"tenant": 7}])
+    assert before[3] == after[3] and before[7] == after[7]
+    assert len({after[t] for t in (1, 3, 5, 7)}) == 4
