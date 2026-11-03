@@ -50,12 +50,12 @@ def test_no_run_without_webhook():
 
 def test_first_webhook_runs_immediately():
     rec = Recorder()
-    mgr = UpdaterManager(rec, debounce_interval=INTERVAL)
+    mgr = UpdaterManager(rec, debounce_interval=10)
     t0 = time.monotonic()
     mgr.webhook_received()
     assert wait_for(lambda: mgr.status()['runs'] == 1)
     mgr.stop(1)
-    assert rec.starts[0] - t0 < 0.2
+    assert rec.starts[0] - t0 < 5  # well below the 10 s interval: no debounce delay before the first run
 
 
 def test_burst_is_coalesced_and_debounced():

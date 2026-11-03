@@ -33,7 +33,7 @@
             <b>VRF {% if vrf %}<a href="{{ netbox_url }}/ipam/vrfs/{{ vrf.id }}/">{{ vrf.name }}</a>{% else %}Global{% endif %}</b>
             <div id="prefix-tree">Loading...</div>
             <ul>
-                {% for prefix in prefixes %}
+                {% for prefix in prefixes if ':' not in prefix.prefix %}
                 <li><a href="{{ base_path }}/map/{{ vrf.id or 'None' }}/{{ prefix.sanitized }}">{{ prefix.display }}</a></li>
                 {% endfor %}
             </ul>
