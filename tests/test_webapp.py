@@ -1,5 +1,3 @@
-# tests/test_webapp.py
-
 import hashlib
 import hmac
 import json

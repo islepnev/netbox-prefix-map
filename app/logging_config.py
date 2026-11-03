@@ -48,17 +48,14 @@ def setup_logging(level=logging.INFO, debug=False):
         return
     _configured = True
 
-    # Console handler for INFO level
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setLevel(level)
-    console_formatter = logging.Formatter('%(asctime)s %(levelname)-8s %(message)s')  # Fixed width for severity
+    console_formatter = logging.Formatter('%(asctime)s %(levelname)-8s %(message)s')
     console_handler.setFormatter(console_formatter)
     logger.addHandler(console_handler)
 
-    # Recent warnings and errors for the /errors page
     logger.addHandler(recent_log_handler)
 
-    # SysLog handler for INFO level
     try:
         DEV_LOG = '/dev/log'
         if os.path.exists(DEV_LOG):

@@ -1,5 +1,3 @@
-# app/prefix_tree.py
-
 import pytricia
 import ipaddress
 from collections import defaultdict
@@ -145,7 +143,7 @@ class PrefixTree:
         if not subtree:
             return []
         
-        children = set()  # Use a set to eliminate duplicates
+        children = set()
 
         def traverse(node):
             for child in node.get('children', []):
@@ -155,5 +153,4 @@ class PrefixTree:
                     traverse(child)
 
         traverse(subtree)
-        # Order by length, then address (a set has no stable order)
         return sorted(children, key=lambda p: (ipaddress.ip_network(p).prefixlen, ipaddress.ip_network(p)))

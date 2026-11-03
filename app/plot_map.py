@@ -1,11 +1,9 @@
-# app/plot_map.py
-
 import ipaddress
 import logging
 import math
 import os
 import matplotlib
-matplotlib.use("Agg")  # headless backend; rendering runs off the main thread (updater)
+matplotlib.use("Agg")  # renders off the main thread, without a display
 from matplotlib.patches import Rectangle  # noqa: E402
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
@@ -80,7 +78,6 @@ def create_allocation_grid(prefix, ip_addresses):
     Each cell represents a single IP address.
     Returns a dictionary mapping (x, y) to IP details.
     """
-    # Raise (never sys.exit) so one bad prefix cannot kill the updater thread
     prefix_obj = ipaddress.ip_network(prefix)
     logging.debug(f"Processing prefix: {prefix_obj}")
 
@@ -102,10 +99,10 @@ def create_allocation_grid(prefix, ip_addresses):
                 offset = int(ip) - int(prefix_obj.network_address)
                 x, y = decode_offset(offset, max_bits, grid_width, grid_height)
                 if 0 <= x < grid_width and 0 <= y < grid_height:
-                    grid[y][x] = 1  # Mark as allocated
+                    grid[y][x] = 1
                     details = extract_ip_details(ip, ip_entry)
                     existing = ip_details.get((x, y))
-                    # Same address in several VRFs (Global container): show the most significant one
+                    # Same address in several VRFs (Global container)
                     if existing is None or ip_display_rank(details) > ip_display_rank(existing):
                         ip_details[(x, y)] = details
                     if existing is None:
@@ -224,15 +221,13 @@ def determine_ip_color(details, palette):
     """
     status = choice_value(details.get('status'))
     if details.get('role'):
-        return (palette['tags']['Special'], 1.0)  # Deep red for non-empty role
-    # if details['tags']:
-    #     return (palette['tags']['Special'], 1.0)  # Deep red for non-empty tag
+        return (palette['tags']['Special'], 1.0)
     elif status == 'reserved':
-        return ('black', 0.25)  # 25% opaque black for Reserved
+        return ('black', 0.25)
     elif status == 'inactive':
-        return ('none', 0)  # Transparent for Inactive
+        return ('none', 0)
     else:
-        return ('black', 1)  # Normal
+        return ('black', 1)
 
 
 def get_prefix_label(prefix):
@@ -365,14 +360,12 @@ def finalize_plot(ax, image_width, image_height, prefix_entry):
     """
     Finalize plot settings.
     """
-    # Exactly one data unit per output pixel: cell edges land on whole pixels across the
-    # whole image (a range of width+1 shrank cells slightly and shifted gaps by up to 1 px).
+    # One data unit per output pixel, so cell edges land on whole pixels
     ax.set_xlim(0, image_width)
     ax.set_ylim(0, image_height)
     ax.invert_yaxis()  # To have (0,0) at top-left
     ax.set_axis_off()
     ax.set_position([0, 0, 1, 1])
-    # plt.title(f"{prefix_entry.get('prefix')} {prefix_entry.get('description')}", pad=10)
 
 
 def construct_prefix_label(network):
@@ -438,44 +431,31 @@ def plot_allocation_grid(top_level_prefix_entry, child_prefixes, relevant_ips, o
     top_level_prefix = top_level_prefix_entry.get("prefix", "").strip()
     logging.info(top_level_prefix)
 
-    # Create a grid for IP allocation
     grid, ip_details = create_allocation_grid(top_level_prefix, relevant_ips)
     grid_width, grid_height = calculate_grid_dimensions(top_level_prefix)
     max_bits = get_max_bits(grid_width, grid_height)
 
-    # Get rectangles for prefixes
     rectangles = get_prefix_rectangles(top_level_prefix, child_prefixes, max_bits)
 
-    # Proceed to plot
     palette = design_color_palette()
 
     image_width = grid_width * cell_size
     image_height = grid_height * cell_size
     fig, ax = plt.subplots(figsize=(image_width / 100, image_height / 100), dpi=100)
 
-    # Set background
     ax.set_facecolor(palette['background'])
 
-    # Draw sparse 16x16 grid lines with low contrast dotted lines
     draw_sparse_grid(ax, cell_size, grid_width, grid_height, palette)
 
-    # Draw navigation labels
     draw_navigation_labels(ax, top_level_prefix, cell_size, grid_width, grid_height, palette)
 
-    # # Annotate axes with cell indices
-    # annotate_axes(ax, image_width, image_height, cell_size, grid_width, grid_height)
-
-    # Draw prefix rectangles with low contrast based on tenant
     draw_prefix_rectangles(ax, rectangles, cell_size, tenant_color_map)
 
-    # Plot each allocated IP
     plot_allocated_ips(ax, ip_details, cell_size, palette)
 
-    # Finalize and save the plot
     finalize_plot(ax, image_width, image_height, top_level_prefix_entry)
 
-    # No bbox_inches='tight': it may crop or pad and break the 1:1 pixel mapping.
-    # Write to a temp file and rename, so the web app never serves a half-written image.
+    # bbox_inches='tight' would break the 1:1 pixel mapping; rename keeps the write atomic
     tmp_file = f"{output_file}.tmp"
     fig.savefig(tmp_file, dpi=100, format='png')
     os.replace(tmp_file, output_file)

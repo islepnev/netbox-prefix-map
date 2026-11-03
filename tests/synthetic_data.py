@@ -1,4 +1,3 @@
-# tests/synthetic_data.py
 """
 Deterministic synthetic NetBox dataset for tests and offline demos.
 
@@ -118,7 +117,6 @@ def build_dataset(seed: int = 20):
     for prefix, tenant, status in TENANT_BLOCKS:
         add_prefix(prefix, LAN_VRF_ID, tenant, status)
 
-    # Per-/24 subnets inside tenant blocks larger than /24
     block_tenant = {}
     for prefix, tenant, _ in TENANT_BLOCKS:
         net = ipaddress.ip_network(prefix)
@@ -130,7 +128,7 @@ def build_dataset(seed: int = 20):
     for prefix, tenant in NESTED:
         add_prefix(prefix, LAN_VRF_ID, tenant)
 
-    # Global VRF and IPv6 (IPv6 is out of scope and must be skipped cleanly)
+    # IPv6 must be skipped cleanly
     add_prefix("192.168.0.0/24", None, status="active", description="Management")
     add_prefix("2001:db8::/48", LAN_VRF_ID, status="active", description="IPv6 test")
 
@@ -156,7 +154,6 @@ def build_dataset(seed: int = 20):
             used.add(1)
             add_ip(f"10.20.{octet}.1/24", LAN_VRF_ID, tenant, role="anycast", dns_name=f"gw-{octet}.example.test")
         target = int(density * 254)
-        # Hand-planned look: contiguous runs, not uniform noise
         while len(used) < target:
             start = rng.randint(2, 254)
             length = rng.choice([1, 1, 2, 3, 4, 6, 8, 12, 16, 24])

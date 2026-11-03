@@ -1,5 +1,3 @@
-# tests/test_updater_manager.py
-
 import threading
 import time
 
@@ -55,7 +53,7 @@ def test_first_webhook_runs_immediately():
     mgr.webhook_received()
     assert wait_for(lambda: mgr.status()['runs'] == 1)
     mgr.stop(1)
-    assert rec.starts[0] - t0 < 5  # well below the 10 s interval: no debounce delay before the first run
+    assert rec.starts[0] - t0 < 5
 
 
 def test_burst_is_coalesced_and_debounced():
@@ -64,7 +62,7 @@ def test_burst_is_coalesced_and_debounced():
     for _ in range(5):
         mgr.webhook_received()
     assert wait_for(lambda: len(rec.starts) == 1)
-    for _ in range(5):  # during/just after the first run
+    for _ in range(5):
         mgr.webhook_received()
         time.sleep(0.02)
     assert wait_for(lambda: mgr.status()['runs'] == 2)
@@ -81,7 +79,7 @@ def test_failure_is_recorded_and_thread_survives():
     mgr.webhook_received()
     assert wait_for(lambda: mgr.status()['failures'] == 1)
     assert 'boom' in mgr.status()['last_error']
-    rec.exc = SystemExit(1)  # must not kill the worker either
+    rec.exc = SystemExit(1)
     mgr.webhook_received()
     assert wait_for(lambda: mgr.status()['failures'] == 2)
     rec.exc = None
