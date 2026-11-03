@@ -98,6 +98,18 @@ class PrefixTree:
             return []
         return [tree[child] for child in tree.children(prefix)]
 
+    def get_descendants_all_vrfs(self, prefix):
+        """Prefixes nested under ``prefix`` in any VRF (for Global containers)."""
+        network = ipaddress.ip_network(prefix)
+        tree_key = 'ipv4' if network.version == 4 else 'ipv6'
+        result = []
+        for vrf, vrf_trees in list(self.trees.items()):
+            for key in vrf_trees[tree_key]:
+                child = ipaddress.ip_network(key)
+                if child.subnet_of(network) and not (vrf is None and child == network):
+                    result.append(vrf_trees[tree_key][key])
+        return result
+
     def get_subtree(self, prefix, vrf=None):
         """
         Get the subtree starting from a specific prefix in a given VRF.

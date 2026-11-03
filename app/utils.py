@@ -3,6 +3,7 @@
 from collections import defaultdict
 import csv
 import ipaddress
+import json
 import logging
 import os
 import re
@@ -251,3 +252,11 @@ def resolve_output_dir(output_dir=None):
     if os.path.isabs(output_dir):
         return output_dir
     return os.path.join(PROJECT_ROOT, output_dir)
+
+
+def write_json_atomic(path, data):
+    """Write JSON via a temp file + rename, so readers never see a half-written file."""
+    tmp_path = f"{path}.tmp"
+    with open(tmp_path, 'w') as f:
+        json.dump(data, f, indent=2)
+    os.replace(tmp_path, path)
