@@ -48,3 +48,15 @@ def test_get_children_recursively_multi_vrf(prefix_tree):
 def test_get_children_recursively_nonexistent_vrf(prefix_tree):
     children = prefix_tree.get_children_recursively("192.168.0.0/16", 999)
     assert children == [], "Should return an empty list for nonexistent VRF"
+
+
+def test_subtree_has_direct_children_only(prefix_tree):
+    subtree = prefix_tree.get_subtree("10.0.0.0/8", 1)
+    assert [c["prefix"] for c in subtree["children"]] == ["10.1.0.0/16", "10.2.0.0/16"]
+    assert [c["prefix"] for c in subtree["children"][0]["children"]] == ["10.1.1.0/24"]
+
+
+def test_descendants_include_all_depths(prefix_tree):
+    assert sorted(p["prefix"] for p in prefix_tree.get_descendants("10.0.0.0/8", 1)) == [
+        "10.1.0.0/16", "10.1.1.0/24", "10.1.1.128/25", "10.2.0.0/16"
+    ]

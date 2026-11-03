@@ -3,13 +3,14 @@
 import ipaddress
 import logging
 import math
-from matplotlib.patches import Rectangle
-import matplotlib.pyplot as plt
-import numpy as np
-import sys
+import matplotlib
+matplotlib.use("Agg")  # headless backend; rendering runs off the main thread (updater)
+from matplotlib.patches import Rectangle  # noqa: E402
+import matplotlib.pyplot as plt  # noqa: E402
+import numpy as np  # noqa: E402
 
-from app.color_design import TABLEAU10_PALETTE, blend_colors, design_color_palette
-from app.utils import expand_ip_entry, extract_ip_details
+from app.color_design import TABLEAU10_PALETTE, blend_colors, design_color_palette  # noqa: E402
+from app.utils import choice_value, expand_ip_entry, extract_ip_details  # noqa: E402
 
 
 Z_DEPTH_IP_CELLS = 110  # on top
@@ -78,17 +79,9 @@ def create_allocation_grid(prefix, ip_addresses):
     Each cell represents a single IP address.
     Returns a dictionary mapping (x, y) to IP details.
     """
-    try:
-        prefix_obj = ipaddress.ip_network(prefix)
-        # if prefix_obj.prefixlen != 16:
-            # raise ValueError("Top-level prefix must be /16")
-        logging.debug(f"Processing prefix: {prefix_obj}")
-    except ValueError as ve:
-        logging.error(f"Invalid prefix '{prefix}': {ve}")
-        sys.exit(1)
-    except Exception as e:
-        logging.error(f"Error processing prefix '{prefix}': {e}")
-        sys.exit(1)
+    # Raise (never sys.exit) so one bad prefix cannot kill the updater thread
+    prefix_obj = ipaddress.ip_network(prefix)
+    logging.debug(f"Processing prefix: {prefix_obj}")
 
     grid_width, grid_height = calculate_grid_dimensions(prefix)
     max_bits = get_max_bits(grid_width, grid_height)
@@ -215,13 +208,14 @@ def determine_ip_color(details, palette):
     Determine the color and opacity for an IP address based on its details.
     Returns a tuple of (color, alpha).
     """
-    if details['role']:
+    status = choice_value(details.get('status'))
+    if details.get('role'):
         return (palette['tags']['Special'], 1.0)  # Deep red for non-empty role
     # if details['tags']:
     #     return (palette['tags']['Special'], 1.0)  # Deep red for non-empty tag
-    elif details['status'] == 'Reserved':
+    elif status == 'reserved':
         return ('black', 0.25)  # 25% opaque black for Reserved
-    elif details['status'] == 'Inactive':
+    elif status == 'inactive':
         return ('none', 0)  # Transparent for Inactive
     else:
         return ('black', 1)  # Normal
@@ -357,12 +351,13 @@ def finalize_plot(ax, image_width, image_height, prefix_entry):
     """
     Finalize plot settings.
     """
-    ax.set_xlim(0, image_width+1)
-    ax.set_ylim(0, image_height+1)
+    # Exactly one data unit per output pixel: cell edges land on whole pixels across the
+    # whole image (a range of width+1 shrank cells slightly and shifted gaps by up to 1 px).
+    ax.set_xlim(0, image_width)
+    ax.set_ylim(0, image_height)
     ax.invert_yaxis()  # To have (0,0) at top-left
     ax.set_axis_off()
-    fig = ax.get_figure()
-    fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
+    ax.set_position([0, 0, 1, 1])
     # plt.title(f"{prefix_entry.get('prefix')} {prefix_entry.get('description')}", pad=10)
 
 
@@ -465,6 +460,7 @@ def plot_allocation_grid(top_level_prefix_entry, child_prefixes, relevant_ips, o
     # Finalize and save the plot
     finalize_plot(ax, image_width, image_height, top_level_prefix_entry)
 
-    plt.savefig(output_file, dpi=100, bbox_inches='tight', pad_inches=0)
-    plt.close()
+    # No bbox_inches='tight': it may crop or pad and break the 1:1 pixel mapping
+    fig.savefig(output_file, dpi=100)
+    plt.close(fig)
     logging.debug(f"Prefix map {top_level_prefix} saved to {output_file}")
