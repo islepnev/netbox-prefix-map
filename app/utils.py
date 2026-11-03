@@ -258,3 +258,12 @@ def write_json_atomic(path, data):
     with open(tmp_path, 'w') as f:
         json.dump(data, f, indent=2)
     os.replace(tmp_path, path)
+
+
+def load_json(path, default=None):
+    """Return parsed JSON, or ``default`` (``{}``) when the file is missing or unreadable."""
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {} if default is None else default
