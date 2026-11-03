@@ -451,3 +451,16 @@ def test_user_text_is_escaped(open_page):
     assert evil in page.inner_text('#insp-detail')
     assert page.evaluate('window.pwned') is None
     assert page.locator('img[src="x"]').count() == 0
+
+
+def test_map_hidden_until_first_layout(open_page):
+    """The image must not flash at its natural size while the data file loads."""
+    held = []
+    page = open_page(f'{BASE}/map/1/10_20_48_0_20', device_scale_factor=2,
+                     route=(f'**{BASE}/data/1/10_20_48_0_20', lambda r: held.append(r)))
+    page.wait_for_function('document.getElementById("map-img").complete')
+    assert held, "data request is held"
+    assert page.eval_on_selector('#stage', 'e => getComputedStyle(e).visibility') == 'hidden'
+    held[0].continue_()
+    wait_for_map(page)
+    assert page.eval_on_selector('#stage', 'e => getComputedStyle(e).visibility') == 'visible'
