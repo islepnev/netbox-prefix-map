@@ -18,7 +18,7 @@
 
 1. Fetch all objects from NetBox. Records are flattened with pynetbox `serialize()`: nested objects become ids, choice fields become their value (`"active"`, `"reserved"`).
 2. Build one prefix tree per VRF.
-3. For every IPv4 prefix write `data-<vrf>-<prefix>.json` and, for /16 and longer, `address_map-<vrf>-<prefix>.png`.
+3. For every IPv4 prefix write `data-<vrf>-<prefix>.json` and `address_map-<vrf>-<prefix>.png`: an address map for /16 and longer, a layered map for shorter prefixes.
 4. Write `vrf.json`, `names.json` (tenant and role names), `prefix_tree.json` (prefix list per VRF) and `summary.json` (per VRF: IPv4 prefix and address counts, top-level prefixes with usage). Until the first update writes `summary.json`, the VRF pages derive the top-level prefixes from `prefix_tree.json` without usage.
 
 `<vrf>` is the VRF id or `None`; in `<prefix>`, `.` and `/` are replaced with `_`. All files are written to a temporary name and renamed, so readers never see partial files.
@@ -45,6 +45,20 @@ Each cell is `CELL_SIZE` pixels: a 1 px gap followed by the cell body. The axes 
 | Inactive IP | Not drawn |
 | Other IP | Black |
 | Grid | Dotted lines every 16 cells, /24 labels |
+
+### Layered maps
+
+Prefixes shorter than /16 would need a grid of 4096 × 4096 cells or more. They are drawn with one cell per aligned block of length `min(prefix length + 16, 24)` (a /8 gets /24 blocks), in the same Morton layout and with the same cell size. The image is written pixel by pixel (numpy), not through matplotlib patches.
+
+| Element | Style |
+|---|---|
+| Block covered by a nested prefix | Fill color of the longest such prefix |
+| Block with nested prefixes inside | Checkerboard of the first such prefix's fill color |
+| IP addresses in the block | Black overlay, 25% opacity for one address up to 90% for a full block |
+| Direct child prefix of a block or larger | Dark outline on the cell gap lines |
+| Grid | Light lines every 16 cells |
+
+The data file carries `layer` (`block_len`, `blocks`: block index and IP count) instead of the IP list. On the page a cell is a block: the inspector shows its IP count, the prefix chain, prefixes inside it and free blocks down to the block size; double-click opens the map of the child prefix covering the block, or of the first prefix inside it.
 
 Tenant colors are taken from a 16-color palette by tenant id, so a tenant keeps its color when others are added or removed.
 
