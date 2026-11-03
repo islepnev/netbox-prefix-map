@@ -95,3 +95,13 @@ def test_false_result_counts_as_failure():
     mgr.webhook_received()
     assert wait_for(lambda: mgr.status()['failures'] == 1)
     mgr.stop(1)
+
+
+def test_error_message_is_reported():
+    def fail():
+        raise RuntimeError("Failed to fetch prefixes from NetBox")
+    mgr = UpdaterManager(fail, debounce_interval=0)
+    mgr.webhook_received()
+    assert wait_for(lambda: mgr.status()['failures'] == 1)
+    mgr.stop(1)
+    assert mgr.status()['last_error'] == "Failed to fetch prefixes from NetBox"
