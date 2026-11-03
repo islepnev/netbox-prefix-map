@@ -64,6 +64,7 @@
     let blockStarts = new Float64Array(0);
     let blockCum = [0];
     const blockCounts = new Map();
+    let countsKnown = false;
     const blockStart = (a) => a - ((a - net.start) % blockSize);
     let ipsByAddr = new Map();
     let ipSorted = new Float64Array(0);
@@ -133,9 +134,10 @@
             if (p.tenant && p.color && !tenantColors.has(String(p.tenant))) tenantColors.set(String(p.tenant), p.color);
         }
         // A layered image with a data file from an older version: same block size as the renderer, counts unknown
-        if (!data.layer && img && net.len < 16) data.layer = { block_len: Math.min(net.len + 16, 24), blocks: [] };
+        if (!data.layer && img && net.len < 16) data.layer = { block_len: Math.min(net.len + 16, 24), blocks: null };
         if (data.layer) {
             layer = data.layer;
+            countsKnown = Array.isArray(layer.blocks);
             blockLen = layer.block_len;
             blockSize = 2 ** (32 - blockLen);
             const blocks = [...(layer.blocks || [])].sort((a, b) => a[0] - b[0]);
@@ -344,7 +346,7 @@
 
     // Inspector of a layered map cell: an aligned block with its IP count
     function renderBlock(a) {
-        const count = blockCounts.get((a - net.start) / blockSize) || 0;
+        const count = countsKnown ? blockCounts.get((a - net.start) / blockSize) || 0 : null;
         const chainNodes = containing(a);
         const inner = chainNodes.at(-1);
         const smaller = inside(a);
@@ -352,8 +354,9 @@
         const out = [el("section", { class: "sec" },
             el("div", { class: "big" }, intToIp(a), el("span", { class: "mask", text: `/${blockLen}` })),
             el("div", { class: "sub" },
-                count ? el("span", { class: "pill", text: `${fmt(count)} used` }) : el("span", { class: "pill free", text: "No IPs" }),
-                el("span", { class: "mono", text: `${pct(count, blockSize)} of ${fmt(blockSize)}` })),
+                count === null ? el("span", { class: "pill", text: "IPs unknown" })
+                    : count ? el("span", { class: "pill", text: `${fmt(count)} used` }) : el("span", { class: "pill free", text: "No IPs" }),
+                el("span", { class: "mono", text: count === null ? `${fmt(blockSize)} addresses` : `${pct(count, blockSize)} of ${fmt(blockSize)}` })),
             action ? el("div", { class: "hint", text: `Double-click to ${action.label}` })
                 : el("div", { class: "hint", text: "No prefix in this block" }))];
         out.push(chainSection(chainNodes));
@@ -365,7 +368,7 @@
                         n.p.id ? nbLink(`/ipam/prefixes/${n.p.id}/`, "NetBox") : null),
                     n.p.description ? el("span", { class: "d", text: n.p.description, title: n.p.description }) : null)))));
         }
-        out.push(freeSection(inner || net, inner ? inner.p.prefix : cfg.prefix));
+        if (countsKnown) out.push(freeSection(inner || net, inner ? inner.p.prefix : cfg.prefix));
         $("insp-detail").replaceChildren(...out);
         $("insp-summary").hidden = true;
         $("insp-detail").hidden = false;
@@ -441,7 +444,7 @@
                     el("span", { text: used === null ? "IPs" : `IPs · ${pct(used, total)}` })),
                 el("div", { class: "stat" }, el("b", { text: fmt((data.child_prefixes || []).length) }), el("span", { text: "child prefixes" })),
                 el("div", { class: "stat" }, el("b", { text: fmt(total) }), el("span", { text: "addresses" }))));
-        if (hasIps || layer) $("sum-free").replaceChildren(freeSection(net, cfg.prefix));
+        if (hasIps || countsKnown) $("sum-free").replaceChildren(freeSection(net, cfg.prefix));
     }
 
     function renderLegend() {
@@ -492,7 +495,8 @@
         if (len === null && layer) {
             const a = blockStart(addr);
             pin(a, true);
-            ui.say(`${intToIp(addr)} is in block ${intToIp(a)}/${blockLen} · ${fmt(blockCounts.get((a - net.start) / blockSize) || 0)} IPs — pinned`);
+            const count = countsKnown ? ` · ${fmt(blockCounts.get((a - net.start) / blockSize) || 0)} IPs` : "";
+            ui.say(`${intToIp(addr)} is in block ${intToIp(a)}/${blockLen}${count} — pinned`);
             return true;
         }
         if (len === null) {

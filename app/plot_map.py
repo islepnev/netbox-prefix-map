@@ -347,64 +347,6 @@ def finalize_plot(ax, image_width, image_height, prefix_entry):
     ax.set_position([0, 0, 1, 1])
 
 
-def construct_prefix_label(network):
-    """
-    Construct the text label for a given network.
-    Shows the third octet for /24 prefixes (e.g., "123" for 10.0.123.0/24).
-
-    Args:
-        network (ipaddress.IPv4Network): The network to construct a label for.
-
-    Returns:
-        str: The text label for the network.
-    """
-    if network.prefixlen == 24:
-        return str(network.network_address).split('.')[2]
-    return ""
-
-
-def draw_navigation_labels(ax, top_level_prefix, cell_size, grid_width, grid_height, palette):
-    """
-    Draw navigation labels for /24 prefixes on the grid.
-
-    Args:
-        ax: The Matplotlib axes object.
-        top_level_prefix (str): The top-level prefix (e.g., "10.0.0.0/16").
-        cell_size (int): Size of each grid cell in pixels.
-        grid_width (int): Width of the grid in cells.
-        grid_height (int): Height of the grid in cells.
-        palette (dict): Color palette for styling.
-    """
-    top_network = ipaddress.ip_network(top_level_prefix)
-
-    if top_network.prefixlen > 24:
-        return
-
-    max_bits = get_max_bits(grid_width, grid_height)
-    # Iterate over /24 subnets
-    for subnet in top_network.subnets(new_prefix=24):
-        try:
-            x1, y1, x2, y2 = calculate_bounding_box(subnet, top_network, max_bits)
-            # Calculate the position for the label
-            label_x = (x1 + x2) * cell_size / 2
-            label_y = (y1 + y2) * cell_size / 2
-            label = construct_prefix_label(subnet)
-            ax.text(
-                label_x,
-                label_y,
-                label,
-                fontsize=cell_size * 2,
-                ha='center',
-                va='center',
-                weight='bold',
-                color=palette.get('grid_text', '#cccccc'),
-                bbox=dict(facecolor='white', alpha=0.3, edgecolor='none', boxstyle='round,pad=0.3'),
-                zorder=Z_DEPTH_PREFIX_LABEL
-            )
-        except ValueError:
-            logging.error(f"Error generating label for subnet: {subnet}")
-
-
 def plot_allocation_grid(top_level_prefix_entry, child_prefixes, relevant_ips, output_file, cell_size, tenant_color_map):
     """Visualize the allocation grid and save it as a PNG."""
     top_level_prefix = top_level_prefix_entry.get("prefix", "").strip()
@@ -426,19 +368,21 @@ def plot_allocation_grid(top_level_prefix_entry, child_prefixes, relevant_ips, o
 
     draw_sparse_grid(ax, cell_size, grid_width, grid_height, palette)
 
-    draw_navigation_labels(ax, top_level_prefix, cell_size, grid_width, grid_height, palette)
-
     draw_prefix_rectangles(ax, rectangles, cell_size, tenant_color_map)
 
     plot_allocated_ips(ax, ip_details, cell_size, palette)
 
     finalize_plot(ax, image_width, image_height, top_level_prefix_entry)
 
-    # bbox_inches='tight' would break the 1:1 pixel mapping; rename keeps the write atomic
-    tmp_file = f"{output_file}.tmp"
-    fig.savefig(tmp_file, dpi=100, format='png')
-    os.replace(tmp_file, output_file)
+    fig.canvas.draw()
+    image = np.asarray(fig.canvas.buffer_rgba())[..., :3] / 255
     plt.close(fig)
+    occupied = np.zeros((grid_height, grid_width), dtype=bool)
+    for (x, y), details in ip_details.items():
+        occupied[y, x] = determine_ip_color(details, palette)[0] != 'none'
+    image = image.copy()
+    paint_labels(image, block_labels(ipaddress.ip_network(top_level_prefix), 32, occupied, cell_size))
+    save_png(image, output_file)
     logging.debug(f"Prefix map {top_level_prefix} saved to {output_file}")
 
 
@@ -448,6 +392,8 @@ LAYER_MAX_BLOCK_LEN = 24
 LAYER_USAGE_COLOR = np.array([0.0, 0.0, 0.0])
 LAYER_GRID_COLOR = np.array([0.80, 0.80, 0.80])
 LAYER_OUTLINE_COLOR = np.array([0.27, 0.27, 0.27])
+# Checkerboard of nested prefixes without a tenant
+LAYER_NEUTRAL_COLOR = '#b0b0b0'
 
 
 def layer_block_len(prefix_len):
@@ -504,8 +450,8 @@ def plot_layered_grid(prefix, block_len, block_counts, nested_prefixes, children
         if sub.prefixlen <= block_len:
             if color:
                 fill[first:first + 2 ** (block_len - sub.prefixlen)] = _hex_rgb(color)
-        elif color:
-            partial.setdefault(first, (sub.prefixlen, _hex_rgb(color)))
+        else:
+            partial.setdefault(first, (sub.prefixlen, _hex_rgb(color or LAYER_NEUTRAL_COLOR)))
 
     xs, ys = layer_cell_coords(width, height)
     image = np.ones((height * cell_size, width * cell_size, 3))
@@ -538,14 +484,111 @@ def plot_layered_grid(prefix, block_len, block_counts, nested_prefixes, children
         last = first + 2 ** (block_len - sub.prefixlen) - 1
         x1, x2 = sorted((int(xs[first]), int(xs[last])))
         y1, y2 = sorted((int(ys[first]), int(ys[last])))
-        left, right = x1 * cell_size, min((x2 + 1) * cell_size, image.shape[1] - 1)
-        top, bottom = y1 * cell_size, min((y2 + 1) * cell_size, image.shape[0] - 1)
+        # Lines on the gap rows and columns; at the right and bottom image edges there is none to draw on
+        left, right = x1 * cell_size, (x2 + 1) * cell_size
+        top, bottom = y1 * cell_size, (y2 + 1) * cell_size
         image[top, left:right + 1] = LAYER_OUTLINE_COLOR
-        image[bottom, left:right + 1] = LAYER_OUTLINE_COLOR
         image[top:bottom + 1, left] = LAYER_OUTLINE_COLOR
-        image[top:bottom + 1, right] = LAYER_OUTLINE_COLOR
+        if bottom < image.shape[0]:
+            image[bottom, left:right + 1] = LAYER_OUTLINE_COLOR
+        if right < image.shape[1]:
+            image[top:bottom + 1, right] = LAYER_OUTLINE_COLOR
 
+    occupied = np.zeros((height, width), dtype=bool)
+    for index in set(block_counts) | set(partial):
+        occupied[ys[index], xs[index]] = True
+    paint_labels(image, block_labels(network, block_len, occupied, cell_size))
+    save_png(image, output_file)
+    logging.debug(f"Layered map {prefix} saved to {output_file}")
+
+
+def save_png(image, output_file):
+    """Write an (h, w, 3) float image as PNG; the rename keeps the write atomic."""
     tmp_file = f"{output_file}.tmp"
     plt.imsave(tmp_file, (image * 255).round().astype(np.uint8), format='png')
     os.replace(tmp_file, output_file)
-    logging.debug(f"Layered map {prefix} saved to {output_file}")
+
+
+# Block labels: the identifying octet of every 16x16-cell group (a /24 on address maps), drawn in a 3x5 pixel font
+# on free cells only, so they never cover allocation data
+LABEL_COLOR = np.array([0x6e, 0x6e, 0x6e]) / 255
+LABEL_GROUP_BITS = 8
+LABEL_FONT = {
+    '0': ('111', '101', '101', '101', '111'),
+    '1': ('010', '110', '010', '010', '111'),
+    '2': ('111', '001', '111', '100', '111'),
+    '3': ('111', '001', '011', '001', '111'),
+    '4': ('101', '101', '111', '001', '001'),
+    '5': ('111', '100', '111', '001', '111'),
+    '6': ('111', '100', '111', '101', '111'),
+    '7': ('111', '001', '010', '010', '010'),
+    '8': ('111', '101', '111', '101', '111'),
+    '9': ('111', '101', '111', '001', '111'),
+}
+
+
+def label_glyph(text):
+    """Pixel mask of a label in the 3x5 font with 1 px letter spacing."""
+    columns = []
+    for i, char in enumerate(text):
+        if i:
+            columns.append([False] * 5)
+        rows = LABEL_FONT[char]
+        columns.extend([[rows[r][c] == '1' for r in range(5)] for c in range(3)])
+    return np.array(columns, dtype=bool).T
+
+
+def label_scale(cell_size):
+    return max(1, cell_size // 4)
+
+
+def find_label_spot(occupied, x0, y0, size, width, height):
+    """Top-left cell of a free width x height cell rectangle in a size x size group, nearest to its center."""
+    group = occupied[y0:y0 + size, x0:x0 + size].astype(int)
+    if width > size or height > size:
+        return None
+    sums = np.pad(group.cumsum(0).cumsum(1), ((1, 0), (1, 0)))
+    used = (sums[height:, width:] - sums[:-height, width:] - sums[height:, :-width] + sums[:-height, :-width])
+    free = np.argwhere(used == 0)
+    if not len(free):
+        return None
+    center = (size - height) / 2, (size - width) / 2
+    y, x = min(free, key=lambda p: ((p[0] - center[0]) ** 2 + (p[1] - center[1]) ** 2, p[0], p[1]))
+    return x0 + int(x), y0 + int(y)
+
+
+def block_labels(network, cell_len, occupied, cell_size):
+    """
+    Labels of the 16x16-cell groups of a map whose cells are /cell_len blocks: (glyph mask, left px, top px).
+    The label is the octet that tells groups of one map apart, e.g. the third octet of a /24.
+    """
+    group_len = cell_len - LABEL_GROUP_BITS
+    if group_len < network.prefixlen or group_len < 8:
+        return []
+    height, width = occupied.shape
+    max_bits = get_max_bits(width, height)
+    scale = label_scale(cell_size)
+    octet = (group_len - 1) // 8
+    labels = []
+    for group in network.subnets(new_prefix=group_len):
+        text = str(group.network_address).split('.')[octet]
+        glyph = label_glyph(text)
+        px_h, px_w = glyph.shape[0] * scale, glyph.shape[1] * scale
+        cells_w = -(-(px_w + 2) // cell_size)
+        cells_h = -(-(px_h + 2) // cell_size)
+        index = (int(group.network_address) - int(network.network_address)) >> (32 - cell_len)
+        x0, y0 = decode_offset(index, max_bits, width, height)
+        spot = find_label_spot(occupied, x0, y0, 16, cells_w, cells_h)
+        if spot is None:
+            continue
+        left = spot[0] * cell_size + (cells_w * cell_size - px_w + 1) // 2
+        top = spot[1] * cell_size + (cells_h * cell_size - px_h + 1) // 2
+        labels.append((np.kron(glyph, np.ones((scale, scale), dtype=bool)), left, top))
+    return labels
+
+
+def paint_labels(image, labels, color=LABEL_COLOR):
+    """Paint label masks into an (h, w, 3) float image in place."""
+    for mask, left, top in labels:
+        region = image[top:top + mask.shape[0], left:left + mask.shape[1]]
+        region[mask[:region.shape[0], :region.shape[1]]] = color
