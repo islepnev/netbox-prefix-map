@@ -2,11 +2,11 @@ import gzip
 import hashlib
 import hmac
 import ipaddress
-import json
 from flask import Flask, Blueprint, Response, redirect, request, jsonify, send_from_directory, render_template, url_for
 from dotenv import load_dotenv
 import logging
 import os
+import re
 import threading
 import time
 
@@ -81,18 +81,33 @@ def get_netbox_url():
         return request.host_url.rstrip('/')
 
 
+_output_cache = {}
+_output_cache_lock = threading.Lock()
+
+
+def load_output_json(name, default):
+    """Parsed output file, cached until the file changes. Callers must not modify the result."""
+    path = os.path.join(OUTPUT_DIR, name)
+    try:
+        mtime = os.stat(path).st_mtime_ns
+    except OSError:
+        return default
+    with _output_cache_lock:
+        cached = _output_cache.get(path)
+    if cached and cached[0] == mtime:
+        return cached[1]
+    value = load_json(path, default)
+    with _output_cache_lock:
+        _output_cache[path] = (mtime, value)
+    return value
+
+
 def load_vrf_data():
-    vrf_filepath = os.path.join(OUTPUT_DIR, 'vrf.json')
-    if os.path.exists(vrf_filepath):
-        with open(vrf_filepath, 'r') as f:
-            vrfs = json.load(f)
-        return vrfs
-    else:
-        return []
+    return load_output_json('vrf.json', [])
 
 
 def load_names():
-    names = load_json(os.path.join(OUTPUT_DIR, 'names.json'))
+    names = load_output_json('names.json', {})
     return names.get('tenants', {}), names.get('roles', {})
 
 
@@ -112,13 +127,7 @@ def prefix_details(prefix_entry):
 
 
 def load_prefix_tree():
-    prefix_tree_filepath = os.path.join(OUTPUT_DIR, 'prefix_tree.json')
-    if os.path.exists(prefix_tree_filepath):
-        with open(prefix_tree_filepath, 'r') as f:
-            prefix_tree = json.load(f)
-        return prefix_tree
-    else:
-        return {}
+    return load_output_json('prefix_tree.json', {})
 
 
 def find_parents(vrf, display_prefix):
@@ -127,16 +136,25 @@ def find_parents(vrf, display_prefix):
         network = ipaddress.ip_network(display_prefix)
     except ValueError:
         return []
-    parents = []
+    parents = {}
     for entry in load_prefix_tree().get(vrf, {}).get('prefixes', []):
         try:
             candidate = ipaddress.ip_network(entry['prefix'])
         except ValueError:
             continue
+        # NetBox allows duplicate prefixes; keep the first
         if candidate.version == network.version and candidate.prefixlen < network.prefixlen \
                 and network.subnet_of(candidate):
-            parents.append(candidate)
-    return [{'prefix': str(p), 'vrf_key': vrf} for p in sorted(parents, key=lambda p: p.prefixlen)]
+            parents.setdefault(candidate, entry)
+    return [{
+        'prefix': str(p),
+        'vrf_key': vrf,
+        'sanitized': sanitize_name(str(p)),
+        'id': entry.get('id'),
+        'tenant': entry.get('tenant'),
+        'status': entry.get('status'),
+        'description': entry.get('description') or '',
+    } for p, entry in sorted(parents.items(), key=lambda item: item[0].prefixlen)]
 
 
 def find_prefix_entry(vrf, display_prefix):
@@ -183,25 +201,14 @@ def inject_base_path():
 
 
 @app.context_processor
-def inject_breadcrumbs():
-    def generate_breadcrumbs(vrf=None, prefix=None, parents=()):
-        breadcrumbs = [{"name": "NetBox", "url": get_netbox_url()}]
-        breadcrumbs.append({"name": "Prefix Map", "url": url_for('app.index')})
-
-        if vrf:
-            vrf_name = vrf.get('name', 'Global') if isinstance(vrf, dict) else 'Global'
-            vrf_id = vrf.get('id') if isinstance(vrf, dict) else vrf
-            breadcrumbs.append({"name": vrf_name, "url": url_for('app.vrf_view', vrf=vrf_id)})
-
-        for parent in parents:
-            breadcrumbs.append({"name": parent['prefix'], "url": url_for(
-                'app.serve_map', vrf=parent['vrf_key'], prefix=sanitize_name(parent['prefix']))})
-
-        if prefix:
-            breadcrumbs.append({"name": prefix, "url": None})  # Current page
-        return breadcrumbs
-
-    return dict(generate_breadcrumbs=generate_breadcrumbs)
+def inject_generated_at():
+    """Time of the last completed update run: summary.json is written last."""
+    for name in ('summary.json', 'prefix_tree.json'):
+        try:
+            return {'generated_at': os.path.getmtime(os.path.join(OUTPUT_DIR, name))}
+        except OSError:
+            continue
+    return {'generated_at': None}
 
 
 @bp.route('/webhook', methods=['POST'])
@@ -291,23 +298,74 @@ def show_errors():
     return render_template('errors.html', logs=recent_log_handler.lines()[::-1])
 
 
+def load_summary():
+    return load_output_json('summary.json', {})
+
+
+def top_level_prefixes(entries):
+    """Prefixes not contained in another one; duplicates listed once."""
+    networks = {}
+    for entry in entries:
+        try:
+            network = ipaddress.ip_network(entry['prefix'])
+        except (KeyError, ValueError):
+            continue
+        if network.version == 4:
+            networks.setdefault(network, entry)
+    top = []
+    for network in sorted(networks):
+        if top and network.subnet_of(top[-1][0]):
+            continue
+        top.append((network, networks[network]))
+    return top
+
+
+def vrf_summary(vrf_key, summary=None):
+    """Counts and top-level prefixes of a VRF; usage is unknown before the first update writes summary.json."""
+    summary = load_summary() if summary is None else summary
+    if summary:
+        result = dict(summary.get(vrf_key) or {'prefix_count': 0, 'ip_count': 0, 'top_prefixes': []})
+    else:
+        entries = [e for e in load_prefix_tree().get(vrf_key, {}).get('prefixes', [])
+                   if ':' not in e.get('prefix', ':')]
+        result = {
+            'prefix_count': len(entries),
+            'ip_count': None,
+            'top_prefixes': [dict(entry, prefix=str(network), ip_count=None, size=network.num_addresses)
+                             for network, entry in top_level_prefixes(entries)],
+        }
+    result['top_prefixes'] = [dict(p, sanitized=sanitize_name(p['prefix'])) for p in result['top_prefixes']]
+    return result
+
+
 @bp.route('/')
 @bp.route('/map')
 def index():
-    vrfs = load_vrf_data()
-    return render_template('index.html', vrfs=vrfs, netbox_url=get_netbox_url())
+    summary = load_summary()
+    vrfs = sorted(load_vrf_data(), key=lambda v: (v.get('name') or '').lower())
+    rows = []
+    for key, vrf in [('None', None)] + [(str(v['id']), v) for v in vrfs]:
+        counts = vrf_summary(key, summary)
+        rows.append({
+            'key': key,
+            'id': vrf['id'] if vrf else None,
+            'name': vrf.get('name') if vrf else 'Global',
+            'description': vrf.get('description') if vrf else '',
+            'rd': vrf.get('rd') if vrf else None,
+            'prefix_count': counts['prefix_count'],
+            'ip_count': counts['ip_count'],
+        })
+    return render_template('index.html', rows=rows, netbox_url=get_netbox_url())
 
 
 @bp.route('/map/<vrf>', methods=['GET'])
 def vrf_view(vrf):
-    prefix_tree = load_prefix_tree()
-    vrfs = load_vrf_data()
-    vrf_info = next((v for v in vrfs if str(v['id']) == vrf), None)
+    vrf_info = next((v for v in load_vrf_data() if str(v['id']) == vrf), None)
     if not vrf_info and vrf != 'None':
         return render_template('error.html', message=f"VRF {vrf} not found."), 404
-
-    prefixes = prefix_tree.get(vrf, {}).get('prefixes', [])
-    return render_template('vrf.html', vrf=vrf_info, prefixes=prefixes, netbox_url=get_netbox_url())
+    tenants, _ = load_names()
+    return render_template('vrf.html', vrf=vrf_info, vrf_key=vrf, summary=vrf_summary(vrf), tenants=tenants,
+                           netbox_url=get_netbox_url())
 
 
 @bp.route('/map/<vrf>/<path:prefix>', methods=['GET'])
@@ -331,21 +389,124 @@ def serve_map(vrf, prefix):
         return render_template('error.html', message=f"Visualization for prefix {display_prefix} not found."), 404
 
     prefix_entry = find_prefix_entry(vrf, display_prefix)
-
+    details = prefix_details(prefix_entry)
+    parents = find_parents(vrf, display_prefix)
+    names = dict(zip(('tenants', 'roles'), load_names()))
+    netbox_url = get_netbox_url()
+    image_url = url_for('app.serve_image', filename=image_filename) if image_exists else None
+    config = {
+        'basePath': BASE_PATH,
+        'netboxUrl': netbox_url,
+        'vrfKey': vrf,
+        'vrf': {'id': vrf_info.get('id'), 'name': vrf_info.get('name')} if vrf_info else None,
+        'prefix': display_prefix,
+        'prefixId': prefix_entry.get('id') if prefix_entry else None,
+        'details': details,
+        'names': names,
+        'parents': parents,
+        'dataUrl': url_for('app.serve_data', vrf=vrf, prefix=sanitized_prefix),
+        'imageUrl': image_url,
+    }
     return render_template(
         'map.html',
-        netbox_url=get_netbox_url(),
+        netbox_url=netbox_url,
         vrf=vrf_info,
-        prefix=display_prefix,
-        prefix_id=prefix_entry.get('id') if prefix_entry else None,
-        details=prefix_details(prefix_entry),
-        names=dict(zip(('tenants', 'roles'), load_names())),
         vrf_key=vrf,
-        sanitized_prefix=sanitized_prefix,
-        parents=find_parents(vrf, display_prefix),
-        image_filename=image_filename if image_exists else None,
-        data_filename=data_filename
+        prefix=display_prefix,
+        prefix_id=config['prefixId'],
+        details=details,
+        parents=parents,
+        image_url=image_url,
+        config=config,
     )
+
+
+SEARCH_QUERY = re.compile(r'^\d{1,3}(\.\d{1,3}){3}(/\d{1,2})?$')
+SEARCH_LIMIT = 50
+_prefix_index_cache = (None, {})
+
+
+def prefix_index():
+    """IPv4 networks of prefix_tree.json per VRF key, rebuilt when the file changes."""
+    global _prefix_index_cache
+    tree = load_prefix_tree()
+    cached_tree, index = _prefix_index_cache
+    if cached_tree is tree:
+        return index
+    index = {}
+    for vrf_key, vrf_data in tree.items():
+        networks = {}
+        for entry in vrf_data.get('prefixes', []):
+            try:
+                network = ipaddress.ip_network(entry['prefix'])
+            except (KeyError, ValueError):
+                continue
+            if network.version == 4:
+                networks.setdefault(network, entry)
+        index[vrf_key] = sorted(networks.items())
+    _prefix_index_cache = (tree, index)
+    return index
+
+
+UNKNOWN = object()
+
+
+def find_ip_record(vrf_key, prefix, address):
+    """The IP record from the prefix data file; UNKNOWN when the file carries no IP list."""
+    data = load_json(os.path.join(OUTPUT_DIR, f"data-{sanitize_name(vrf_key)}-{sanitize_name(prefix)}.json"))
+    if not data.get('rendered', 'ip_addresses' in data) or 'ip_addresses' not in data:
+        return UNKNOWN
+    for ip in data['ip_addresses']:
+        if ip.get('address', '').split('/')[0] == address:
+            return {k: ip.get(k) for k in ('id', 'address', 'status', 'role', 'dns_name', 'description')}
+    return None
+
+
+def search_prefixes(query):
+    """Maps showing an IPv4 address or prefix, across VRFs: the prefix itself, else the innermost one containing it."""
+    if '/' in query and not query.endswith('/32'):
+        target = ipaddress.ip_network(query, strict=False)
+        address = None
+    else:
+        address = ipaddress.ip_address(query.split('/')[0])
+        target = ipaddress.ip_network(f'{address}/32')
+    vrf_names = {str(v['id']): v.get('name') for v in load_vrf_data()}
+    results = []
+    for vrf_key, networks in prefix_index().items():
+        containing = [(n, e) for n, e in networks if target.subnet_of(n)]
+        if not containing:
+            continue
+        network, entry = max(containing, key=lambda item: item[0].prefixlen)
+        exact = address is None and network == target
+        result = {
+            'vrf': vrf_key,
+            'vrf_name': 'Global' if vrf_key == 'None' else vrf_names.get(vrf_key, vrf_key),
+            'prefix': str(network),
+            'description': entry.get('description') or '',
+            'match': 'exact' if exact else 'within',
+            'url': url_for('app.serve_map', vrf=vrf_key, prefix=sanitize_name(str(network)),
+                           **({} if exact else {'focus': str(address or target)})),
+        }
+        if address is not None:
+            record = find_ip_record(vrf_key, str(network), str(address))
+            if record is not UNKNOWN:
+                result['ip'] = record
+        results.append(result)
+    results.sort(key=lambda r: (r['match'] != 'exact', not r.get('ip'), r['vrf'] != 'None',
+                                (r['vrf_name'] or '').lower()))
+    return results[:SEARCH_LIMIT]
+
+
+@bp.route('/search', methods=['GET'])
+def search():
+    query = request.args.get('q', '').strip()
+    try:
+        if not SEARCH_QUERY.match(query):
+            raise ValueError
+        results = search_prefixes(query)
+    except ValueError:
+        return jsonify({'error': 'Expected an IPv4 address or prefix, e.g. 10.20.0.1 or 10.20.36.0/24.'}), 400
+    return jsonify({'query': query, 'results': results})
 
 
 @bp.route('/data/<vrf>/<path:prefix>', methods=['GET'])

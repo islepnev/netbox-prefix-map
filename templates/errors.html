@@ -1,45 +1,25 @@
-<!-- templates/errors.html -->
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <title>Error Logs</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
-    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
-    <style>
-        body {
-            font-family: monospace;
-            background-color: #f5f5f5;
-            padding: 20px;
-        }
-        .log-entry {
-            padding: 5px;
-            margin-bottom: 2px;
-            border-radius: 3px;
-        }
-        .ERROR {
-            background-color: #f8d7da;
-            color: #721c24;
-        }
-        .WARNING {
-            background-color: #fff3cd;
-            color: #856404;
-        }
-    </style>
+{% include '_head.html' %}
+    <title>Warnings and errors · Prefix Map</title>
 </head>
-<body>
-    <h1>Error Logs</h1>
-    <div id="log-container">
+<body class="doc-page">
+{% include '_topbar.html' %}
+<main class="page-main">
+    <div class="page-head">
+        <div>
+            <h1>Warnings and errors</h1>
+            <div class="sub">Latest first; kept in memory since the process started</div>
+        </div>
+    </div>
+    <div class="card" id="log-container">
         {% for line in logs %}
-            {% if 'ERROR' in line %}
-                <div class="log-entry ERROR">{{ line }}</div>
-            {% elif 'WARNING' in line %}
-                <div class="log-entry WARNING">{{ line }}</div>
-            {% else %}
-                <div class="log-entry">{{ line }}</div>
-            {% endif %}
+        <div class="log {{ 'ERROR' if 'ERROR' in line else 'WARNING' if 'WARNING' in line else '' }}">{{ line }}</div>
+        {% else %}
+        <div class="empty">No warnings or errors.</div>
         {% endfor %}
     </div>
+</main>
 </body>
 </html>

@@ -83,8 +83,10 @@ All paths are relative to `BASE_PATH`.
 
 | Path | Description |
 |---|---|
-| `/` | VRF list |
+| `/` | VRF list with prefix and address counts |
+| `/map/<vrf>` | Top-level prefixes of a VRF with usage |
 | `/map/<vrf>/<prefix>` | Map page; `<vrf>` is the VRF id or `None` for Global, `<prefix>` uses `_` for `.` and `/` |
+| `/search?q=<address or prefix>` | Maps showing an IPv4 address or prefix, across VRFs (JSON) |
 | `/webhook` | NetBox webhook receiver |
 | `/healthz` | Liveness and data age (JSON); used by the container healthcheck |
 | `/metrics` | Prometheus metrics |
