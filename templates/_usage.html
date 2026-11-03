@@ -7,6 +7,6 @@
 {%- endif %}
 {%- endmacro %}
 {% macro percent(used, total) -%}
-{% if used is none or not total %}—{% else %}{% set v = 100 * used / total %}{% if v == 0 %}0%{% elif v < 1 %}&lt;1%{% else %}{{ v | round | int }}%{% endif %}{% endif %}
+{% if used is none or not total %}—{% else %}{% set v = [100 * used / total, 100] | min %}{% if v == 0 %}0%{% elif v < 1 %}&lt;1%{% else %}{{ v | round | int }}%{% endif %}{% endif %}
 {%- endmacro %}
 {% macro count(n) -%}{{ '—' if n is none else '{:,}'.format(n) }}{%- endmacro %}

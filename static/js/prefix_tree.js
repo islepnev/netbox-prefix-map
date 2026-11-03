@@ -10,7 +10,7 @@
     const mapUrl = (vrf, prefix) => `${cfg.basePath}/map/${vrfKey(vrf)}/${sanitize(prefix)}`;
     const navUrl = (vrf, prefix) => `${cfg.basePath}/data/${vrfKey(vrf)}/${sanitize(prefix)}?nav=1`;
     const fmt = (n) => n.toLocaleString("en-US");
-    const pct = (u, t) => { const v = (100 * u) / t; return v === 0 ? "0%" : v < 1 ? "<1%" : `${Math.round(v)}%`; };
+    const pct = (u, t) => { const v = Math.min(100, (100 * u) / t); return v === 0 ? "0%" : v < 1 ? "<1%" : `${Math.round(v)}%`; };
     const tenantName = (id) => (id ? cfg.names.tenants[String(id)] || `Tenant ${id}` : null);
     const rows = new Map();
 

@@ -2,11 +2,11 @@ import gzip
 import hashlib
 import hmac
 import ipaddress
-import json
 from flask import Flask, Blueprint, Response, redirect, request, jsonify, send_from_directory, render_template, url_for
 from dotenv import load_dotenv
 import logging
 import os
+import re
 import threading
 import time
 
@@ -81,18 +81,33 @@ def get_netbox_url():
         return request.host_url.rstrip('/')
 
 
+_output_cache = {}
+_output_cache_lock = threading.Lock()
+
+
+def load_output_json(name, default):
+    """Parsed output file, cached until the file changes. Callers must not modify the result."""
+    path = os.path.join(OUTPUT_DIR, name)
+    try:
+        mtime = os.stat(path).st_mtime_ns
+    except OSError:
+        return default
+    with _output_cache_lock:
+        cached = _output_cache.get(path)
+    if cached and cached[0] == mtime:
+        return cached[1]
+    value = load_json(path, default)
+    with _output_cache_lock:
+        _output_cache[path] = (mtime, value)
+    return value
+
+
 def load_vrf_data():
-    vrf_filepath = os.path.join(OUTPUT_DIR, 'vrf.json')
-    if os.path.exists(vrf_filepath):
-        with open(vrf_filepath, 'r') as f:
-            vrfs = json.load(f)
-        return vrfs
-    else:
-        return []
+    return load_output_json('vrf.json', [])
 
 
 def load_names():
-    names = load_json(os.path.join(OUTPUT_DIR, 'names.json'))
+    names = load_output_json('names.json', {})
     return names.get('tenants', {}), names.get('roles', {})
 
 
@@ -112,13 +127,7 @@ def prefix_details(prefix_entry):
 
 
 def load_prefix_tree():
-    prefix_tree_filepath = os.path.join(OUTPUT_DIR, 'prefix_tree.json')
-    if os.path.exists(prefix_tree_filepath):
-        with open(prefix_tree_filepath, 'r') as f:
-            prefix_tree = json.load(f)
-        return prefix_tree
-    else:
-        return {}
+    return load_output_json('prefix_tree.json', {})
 
 
 def find_parents(vrf, display_prefix):
@@ -193,11 +202,13 @@ def inject_base_path():
 
 @app.context_processor
 def inject_generated_at():
-    """Time of the last completed update run, from its last output file."""
-    try:
-        return {'generated_at': os.path.getmtime(os.path.join(OUTPUT_DIR, 'prefix_tree.json'))}
-    except OSError:
-        return {'generated_at': None}
+    """Time of the last completed update run: summary.json is written last."""
+    for name in ('summary.json', 'prefix_tree.json'):
+        try:
+            return {'generated_at': os.path.getmtime(os.path.join(OUTPUT_DIR, name))}
+        except OSError:
+            continue
+    return {'generated_at': None}
 
 
 @bp.route('/webhook', methods=['POST'])
@@ -288,7 +299,7 @@ def show_errors():
 
 
 def load_summary():
-    return load_json(os.path.join(OUTPUT_DIR, 'summary.json'))
+    return load_output_json('summary.json', {})
 
 
 def top_level_prefixes(entries):
@@ -315,7 +326,8 @@ def vrf_summary(vrf_key, summary=None):
     if summary:
         result = dict(summary.get(vrf_key) or {'prefix_count': 0, 'ip_count': 0, 'top_prefixes': []})
     else:
-        entries = [e for e in load_prefix_tree().get(vrf_key, {}).get('prefixes', []) if ':' not in e.get('prefix', ':')]
+        entries = [e for e in load_prefix_tree().get(vrf_key, {}).get('prefixes', [])
+                   if ':' not in e.get('prefix', ':')]
         result = {
             'prefix_count': len(entries),
             'ip_count': None,
@@ -407,6 +419,86 @@ def serve_map(vrf, prefix):
         image_url=image_url,
         config=config,
     )
+
+
+SEARCH_QUERY = re.compile(r'^\d{1,3}(\.\d{1,3}){3}(/\d{1,2})?$')
+SEARCH_LIMIT = 50
+_prefix_index_cache = (None, {})
+
+
+def prefix_index():
+    """IPv4 networks of prefix_tree.json per VRF key, rebuilt when the file changes."""
+    global _prefix_index_cache
+    tree = load_prefix_tree()
+    cached_tree, index = _prefix_index_cache
+    if cached_tree is tree:
+        return index
+    index = {}
+    for vrf_key, vrf_data in tree.items():
+        networks = {}
+        for entry in vrf_data.get('prefixes', []):
+            try:
+                network = ipaddress.ip_network(entry['prefix'])
+            except (KeyError, ValueError):
+                continue
+            if network.version == 4:
+                networks.setdefault(network, entry)
+        index[vrf_key] = sorted(networks.items())
+    _prefix_index_cache = (tree, index)
+    return index
+
+
+def find_ip_record(vrf_key, prefix, address):
+    data = load_json(os.path.join(OUTPUT_DIR, f"data-{sanitize_name(vrf_key)}-{sanitize_name(prefix)}.json"))
+    for ip in data.get('ip_addresses') or []:
+        if ip.get('address', '').split('/')[0] == address:
+            return {k: ip.get(k) for k in ('id', 'address', 'status', 'role', 'dns_name', 'description')}
+    return None
+
+
+def search_prefixes(query):
+    """Maps showing an IPv4 address or prefix, across VRFs: the prefix itself, else the innermost one containing it."""
+    if '/' in query:
+        target = ipaddress.ip_network(query, strict=False)
+        address = None
+    else:
+        address = ipaddress.ip_address(query)
+        target = ipaddress.ip_network(f'{address}/32')
+    vrf_names = {str(v['id']): v.get('name') for v in load_vrf_data()}
+    results = []
+    for vrf_key, networks in prefix_index().items():
+        containing = [(n, e) for n, e in networks if target.subnet_of(n)]
+        if not containing:
+            continue
+        network, entry = max(containing, key=lambda item: item[0].prefixlen)
+        exact = address is None and network == target
+        result = {
+            'vrf': vrf_key,
+            'vrf_name': 'Global' if vrf_key == 'None' else vrf_names.get(vrf_key, vrf_key),
+            'prefix': str(network),
+            'description': entry.get('description') or '',
+            'match': 'exact' if exact else 'within',
+            'url': url_for('app.serve_map', vrf=vrf_key, prefix=sanitize_name(str(network)),
+                           **({} if exact else {'focus': str(address or target)})),
+        }
+        if address is not None:
+            result['ip'] = find_ip_record(vrf_key, str(network), str(address))
+        results.append(result)
+    results.sort(key=lambda r: (r['match'] != 'exact', not r.get('ip'), r['vrf'] != 'None',
+                                (r['vrf_name'] or '').lower()))
+    return results[:SEARCH_LIMIT]
+
+
+@bp.route('/search', methods=['GET'])
+def search():
+    query = request.args.get('q', '').strip()
+    try:
+        if not SEARCH_QUERY.match(query):
+            raise ValueError
+        results = search_prefixes(query)
+    except ValueError:
+        return jsonify({'error': 'Expected an IPv4 address or prefix, e.g. 10.20.0.1 or 10.20.36.0/24.'}), 400
+    return jsonify({'query': query, 'results': results})
 
 
 @bp.route('/data/<vrf>/<path:prefix>', methods=['GET'])

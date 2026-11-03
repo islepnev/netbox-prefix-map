@@ -250,3 +250,60 @@ def test_vrf_page_without_summary_file(client, webapp, monkeypatch):
 def test_top_level_prefixes(webapp):
     entries = [{'prefix': p} for p in ('10.1.0.0/16', '10.0.0.0/8', '10.0.0.0/8', '192.168.0.0/24', '2001:db8::/32')]
     assert [str(n) for n, _ in webapp.top_level_prefixes(entries)] == ['10.0.0.0/8', '192.168.0.0/24']
+
+
+def search(client, q):
+    r = client.get(f'{BASE}/search', query_string={'q': q})
+    return r.status_code, r.get_json()
+
+
+def test_search_address(client, dataset):
+    status, body = search(client, '10.20.48.1')
+    assert status == 200
+    first = body['results'][0]
+    assert (first['vrf'], first['vrf_name'], first['prefix'], first['match']) == ('1', 'LAN', '10.20.48.0/24', 'within')
+    assert first['url'] == f'{BASE}/map/1/10_20_48_0_24?focus=10.20.48.1'
+    assert first['ip']['dns_name'] == 'gw-48.example.test' and first['ip']['role'] == 'anycast'
+
+
+def test_search_prefix(client):
+    _, body = search(client, '10.20.48.0/20')
+    assert body['results'][0]['match'] == 'exact'
+    assert body['results'][0]['url'] == f'{BASE}/map/1/10_20_48_0_20'
+    _, body = search(client, '10.20.48.0/25')
+    assert body['results'][0]['prefix'] == '10.20.48.0/24'
+    assert body['results'][0]['url'].endswith('?focus=10.20.48.0/25')
+    _, body = search(client, '10.20.48.7/24')
+    assert body['results'][0]['prefix'] == '10.20.48.0/24' and body['results'][0]['match'] == 'exact'
+
+
+def test_search_global_and_misses(client):
+    _, body = search(client, '192.168.0.5')
+    assert [(r['vrf'], r['prefix']) for r in body['results']] == [('None', '192.168.0.0/24')]
+    assert search(client, '8.8.8.8') == (200, {'query': '8.8.8.8', 'results': []})
+    for bad in ('', 'foo', '300.1.1.1', '10.0.0.0/33', '2001:db8::1', '010.0.0.1'):
+        status, body = search(client, bad)
+        assert status == 400 and 'error' in body, bad
+
+
+def test_output_json_cache_follows_file(webapp, output_dir):
+    import json
+    import os
+    path = os.path.join(output_dir, 'cache-test.json')
+    with open(path, 'w') as f:
+        json.dump({'v': 1}, f)
+    assert webapp.load_output_json('cache-test.json', {}) == {'v': 1}
+    with open(path, 'w') as f:
+        json.dump({'v': 2}, f)
+    os.utime(path, ns=(1, 1))
+    assert webapp.load_output_json('cache-test.json', {}) == {'v': 2}
+    os.remove(path)
+    assert webapp.load_output_json('cache-test.json', None) is None
+
+
+def test_usage_percent_is_capped(webapp):
+    from flask import render_template_string
+    with webapp.app.test_request_context():
+        html = render_template_string(
+            "{% from '_usage.html' import percent %}{{ percent(3, 2) }} {{ percent(1, 1000) }} {{ percent(None, 2) }}")
+    assert html == '100% &lt;1% —'
