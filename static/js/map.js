@@ -25,7 +25,7 @@
         return { start, end: start + size - 1, len, size };
     };
     const fmt = (n) => n.toLocaleString("en-US");
-    const pct = (u, t) => { const v = (100 * u) / t; return v === 0 ? "0%" : v < 1 ? "<1%" : `${Math.round(v)}%`; };
+    const pct = (u, t) => { const v = Math.min(100, (100 * u) / t); return v === 0 ? "0%" : v < 1 ? "<1%" : `${Math.round(v)}%`; };
     const vrfKey = (vrf) => (vrf === null || vrf === undefined ? "None" : String(vrf));
     const sanitize = (p) => p.replace(/[./]/g, "_");
     const mapUrl = (vrf, prefix) => `${cfg.basePath}/map/${vrfKey(vrf)}/${sanitize(prefix)}`;
@@ -399,43 +399,53 @@
 
     // ---------- search within this map ----------
     const IPV4 = /^(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$/;
-    function localSearch(q, commit, ui) {
+    // Queries inside this map are answered here, others go to the server search
+    function parseQuery(q) {
         const [addrPart, lenPart] = q.split("/");
         const len = lenPart === undefined ? null : Number(lenPart);
-        if (!IPV4.test(addrPart) || (lenPart !== undefined && !(/^\d{1,2}$/.test(lenPart) && len <= 32))) {
-            if (commit) { ui.bad(); ui.say("Enter an IPv4 address or prefix, e.g. 10.20.0.1 or 10.20.36.0/24"); } else ui.say(null);
-            return;
-        }
+        if (!IPV4.test(addrPart) || (len !== null && !(len >= 0 && len <= 32))) return null;
         const addr = ipToInt(addrPart);
-        if (addr < net.start || addr > net.end || (len !== null && len < net.len)) {
-            ui.say(`${q} is outside this map.`);
-            return;
-        }
-        if (len === null && !hasIps) {
-            const child = childAt(addr);
-            if (!child) { ui.say(`${intToIp(addr)}: IP details are shown on maps of /16 and longer prefixes.`); return; }
-            ui.say(`${intToIp(addr)} is in ${child.p.prefix}. Enter opens its map.`);
-            if (commit) navigate(mapUrl(child.p.vrf ?? data.vrf, child.p.prefix));
-            return;
-        }
+        if (addr < net.start || addr > net.end || (len !== null && len < net.len)) return null;
+        return { addr, len };
+    }
+
+    function localSearch(q, commit, ui) {
+        const parsed = img && parseQuery(q);
+        if (!parsed) return false;
+        const { addr, len } = parsed;
         if (len === null) {
             const ip = ipsByAddr.get(addr);
-            if (img) pin(addr, true);
-            ui.say(`${intToIp(addr)} · ${ip ? capital(ip.status) + (ip.dns_name ? ` · ${ip.dns_name}` : "") : "free"}${img ? " — pinned" : ""}`);
-            return;
+            pin(addr, true);
+            ui.say(`${intToIp(addr)} · ${ip ? capital(ip.status) + (ip.dns_name ? ` · ${ip.dns_name}` : "") : "free"} — pinned`);
+            return true;
         }
         const start = addr - (addr % 2 ** (32 - len));
         const prefix = `${intToIp(start)}/${len}`;
+        if (prefix === cfg.prefix) { ui.say("This map."); return true; }
         const node = nested.find((n) => n.p.prefix === prefix);
-        if (prefix === cfg.prefix) { ui.say("This map."); return; }
-        selected = parsePrefix(prefix);
-        if (img) { drawOverlays(); scrollToBounds(rangeBounds(selected.start, selected.end)); }
+        outline(parsePrefix(prefix));
         if (node) {
             ui.say(`${prefix}${node.p.description ? ` · ${node.p.description}` : ""} — outlined. Enter opens its map.`);
             if (commit) navigate(mapUrl(node.p.vrf ?? data.vrf, prefix));
         } else {
             ui.say(`${prefix} is not a NetBox prefix; outlined as a range.`);
         }
+        return true;
+    }
+
+    function outline(range) {
+        selected = range;
+        drawOverlays();
+        scrollToBounds(rangeBounds(range.start, range.end));
+    }
+
+    // ?focus=<address or prefix> from search results
+    function applyFocus() {
+        const focus = new URLSearchParams(window.location.search).get("focus");
+        const parsed = focus && parseQuery(focus);
+        if (!parsed) return;
+        if (parsed.len === null) pin(parsed.addr, true);
+        else if (parsed.len > net.len) outline(parsePrefix(`${intToIp(parsed.addr - (parsed.addr % 2 ** (32 - parsed.len)))}/${parsed.len}`));
     }
 
     // ---------- events ----------
@@ -503,7 +513,10 @@
             }
             renderLegend();
             renderSummary();
-            if (img) startMap();
+            if (img) {
+                startMap();
+                applyFocus();
+            }
             document.body.dataset.ready = "1";
         })
         .catch((error) => {

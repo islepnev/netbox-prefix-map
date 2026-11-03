@@ -69,6 +69,7 @@ Layout: top bar (VRF, prefix path, search, freshness), prefix tree on the left, 
 - Double-clicking opens the child prefix that contains the cell, otherwise the IP address in NetBox.
 - Free blocks are the largest aligned blocks with no IP record and no child prefix. Data files of prefixes without an image carry no IP list, so their free blocks are not shown.
 - The prefix tree shows the path from the outermost parent to the current prefix; other branches load on expand from `/data/...?nav=1`, which omits addresses and nested prefixes. Tree rows and the map highlight each other.
+- Search: an address or prefix inside the map is pinned or outlined in place; other queries go to `/search`, which returns, per VRF, the prefix itself or the innermost prefix containing the query, with the IP record if any. Result links carry `?focus=<query>`, which pins or outlines it when the map opens.
 - The freshness dot polls `/healthz` and turns amber when the last update failed, the updater stopped or the data is older than 24 h.
 - Colors of the page follow the system light or dark theme; the map keeps its white background.
 

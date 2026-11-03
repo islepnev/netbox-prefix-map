@@ -285,14 +285,45 @@ def test_page_without_image(open_page):
     assert page.errors == []
 
 
-def test_search_on_map_without_ip_list(open_page):
+def test_search_outside_map_uses_server(open_page):
     page = open_page(f'{BASE}/map/1/10_0_0_0_8')
     wait_for_map(page)
     page.fill('#search', '10.20.48.1')
-    assert 'is in 10.20.0.0/16' in page.inner_text('#search-msg')
+    page.wait_for_selector('#search-msg li')
+    assert '10.20.48.0/24' in page.inner_text('#search-msg li >> nth=0')
+    assert 'gw-48.example.test' in page.inner_text('#search-msg li >> nth=0')
     with page.expect_navigation():
         page.press('#search', 'Enter')
-    assert page.url.endswith(f'{BASE}/map/1/10_20_0_0_16')
+    assert page.url.endswith(f'{BASE}/map/1/10_20_48_0_24?focus=10.20.48.1')
+    wait_for_map(page)
+    assert page.is_visible('#ov-pin')
+    assert '10.20.48.1/' in page.inner_text('#insp-detail .big')
+
+
+def test_search_from_index_page(open_page):
+    page = open_page(f'{BASE}/')
+    page.keyboard.press('/')
+    page.keyboard.type('192.168.0.0/24')
+    page.wait_for_selector('#search-msg li a')
+    assert page.get_attribute('#search-msg li a', 'href') == f'{BASE}/map/None/192_168_0_0_24'
+    page.fill('#search', '300.1.1.1')
+    page.press('#search', 'Enter')
+    page.wait_for_function('document.getElementById("search").classList.contains("bad")')
+    page.fill('#search', '8.8.8.8')
+    page.wait_for_function('document.getElementById("search-msg").textContent.includes("no prefix")')
+    assert page.errors == [] or all('400' in e for e in page.errors)
+
+
+def test_focus_parameter_outlines_prefix(open_page):
+    page = open_page(f'{BASE}/map/1/10_20_48_0_24?focus=10.20.48.128/25')
+    wait_for_map(page)
+    assert page.is_visible('#ov-select')
+    box = page.evaluate("""() => {
+        const s = document.getElementById("ov-select").getBoundingClientRect();
+        const i = document.getElementById("map-img").getBoundingClientRect();
+        return (s.width * s.height) / (i.width * i.height);
+    }""")
+    assert box == 0.5
 
 
 def test_old_data_file_without_usage(open_page):

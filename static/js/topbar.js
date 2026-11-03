@@ -53,11 +53,66 @@ window.PrefixMapTop = (() => {
         msg.hidden = false;
     }
 
+    const QUERY = /^\d{1,3}(\.\d{1,3}){3}(\/\d{1,2})?$/;
+    let searchSeq = 0;
+    let searchTimer = null;
+
+    function node(tag, className, text) {
+        const e = document.createElement(tag);
+        if (className) e.className = className;
+        if (text !== undefined) e.textContent = text;
+        return e;
+    }
+
+    function resultItem(r) {
+        const li = node("li");
+        const link = node("a", "mono", r.prefix);
+        link.href = r.url;
+        const details = [r.match === "exact" ? "" : "contains it", r.description].filter(Boolean).join(" · ");
+        li.append(node("span", "chip", r.vrf_name), link);
+        if (details) li.append(node("span", "desc", ` ${details}`));
+        if (r.ip !== undefined) {
+            const ip = r.ip;
+            li.append(node("div", "ip", ip ? [ip.status, ip.role, ip.dns_name].filter(Boolean).join(" · ") || "IP record" : "no IP record"));
+        }
+        return li;
+    }
+
+    function serverSearch(q, commit, ui) {
+        const seq = ++searchSeq;
+        fetch(`${search.dataset.searchUrl}?q=${encodeURIComponent(q)}`)
+            .then((r) => r.json().then((body) => ({ ok: r.ok, body })))
+            .then(({ ok, body }) => {
+                if (seq !== searchSeq) return;
+                if (!ok) { ui.bad(); say(body.error || "Search failed."); return; }
+                if (!body.results.length) { say(`${q}: no prefix contains it.`); return; }
+                if (commit) { window.location.href = body.results[0].url; return; }
+                const list = node("ul");
+                list.append(...body.results.map(resultItem));
+                say([node("div", null, "Enter opens the first map:"), list]);
+            })
+            .catch((error) => { if (seq === searchSeq) say(`Search failed: ${error.message}`); });
+    }
+
     function runSearch(commit) {
         search.classList.remove("bad");
+        clearTimeout(searchTimer);
+        searchSeq++;
         const q = search.value.trim();
         if (!q) { say(null); return; }
-        if (searchHandler) searchHandler(q, commit, { say, bad: () => search.classList.add("bad") });
+        const ui = { say, bad: () => search.classList.add("bad") };
+        if (!QUERY.test(q)) {
+            if (commit || /^\d+\.\d+\.\d+\.\d+/.test(q)) {
+                ui.bad();
+                say("Enter an IPv4 address or prefix, e.g. 10.20.0.1 or 10.20.36.0/24");
+            } else {
+                say(null);
+            }
+            return;
+        }
+        if (searchHandler && searchHandler(q, commit, ui)) return;
+        if (commit) serverSearch(q, true, ui);
+        else searchTimer = setTimeout(() => serverSearch(q, false, ui), 150);
     }
 
     if (search) {

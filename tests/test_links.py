@@ -73,4 +73,4 @@ def test_global_prefix_page(client, dataset):
     r = client.get(f'{BASE}/map/None/172_31_4_0_24').data.decode()
     assert f'{NETBOX}/ipam/prefixes/{pid}/' in r
     assert 'Global subnet' in r and '>Core</a>' in r
-    assert f'href="{BASE}/map/None"' in r, "breadcrumb to the Global VRF"
+    assert f'href="{BASE}/map/None"' in r, "link to the Global VRF"
