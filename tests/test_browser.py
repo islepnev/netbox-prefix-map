@@ -1,3 +1,4 @@
+import ipaddress
 import os
 import socket
 import threading
@@ -10,6 +11,7 @@ from tests.conftest import CELL_SIZE
 playwright_api = pytest.importorskip("playwright.sync_api")
 
 BASE = '/prefix-map'
+NETBOX = 'https://netbox.example.test'
 
 
 @pytest.fixture(scope="module")
@@ -39,8 +41,9 @@ def browser():
 def open_page(browser, server):
     contexts = []
 
-    def _open(path, device_scale_factor=1):
-        ctx = browser.new_context(viewport={'width': 1400, 'height': 900}, device_scale_factor=device_scale_factor)
+    def _open(path, device_scale_factor=1, viewport=(1400, 900), route=None):
+        ctx = browser.new_context(viewport={'width': viewport[0], 'height': viewport[1]},
+                                  device_scale_factor=device_scale_factor)
         contexts.append(ctx)
         page = ctx.new_page()
         page.errors = []
@@ -48,6 +51,8 @@ def open_page(browser, server):
         page.on('console', lambda m: m.type == 'error' and 'Failed to load resource' not in m.text
                 and page.errors.append(m.text))
         page.on('response', lambda r: r.status >= 400 and page.errors.append(f'{r.status} {r.url}'))
+        if route:
+            page.route(*route)
         page.goto(server + path)
         return page
 
@@ -57,11 +62,11 @@ def open_page(browser, server):
 
 
 def wait_for_map(page):
-    page.wait_for_function("document.getElementById('map-usage').textContent.length > 0")
+    page.wait_for_function("document.body.dataset.ready === '1'")
 
 
 def cell_center(page, x, y):
-    box = page.eval_on_selector('#map-image', '''img => {
+    box = page.eval_on_selector('#map-img', '''img => {
         const r = img.getBoundingClientRect();
         return {left: r.left, top: r.top, k: r.width / img.naturalWidth};
     }''')
@@ -69,90 +74,256 @@ def cell_center(page, x, y):
     return box['left'] + (x * cs + cs / 2) * box['k'], box['top'] + (y * cs + cs / 2) * box['k']
 
 
+def cell_of(prefix, address):
+    net = ipaddress.ip_network(prefix)
+    host_bits = 32 - net.prefixlen
+    width, height = 2 ** (host_bits - host_bits // 2), 2 ** (host_bits // 2)
+    return decode_offset(int(ipaddress.ip_address(address)) - int(net.network_address),
+                         get_max_bits(width, height), width, height)
+
+
+def free_address(dataset, prefix):
+    used = {ip['address'].split('/')[0] for ip in dataset['ip_addresses']}
+    return next(str(a) for a in ipaddress.ip_network(prefix).hosts() if str(a) not in used)
+
+
 @pytest.mark.parametrize("dpr", [1, 2])
 def test_zoom_is_whole_device_pixels(open_page, dpr):
     page = open_page(f'{BASE}/map/1/10_20_48_0_20', device_scale_factor=dpr)
     wait_for_map(page)
     natural, css_width = page.eval_on_selector(
-        '#map-image', 'img => [img.naturalWidth, img.getBoundingClientRect().width]')
-    device_px_per_image_px = css_width * dpr / natural
-    assert device_px_per_image_px == int(device_px_per_image_px) >= 1
+        '#map-img', 'img => [img.naturalWidth, img.getBoundingClientRect().width]')
+    k = css_width * dpr / natural
+    assert k == int(k) >= 1
     page.click('#zoom-in')
-    assert page.eval_on_selector('#map-image', 'img => img.getBoundingClientRect().width') * dpr / natural == \
-        device_px_per_image_px + 1
+    assert page.eval_on_selector('#map-img', 'img => img.getBoundingClientRect().width') * dpr / natural == k + 1
+    assert page.inner_text('#zoom-level') == f'{int(k) + 1}×'
     assert page.errors == []
 
 
-def test_hover_shows_ip_and_prefix(open_page):
+@pytest.mark.parametrize("dpr", [1, 2])
+def test_overlays_align_to_cell_edges(open_page, dpr):
+    page = open_page(f'{BASE}/map/1/10_20_48_0_20', device_scale_factor=dpr)
+    wait_for_map(page)
+    page.mouse.move(*cell_center(page, 5, 3))
+    boxes = page.evaluate('''() => {
+        const img = document.getElementById("map-img").getBoundingClientRect();
+        return ["ov-hover", "ov-prefix"].map(id => {
+            const r = document.getElementById(id).getBoundingClientRect();
+            return [r.left - img.left, r.top - img.top, r.width, r.height];
+        });
+    }''')
+    k = page.evaluate('window.__prefixMap.k')
+    unit = CELL_SIZE * k  # device pixels per cell
+    for box in boxes:
+        for v in box:
+            assert abs(v * dpr / unit - round(v * dpr / unit)) < 1e-6, (box, unit)
+    left, top, width, height = boxes[0]
+    assert (round(left * dpr / unit), round(top * dpr / unit), round(width * dpr / unit)) == (5, 3, 1)
+
+
+def test_hover_shows_ip_and_prefix_chain(open_page):
     page = open_page(f'{BASE}/map/1/10_20_48_0_20')
     wait_for_map(page)
-    page.mouse.move(*cell_center(page, 1, 0))  # 10.20.48.1
-    text = page.inner_text('#map-tooltip')
-    assert '10.20.48.1' in text and 'anycast' in text and 'gw-48.example.test' in text
-    assert '10.20.48.0/24: Storage' in text
-    assert 'Click: open 10.20.48.0/24' in text
-    assert page.is_visible('#hover-cell')
+    page.mouse.move(*cell_center(page, *cell_of('10.20.48.0/20', '10.20.48.1')))
+    text = page.inner_text('#insp-detail')
+    assert '10.20.48.1' in text and 'Anycast' in text and 'gw-48.example.test' in text
+    assert 'Double-click to open map of 10.20.48.0/24' in text
+    chain = page.eval_on_selector_all('ol.chain .p', 'els => els.map(e => e.textContent)')
+    assert chain == ['10.0.0.0/8', '10.20.0.0/16', '10.20.0.0/17', '10.20.48.0/20', '10.20.48.0/24']
+    assert page.is_visible('#ov-hover') and page.is_visible('#ov-prefix')
+    assert page.is_hidden('#insp-summary')
+    page.mouse.move(5, 5)
+    assert page.is_visible('#insp-summary') and page.is_hidden('#ov-hover')
     assert page.errors == []
 
 
-def test_free_cell_tooltip(open_page, dataset):
-    used = {ip['address'].split('/')[0] for ip in dataset['ip_addresses']}
-    free = next(f"10.20.48.{host}" for host in range(2, 255) if f"10.20.48.{host}" not in used)
-    x, y = decode_offset(int(free.split('.')[-1]), get_max_bits(64, 64), 64, 64)
+def test_free_cell(open_page, dataset):
+    free = free_address(dataset, '10.20.48.0/24')
     page = open_page(f'{BASE}/map/1/10_20_48_0_20')
     wait_for_map(page)
-    page.mouse.move(*cell_center(page, x, y))
-    assert page.inner_text('#map-tooltip .tt-title').split() == [free, 'free']
+    page.mouse.move(*cell_center(page, *cell_of('10.20.48.0/20', free)))
+    assert page.inner_text('#insp-detail .big').startswith(free + '/')
+    assert page.inner_text('#insp-detail .pill') == 'Free'
+    add = page.get_attribute('#insp-detail a[href*="/ip-addresses/add/"]', 'href')
+    assert add == f'{NETBOX}/ipam/ip-addresses/add/?address={free}/24&vrf=1'
 
 
-def test_click_drills_down(open_page):
+def test_click_pins_and_escape_unpins(open_page):
+    page = open_page(f'{BASE}/map/1/10_20_48_0_20')
+    wait_for_map(page)
+    page.mouse.click(*cell_center(page, *cell_of('10.20.48.0/20', '10.20.48.1')))
+    page.mouse.move(*cell_center(page, 20, 20))
+    assert '10.20.48.1/' in page.inner_text('#insp-detail .big')
+    assert page.is_visible('.pin-badge') and page.is_visible('#ov-pin')
+    page.keyboard.press('Escape')
+    assert page.is_hidden('#ov-pin')
+    assert '10.20.48.1/' not in page.inner_text('#insp-detail .big')
+    page.mouse.click(*cell_center(page, 20, 20))
+    page.mouse.click(*cell_center(page, 20, 20))
+    assert page.is_hidden('#ov-pin'), "second click on the pinned cell unpins"
+
+
+def test_double_click_drills_down(open_page):
     page = open_page(f'{BASE}/map/1/10_20_48_0_20')
     wait_for_map(page)
     with page.expect_navigation():
-        page.mouse.click(*cell_center(page, 1, 0))
+        page.mouse.dblclick(*cell_center(page, *cell_of('10.20.48.0/20', '10.20.48.1')))
     assert page.url.endswith(f'{BASE}/map/1/10_20_48_0_24')
 
 
-def test_tree_expands_lazily_and_links_resolve(open_page, server):
-    page = open_page(f'{BASE}/map/1/10_20_0_0_17')
-    page.wait_for_selector('#prefix-tree li li')
+def test_double_click_in_leaf_opens_ip_in_netbox(open_page, dataset):
+    page = open_page(f'{BASE}/map/1/10_20_48_0_24')
+    wait_for_map(page)
+    page.context.route(f'{NETBOX}/**', lambda route: route.fulfill(body='netbox'))
+    ip = next(ip for ip in dataset['ip_addresses'] if ip['address'].startswith('10.20.48.1/'))
+    with page.expect_popup() as popup:
+        page.mouse.dblclick(*cell_center(page, *cell_of('10.20.48.0/24', '10.20.48.1')))
+    assert popup.value.url == f'{NETBOX}/ipam/ip-addresses/{ip["id"]}/'
+
+
+def test_free_blocks_are_free_and_aligned(open_page, dataset):
+    page = open_page(f'{BASE}/map/1/10_20_48_0_24')
+    wait_for_map(page)
+    rows = page.eval_on_selector_all('#sum-free table.free td:first-child', 'els => els.map(e => e.textContent)')
+    assert rows
+    used = {ipaddress.ip_address(ip['address'].split('/')[0]) for ip in dataset['ip_addresses']}
+    children = [ipaddress.ip_network(p['prefix']) for p in dataset['prefixes']
+                if p['vrf'] == 1 and ':' not in p['prefix']
+                and ipaddress.ip_network(p['prefix']).subnet_of(ipaddress.ip_network('10.20.48.0/24'))
+                and p['prefix'] != '10.20.48.0/24']
+    sizes = []
+    for row in rows:
+        block = ipaddress.ip_network(row)  # raises on unaligned blocks
+        assert not any(a in block for a in used), row
+        assert not any(block.overlaps(c) for c in children), row
+        sizes.append(block.num_addresses)
+    assert sizes == sorted(sizes, reverse=True)
+
+
+def test_tree_shows_path_and_expands_lazily(open_page, server):
+    page = open_page(f'{BASE}/map/1/10_20_48_0_20')
+    page.wait_for_selector('#tree .row.current')
+    path = page.eval_on_selector_all('#tree .row:has(.tog[aria-expanded="true"]) .pfx',
+                                     'els => els.map(e => e.textContent)')
+    assert path == ['10.0.0.0/8', '10.20.0.0/16', '10.20.0.0/17', '10.20.48.0/20']
+    assert page.inner_text('#tree .row.current .pfx') == '10.20.48.0/20'
     requests = []
     page.on('request', lambda r: requests.append(r.url))
-    page.locator('#prefix-tree li li .tree-toggle').first.click()
-    page.wait_for_selector('#prefix-tree li li li')
-    assert all(url.endswith('?nav=1') for url in requests if '/data/' in url)
-    links = page.eval_on_selector_all('#prefix-tree a', 'els => els.map(e => e.getAttribute("href"))')
+    collapsed = page.query_selector('#tree .tog[aria-expanded="false"]')
+    collapsed.click()
+    assert collapsed.get_attribute('aria-expanded') == 'true'
+    page.wait_for_function('!document.querySelector("#tree .msg")')
+    assert requests and all(url.endswith('?nav=1') for url in requests if '/data/' in url)
+    links = page.eval_on_selector_all('#tree a', 'els => els.map(e => e.getAttribute("href"))')
     assert len(links) > 10
     for link in links:
         assert page.request.get(server + link).status == 200, link
     assert page.errors == []
 
 
-@pytest.mark.parametrize("path", ['/', '/map/1', '/map/None', '/map/1/10_0_0_0_8', '/map/None/172_31_0_0_16'])
+def test_tree_and_map_highlight_each_other(open_page):
+    page = open_page(f'{BASE}/map/1/10_20_48_0_20')
+    wait_for_map(page)
+    page.wait_for_selector('#tree .row.current')
+    page.hover('#tree .row[data-prefix="10.20.49.0/24"]')
+    assert page.is_visible('#ov-select')
+    page.mouse.move(*cell_center(page, *cell_of('10.20.48.0/20', '10.20.48.1')))
+    assert page.get_attribute('#tree .row.trace', 'data-prefix') == '10.20.48.0/24'
+
+
+def test_collapsing_panels_lets_fit_grow(open_page):
+    page = open_page(f'{BASE}/map/1/10_20_48_0_20', device_scale_factor=2, viewport=(1440, 1600))
+    wait_for_map(page)
+    k = page.evaluate('window.__prefixMap.k')
+    page.click('#zoom [data-toggle-panel="tree"]')
+    page.keyboard.press(']')
+    assert page.evaluate('document.body.className').split() == ['map-page', 'no-tree', 'no-insp']
+    page.wait_for_function(f'window.__prefixMap.k > {k}')
+    page.reload()
+    wait_for_map(page)
+    assert page.is_hidden('#tree-panel') and page.is_hidden('#insp-panel'), "panel state persists"
+    page.click('#zoom [data-toggle-panel="tree"]')
+    assert page.is_visible('#tree-panel')
+
+
+def test_freshness_dot(open_page):
+    page = open_page(f'{BASE}/map/1/10_20_48_0_20')
+    wait_for_map(page)
+    page.wait_for_function('document.getElementById("fresh").classList.contains("ok")')
+    assert page.inner_text('#fresh-text').startswith('updated ')
+
+    def failing(route):
+        route.fulfill(json={'status': 'ok', 'update_running': False, 'last_success_at': None,
+                            'data_age_seconds': None, 'last_error': 'ConnectionError: NetBox unreachable'})
+    page2 = open_page(f'{BASE}/map/1/10_20_48_0_20', route=(f'**{BASE}/healthz', failing))
+    wait_for_map(page2)
+    page2.wait_for_function('document.getElementById("fresh").classList.contains("stale")')
+    assert 'NetBox unreachable' in page2.get_attribute('#fresh', 'title')
+
+
+def test_search_pins_address_in_map(open_page):
+    page = open_page(f'{BASE}/map/1/10_20_48_0_20')
+    wait_for_map(page)
+    page.keyboard.press('/')
+    page.keyboard.type('10.20.48.1')
+    assert page.is_visible('#ov-pin')
+    assert 'pinned' in page.inner_text('#search-msg')
+    page.fill('#search', '10.20.49.0/24')
+    assert page.is_visible('#ov-select')
+    with page.expect_navigation():
+        page.press('#search', 'Enter')
+    assert page.url.endswith(f'{BASE}/map/1/10_20_49_0_24')
+
+
+def test_page_without_image(open_page):
+    page = open_page(f'{BASE}/map/1/10_0_0_0_8')
+    wait_for_map(page)
+    assert page.is_visible('.map-empty')
+    assert page.inner_text('#tree .row.current .pfx') == '10.0.0.0/8'
+    assert '6,111 / 16,777,216 used' in page.inner_text('#legend')
+    assert page.errors == []
+
+
+@pytest.mark.parametrize("path", ['/', '/map/1', '/map/None', '/map/1/10_0_0_0_8', '/map/None/172_31_0_0_16',
+                                  '/map/None/172_31_4_0_24'])
 def test_pages_have_no_script_errors(open_page, path):
     page = open_page(BASE + path)
     page.wait_for_load_state('networkidle')
     assert page.errors == []
 
 
-def test_data_file_from_older_version(open_page, server, browser):
+def test_data_file_from_older_version(open_page):
     """Pages can be served before the first update rewrites old data files."""
-    ctx = browser.new_context(viewport={'width': 1400, 'height': 900})
-    page = ctx.new_page()
-    errors = []
-    page.on('pageerror', lambda e: errors.append(str(e)))
-    path = f'{BASE}/data/1/10_20_48_0_20'
-
     def strip_new_fields(route):
         data = route.fetch().json()
         old = {k: data[k] for k in ('prefix', 'child_prefixes')}
         old['ip_addresses'] = [{k: ip[k] for k in ('id', 'address', 'vrf', 'tenant')} for ip in data['ip_addresses']]
         route.fulfill(json=old)
 
-    page.route(f'**{path}', strip_new_fields)
-    page.goto(f'{server}{BASE}/map/1/10_20_48_0_20')
+    page = open_page(f'{BASE}/map/1/10_20_48_0_20', route=(f'**{BASE}/data/1/10_20_48_0_20', strip_new_fields))
     wait_for_map(page)
-    page.mouse.move(*cell_center(page, 1, 0))
-    assert '10.20.48.1' in page.inner_text('#map-tooltip')
-    assert errors == []
-    ctx.close()
+    page.mouse.move(*cell_center(page, *cell_of('10.20.48.0/20', '10.20.48.1')))
+    assert '10.20.48.1' in page.inner_text('#insp-detail')
+    assert page.errors == []
+
+
+def test_user_text_is_escaped(open_page):
+    evil = '<img src=x onerror="window.pwned=1">'
+
+    def inject(route):
+        data = route.fetch().json()
+        for p in data.get('nested_prefixes', []) + data['child_prefixes']:
+            p['description'] = evil
+        for ip in data.get('ip_addresses', []):
+            ip['dns_name'] = evil
+            ip['description'] = evil
+        route.fulfill(json=data)
+
+    page = open_page(f'{BASE}/map/1/10_20_48_0_20', route=(f'**{BASE}/data/**', inject))
+    wait_for_map(page)
+    page.wait_for_selector('#tree .row.current')
+    page.mouse.move(*cell_center(page, *cell_of('10.20.48.0/20', '10.20.48.1')))
+    assert evil in page.inner_text('#insp-detail')
+    assert page.evaluate('window.pwned') is None
+    assert page.locator('img[src="x"]').count() == 0

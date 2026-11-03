@@ -135,8 +135,16 @@ def find_parents(vrf, display_prefix):
             continue
         if candidate.version == network.version and candidate.prefixlen < network.prefixlen \
                 and network.subnet_of(candidate):
-            parents.append(candidate)
-    return [{'prefix': str(p), 'vrf_key': vrf} for p in sorted(parents, key=lambda p: p.prefixlen)]
+            parents.append((candidate, entry))
+    return [{
+        'prefix': str(p),
+        'vrf_key': vrf,
+        'sanitized': sanitize_name(str(p)),
+        'id': entry.get('id'),
+        'tenant': entry.get('tenant'),
+        'status': entry.get('status'),
+        'description': entry.get('description') or '',
+    } for p, entry in sorted(parents, key=lambda item: item[0].prefixlen)]
 
 
 def find_prefix_entry(vrf, display_prefix):
@@ -331,20 +339,35 @@ def serve_map(vrf, prefix):
         return render_template('error.html', message=f"Visualization for prefix {display_prefix} not found."), 404
 
     prefix_entry = find_prefix_entry(vrf, display_prefix)
-
+    details = prefix_details(prefix_entry)
+    parents = find_parents(vrf, display_prefix)
+    names = dict(zip(('tenants', 'roles'), load_names()))
+    netbox_url = get_netbox_url()
+    image_url = url_for('app.serve_image', filename=image_filename) if image_exists else None
+    config = {
+        'basePath': BASE_PATH,
+        'netboxUrl': netbox_url,
+        'vrfKey': vrf,
+        'vrf': {'id': vrf_info.get('id'), 'name': vrf_info.get('name')} if vrf_info else None,
+        'prefix': display_prefix,
+        'prefixId': prefix_entry.get('id') if prefix_entry else None,
+        'details': details,
+        'names': names,
+        'parents': parents,
+        'dataUrl': url_for('app.serve_data', vrf=vrf, prefix=sanitized_prefix),
+        'imageUrl': image_url,
+    }
     return render_template(
         'map.html',
-        netbox_url=get_netbox_url(),
+        netbox_url=netbox_url,
         vrf=vrf_info,
-        prefix=display_prefix,
-        prefix_id=prefix_entry.get('id') if prefix_entry else None,
-        details=prefix_details(prefix_entry),
-        names=dict(zip(('tenants', 'roles'), load_names())),
         vrf_key=vrf,
-        sanitized_prefix=sanitized_prefix,
-        parents=find_parents(vrf, display_prefix),
-        image_filename=image_filename if image_exists else None,
-        data_filename=data_filename
+        prefix=display_prefix,
+        prefix_id=config['prefixId'],
+        details=details,
+        parents=parents,
+        image_url=image_url,
+        config=config,
     )
 
 

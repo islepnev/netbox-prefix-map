@@ -10,8 +10,9 @@
 | `app/plot_map.py` | Image rendering (matplotlib, Agg backend) |
 | `app/updater_manager.py` | Background update scheduling |
 | `app/webapp.py` | Flask application: pages, data endpoint, webhook, health and metrics |
-| `static/js/map.js` | Map page: zoom, hover details, click navigation, legend |
+| `static/js/map.js` | Map page: zoom, overlays, inspector, legend, search within the map |
 | `static/js/prefix_tree.js` | Prefix tree in the map page sidebar |
+| `static/js/topbar.js` | Top bar: freshness indicator, search box |
 
 ## Update run
 
@@ -61,12 +62,15 @@ Because the updater lives in the web process, the server runs with a single guni
 
 ## Map page
 
-The browser loads the PNG and the prefix data file (`/data/<vrf>/<prefix>`, gzip-compressed when accepted). The data file carries the grid size, cell size, nested prefixes with their fill colors, IP addresses and parent prefixes, so the page resolves the cell under the pointer with the same layout as the renderer.
+Layout: top bar (VRF, prefix path, search, freshness), prefix tree on the left, map in the center, inspector on the right, legend and usage at the bottom. The side panels collapse (`[`, `]`); the state is kept in local storage. The page configuration (prefix, parents, names, URLs) is embedded as JSON; the browser loads the PNG and the prefix data file (`/data/<vrf>/<prefix>`, gzip-compressed when accepted). The data file carries the grid size, cell size, nested prefixes with their fill colors, IP addresses and parent prefixes, so the page resolves the cell under the pointer with the same layout as the renderer. Missing fields (data files from older versions) are derived or treated as empty.
 
-- Zoom steps are whole device pixels per image pixel; the image is never resampled.
-- Hovering shows the address, its IP record or "free", and the innermost prefix; the cell and the prefix are outlined.
-- Clicking opens the child prefix that contains the cell; in a prefix without children it opens the IP address in NetBox.
-- The prefix tree loads children on expand from `/data/...?nav=1`, which omits addresses and nested prefixes.
+- Zoom steps are whole device pixels per image pixel; the image is never resampled. Fit picks the largest such step that fits the view. Overlays are placed on cell edges.
+- Hovering shows the address, its IP record or "free", the prefix chain and the free blocks of the innermost prefix in the inspector; the cell and the prefix are outlined. Clicking pins the cell; clicking it again or Esc unpins.
+- Double-clicking opens the child prefix that contains the cell, otherwise the IP address in NetBox.
+- Free blocks are the largest aligned blocks with no IP record and no child prefix. Data files of prefixes without an image carry no IP list, so their free blocks are not shown.
+- The prefix tree shows the path from the outermost parent to the current prefix; other branches load on expand from `/data/...?nav=1`, which omits addresses and nested prefixes. Tree rows and the map highlight each other.
+- The freshness dot polls `/healthz` and turns amber when the last update failed, the updater stopped or the data is older than 24 h.
+- Colors of the page follow the system light or dark theme; the map keeps its white background.
 
 ## Observability
 
