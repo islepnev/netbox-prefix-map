@@ -303,3 +303,75 @@ def test_child_entries_have_usage(output_dir, dataset):
                    and ipaddress.ip_address(ip['address'].split('/')[0]) in net)
     assert child['ip_count'] == expected and child['size'] == 256 and child['color']
     assert data['size'] == 4096 and data['ip_count'] == len(data['ip_addresses'])
+
+
+def label_pixels(rgb):
+    return (rgb == np.array([0x6e, 0x6e, 0x6e])).all(axis=2)
+
+
+def test_label_glyph_and_spot():
+    from app.plot_map import find_label_spot, label_glyph
+    assert label_glyph('48').shape == (5, 7)
+    assert label_glyph('255').shape == (5, 11)
+    free = np.zeros((16, 16), dtype=bool)
+    assert find_label_spot(free, 0, 0, 16, 4, 2) == (6, 7)
+    full = np.ones((16, 16), dtype=bool)
+    assert find_label_spot(full, 0, 0, 16, 4, 2) is None
+    only_corner = full.copy()
+    only_corner[12:14, 0:4] = False
+    assert find_label_spot(only_corner, 0, 0, 16, 4, 2) == (0, 12)
+
+
+def test_labels_never_cover_ip_cells(output_dir, dataset):
+    prefix = "10.20.48.0/20"
+    rgb = load_rgb(image_path(output_dir, LAN, prefix))
+    labels = label_pixels(rgb)
+    assert labels.any()
+    for ip in ips_in(dataset, prefix):
+        if ip['status'] == 'inactive':
+            continue
+        x0, y0, x1, y1 = cell_box(prefix, ip['address'])
+        assert not labels[y0:y1, x0:x1].any(), ip['address']
+
+
+def test_label_on_free_space_only(output_dir, dataset):
+    """Every /24 with a free spot gets its third octet; a block without room gets none."""
+    prefix = "10.20.48.0/20"
+    rgb = load_rgb(image_path(output_dir, LAN, prefix))
+    labels = label_pixels(rgb)
+    width, height = calculate_grid_dimensions(prefix)
+    per_block = {}
+    for third in range(48, 64):
+        x, y = decode_offset((third - 48) * 256, get_max_bits(width, height), width, height)
+        box = labels[y * CELL_SIZE:(y + 16) * CELL_SIZE, x * CELL_SIZE:(x + 16) * CELL_SIZE]
+        per_block[third] = box.any()
+    assert per_block[59] and per_block[63], "empty /24s are labelled"
+    dense = [t for t, used in ((t, len(ips_in(dataset, f"10.20.{t}.0/24")) + len(ips_in(dataset, f"10.20.{t}.0/24", role=True)))
+                               for t in range(48, 64)) if used > 230]
+    assert all(not per_block[t] for t in dense)
+
+
+def test_layered_map_labels_second_octet(output_dir):
+    rgb = load_rgb(image_path(output_dir, LAN, "10.0.0.0/8"))
+    labels = label_pixels(rgb)
+    width = height = 256
+    for second in (20, 30, 99):
+        x, y = decode_offset(second * 256, get_max_bits(width, height), width, height)
+        assert labels[y * CELL_SIZE:(y + 16) * CELL_SIZE, x * CELL_SIZE:(x + 16) * CELL_SIZE].any(), second
+
+
+def test_layered_map_edges_and_tenantless_prefixes(tmp_path):
+    from app.plot_map import LAYER_OUTLINE_COLOR, plot_layered_grid
+    out = str(tmp_path / 'layer.png')
+    nested = [{'prefix': '10.64.0.0/10', 'tenant': None}, {'prefix': '10.0.0.0/28', 'tenant': None}]
+    plot_layered_grid('10.0.0.0/9', 24, {}, nested, nested[:1], out, 4, {})
+    rgb = load_rgb(out)
+    outline = (np.array(LAYER_OUTLINE_COLOR) * 255).round().astype(int)
+    assert rgb.shape == (512, 1024, 3)
+    body_rows = np.arange(512) % 4 != 0
+    body_cols = np.arange(1024) % 4 != 0
+    assert not (rgb[body_rows, -1] == outline).all(axis=1).any(), "no outline inside the last column of cells"
+    assert not (rgb[-1, body_cols] == outline).all(axis=1).any(), "no outline inside the last row of cells"
+    assert (rgb[1:-1:4, 512] == outline).all(), "left edge of the /10 on the gap column"
+    cell = rgb[1:4, 1:4]  # 10.0.0.0/24 holds a tenantless /28
+    assert (cell[0, 0] != cell[0, 1]).any(), "checkerboard"
