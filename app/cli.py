@@ -5,11 +5,14 @@ import json
 import logging
 import os
 import sys
+import time
 from dotenv import load_dotenv
 
 from app.logging_config import setup_logging
 from app.netbox_integration import NetboxAddressManager
-from app.plot_map import build_tenant_color_map, get_tenant_color, plot_allocation_grid
+from app.plot_map import (
+    build_tenant_color_map, calculate_grid_dimensions, get_tenant_color, plot_allocation_grid, prefix_fill_color,
+)
 from app.prefix_tree import PrefixTree
 from app.utils import (
     choice_value, filter_keys_from_dicts, ip_belongs_to_prefix, load_json, resolve_output_dir, sanitize_name,
@@ -139,7 +142,7 @@ def render_fingerprint(prefix, nested_prefixes, ip_addresses, cell_size, tenant_
 
 
 def process_prefix(prefix_entry, prefix_subtree, descendants, ip_addresses, cell_size, tenant_color_map, output_dir,
-                   render=True):
+                   render=True, ancestors=()):
     """
     :param prefix_subtree: tree node of this prefix; its direct children go to the data file (navigation).
     :param descendants: all nested prefixes at any depth; drawn on the map.
@@ -161,23 +164,38 @@ def process_prefix(prefix_entry, prefix_subtree, descendants, ip_addresses, cell
     json_filename = f"data-{sanitized_vrf}-{sanitized_prefix}.json"
     json_filepath = os.path.join(output_dir, json_filename)
 
-    prefix_keys = {"id", "prefix", "vrf", "tenant"}
-    child_prefixes = filter_keys_from_dicts(prefix_subtree.get("children", []), prefix_keys)
+    prefix_keys = {"id", "prefix", "vrf", "tenant", "status", "description"}
+    child_prefixes = [
+        dict(child, has_children=bool(node.get("children")))
+        for child, node in zip(filter_keys_from_dicts(prefix_subtree.get("children", []), prefix_keys),
+                               prefix_subtree.get("children", []))
+    ]
     nested_prefixes = filter_keys_from_dicts(descendants, prefix_keys)
 
     fingerprint = None
     if render:
         fingerprint = render_fingerprint(prefix, nested_prefixes, ip_addresses, cell_size, tenant_color_map)
-    filtered_ip_addresses = filter_keys_from_dicts(ip_addresses, {"id", "address", "vrf", "tenant"})
+    filtered_ip_addresses = [
+        dict(ip, status=choice_value(ip.get('status')), role=choice_value(ip.get('role')))
+        for ip in filter_keys_from_dicts(
+            ip_addresses, {"id", "address", "vrf", "tenant", "status", "role", "dns_name", "description"})
+    ]
     data_to_save = {
         'prefix': prefix_entry["prefix"],
         'id': prefix_entry.get("id"),
         'vrf': vrf,
+        'generated_at': time.time(),
         'rendered': render,
         'render_hash': fingerprint,
+        'parents': filter_keys_from_dicts(ancestors, {"id", "prefix", "vrf"}),
         'child_prefixes': child_prefixes,
+        'nested_prefixes': [dict(p, color=prefix_fill_color(p.get('tenant'), tenant_color_map))
+                            for p in nested_prefixes],
         'ip_addresses': filtered_ip_addresses,
     }
+    if render:
+        data_to_save['cell_size'] = cell_size
+        data_to_save['grid'] = list(calculate_grid_dimensions(prefix))
 
     if render:
         if os.path.exists(output_filepath) and load_json(json_filepath).get('render_hash') == fingerprint:
@@ -201,6 +219,8 @@ def process_all_prefixes(prefixes, ip_addresses, cell_size, output_dir):
             'id': prefix_entry['id'],
             'vrf': prefix_entry.get('vrf'),
             'tenant': prefix_entry.get('tenant'),
+            'status': choice_value(prefix_entry.get('status')),
+            'description': prefix_entry.get('description') or '',
             'prefix': prefix_entry['prefix']
         }
         prefix_tree_obj.add_prefix(prefix_data)
@@ -234,7 +254,8 @@ def process_all_prefixes(prefixes, ip_addresses, cell_size, output_dir):
             else:
                 descendants = prefix_tree_obj.get_descendants(prefix, vrf)
             process_prefix(prefix_entry, prefix_subtree, descendants, filtered_ip_addresses, cell_size,
-                           tenant_color_map, output_dir, render=render)
+                           tenant_color_map, output_dir, render=render,
+                           ancestors=prefix_tree_obj.get_ancestors(prefix, vrf))
         except Exception as e:
             logging.error(f"Error processing prefix '{prefix}': {e}")
             continue

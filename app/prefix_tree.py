@@ -96,6 +96,16 @@ class PrefixTree:
             return []
         return [tree[child] for child in tree.children(prefix)]
 
+    def get_ancestors(self, prefix, vrf=None):
+        """Enclosing prefixes, outermost first."""
+        tree = self._tree_for(prefix, vrf)
+        ancestors = []
+        parent = tree.parent(prefix) if prefix in tree else None
+        while parent:
+            ancestors.append(tree[parent])
+            parent = tree.parent(parent)
+        return ancestors[::-1]
+
     def get_descendants_all_vrfs(self, prefix):
         """Prefixes nested under ``prefix`` in any VRF (for Global containers)."""
         network = ipaddress.ip_network(prefix)

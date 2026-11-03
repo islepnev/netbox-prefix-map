@@ -172,3 +172,19 @@ def test_healthcheck_bypasses_proxy(webapp, monkeypatch):
         assert healthcheck.main() == 1
     finally:
         server.shutdown()
+
+
+def test_data_nav_mode_omits_addresses(client):
+    full = client.get(f'{BASE}/data/1/10_20_0_0_17').get_json()
+    nav = client.get(f'{BASE}/data/1/10_20_0_0_17?nav=1').get_json()
+    assert full['ip_addresses'] and full['nested_prefixes']
+    assert 'ip_addresses' not in nav and 'nested_prefixes' not in nav
+    assert nav['child_prefixes'] == full['child_prefixes']
+
+
+def test_data_is_gzipped_when_accepted(client):
+    import gzip
+    r = client.get(f'{BASE}/data/1/10_20_0_0_17', headers={'Accept-Encoding': 'gzip, deflate'})
+    assert r.headers['Content-Encoding'] == 'gzip'
+    assert json.loads(gzip.decompress(r.data))['prefix'] == '10.20.0.0/17'
+    assert 'Content-Encoding' not in client.get(f'{BASE}/data/1/10_20_0_0_17').headers
