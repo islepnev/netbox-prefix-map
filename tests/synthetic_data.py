@@ -95,17 +95,18 @@ def build_dataset(seed: int = 20):
          "tenant": None, "url": None, "display_url": None, "prefix_count": None, "ipaddress_count": None},
     ]
     tenants = [{"id": tid, "name": name, "slug": name.lower()} for tid, name in TENANTS.items()]
+    roles = [{"id": 1, "name": "Access", "slug": "access"}, {"id": 2, "name": "Infrastructure", "slug": "infra"}]
 
     prefixes = []
 
-    def add_prefix(prefix, vrf, tenant=None, status="active", description=""):
+    def add_prefix(prefix, vrf, tenant=None, status="active", description="", role=None):
         prefixes.append({
             "id": len(prefixes) + 1,
             "prefix": prefix,
             "vrf": vrf,
             "tenant": tenant,
             "status": status,
-            "role": None,
+            "role": role,
             "description": description,
         })
 
@@ -115,7 +116,7 @@ def build_dataset(seed: int = 20):
     add_prefix("10.20.128.0/17", LAN_VRF_ID, status="container", description="Campus B")
     add_prefix("10.30.0.0/16", LAN_VRF_ID, status="reserved", description="Future site")
     for prefix, tenant, status in TENANT_BLOCKS:
-        add_prefix(prefix, LAN_VRF_ID, tenant, status)
+        add_prefix(prefix, LAN_VRF_ID, tenant, status, description=f"{TENANTS[tenant]} block", role=1)
 
     block_tenant = {}
     for prefix, tenant, _ in TENANT_BLOCKS:
@@ -129,7 +130,9 @@ def build_dataset(seed: int = 20):
         add_prefix(prefix, LAN_VRF_ID, tenant)
 
     # IPv6 must be skipped cleanly
-    add_prefix("192.168.0.0/24", None, status="active", description="Management")
+    add_prefix("192.168.0.0/24", None, status="active", description="Management", role=2)
+    add_prefix("172.31.0.0/16", None, status="container", description="Global container")
+    add_prefix("172.31.4.0/24", None, tenant=1, status="active", description="Global subnet")
     add_prefix("2001:db8::/48", LAN_VRF_ID, status="active", description="IPv6 test")
 
     ip_addresses = []
@@ -169,7 +172,7 @@ def build_dataset(seed: int = 20):
         add_ip(f"192.168.0.{host}/24", None, status="active", role="vip" if host == 1 else None)
     add_ip("2001:db8::1/64", LAN_VRF_ID)
 
-    return {"vrfs": vrfs, "tenants": tenants, "prefixes": prefixes, "ip_addresses": ip_addresses}
+    return {"vrfs": vrfs, "tenants": tenants, "roles": roles, "prefixes": prefixes, "ip_addresses": ip_addresses}
 
 
 class FakeNetboxManager:
@@ -186,6 +189,12 @@ class FakeNetboxManager:
 
     def get_vrfs(self):
         return self.dataset["vrfs"]
+
+    def get_tenants(self):
+        return self.dataset["tenants"]
+
+    def get_roles(self):
+        return self.dataset["roles"]
 
     def get_tenant(self, tenant_id):
         return next((t for t in self.dataset["tenants"] if t["id"] == tenant_id), None)

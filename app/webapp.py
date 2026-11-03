@@ -11,7 +11,7 @@ import time
 from app.cli import run_update
 from app.logging_config import recent_log_handler, setup_logging
 from app.updater_manager import UpdaterManager
-from app.utils import resolve_output_dir
+from app.utils import load_json, resolve_output_dir
 
 load_dotenv()
 setup_logging()
@@ -87,6 +87,26 @@ def load_vrf_data():
         return vrfs
     else:
         return []
+
+
+def load_names():
+    names = load_json(os.path.join(OUTPUT_DIR, 'names.json'))
+    return names.get('tenants', {}), names.get('roles', {})
+
+
+def prefix_details(prefix_entry):
+    if not prefix_entry:
+        return {}
+    tenants, roles = load_names()
+    tenant_id, role_id = prefix_entry.get('tenant'), prefix_entry.get('role')
+    return {
+        'description': prefix_entry.get('description'),
+        'status': prefix_entry.get('status'),
+        'tenant_id': tenant_id,
+        'tenant_name': tenants.get(str(tenant_id)) if tenant_id else None,
+        'role_id': role_id,
+        'role_name': roles.get(str(role_id)) if role_id else None,
+    }
 
 
 def load_prefix_tree():
@@ -280,6 +300,7 @@ def serve_map(vrf, prefix):
         vrf=vrf_info,
         prefix=display_prefix,
         prefix_id=prefix_entry.get('id') if prefix_entry else None,
+        details=prefix_details(prefix_entry),
         image_filename=image_filename if image_exists else None,
         data_filename=data_filename
     )
@@ -288,35 +309,16 @@ def serve_map(vrf, prefix):
 @bp.route('/data/<vrf>/<path:prefix>', methods=['GET'])
 def serve_data(vrf, prefix):
     """
-    Serve the JSON data file for a given VRF and prefix, including navigation URLs.
+    Serve the JSON data file for a given VRF and prefix.
     """
     sanitized_vrf = sanitize_name(vrf)
     sanitized_prefix = sanitize_name(prefix)
 
-    data_filename = f"data-{sanitized_vrf}-{sanitized_prefix}.json"
-    json_filepath = os.path.join(OUTPUT_DIR, data_filename)
-
-    if not os.path.exists(json_filepath):
+    json_filepath = os.path.join(OUTPUT_DIR, f"data-{sanitized_vrf}-{sanitized_prefix}.json")
+    data = load_json(json_filepath)
+    if not data:
         return jsonify({'error': 'Data not found.'}), 404
-
-    try:
-        # Load the existing JSON data
-        with open(json_filepath, 'r') as f:
-            data = json.load(f)
-
-        # Add URLs for navigation
-        def add_urls(node):
-            node['url'] = f"/map/{sanitize_name(node.get('vrf', 'None'))}/{sanitize_name(node['prefix'])}"
-            if 'children' in node:
-                for child in node['children']:
-                    add_urls(child)
-
-        add_urls(data)
-        return jsonify(data), 200
-
-    except Exception as e:
-        logging.error(f"Failed to load prefix tree data: {e}")
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+    return jsonify(data), 200
 
 
 @bp.route('/images/<filename>', methods=['GET'])
