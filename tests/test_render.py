@@ -375,3 +375,28 @@ def test_layered_map_edges_and_tenantless_prefixes(tmp_path):
     assert (rgb[1:-1:4, 512] == outline).all(), "left edge of the /10 on the gap column"
     cell = rgb[1:4, 1:4]  # 10.0.0.0/24 holds a tenantless /28
     assert (cell[0, 0] != cell[0, 1]).any(), "checkerboard"
+
+
+@pytest.mark.parametrize("prefix,expected", [
+    ("0.0.0.0/0", 256), ("0.0.0.0/4", 0), ("10.0.0.0/8", 256), ("10.16.0.0/12", 16), ("10.0.0.0/15", 2),
+])
+def test_layered_labels_unique(prefix, expected):
+    from app.plot_map import block_labels, layer_block_len
+    network = ipaddress.ip_network(prefix)
+    block_len = layer_block_len(network.prefixlen)
+    bits = block_len - network.prefixlen
+    occupied = np.zeros((2 ** (bits // 2), 2 ** (bits - bits // 2)), dtype=bool)
+    labels = block_labels(network, block_len, occupied, 4)
+    assert len(labels) == expected
+    texts = [mask.tobytes() for mask, _, _ in labels]
+    assert len(set(texts)) == len(texts)
+
+
+def test_tenant_prefix_wins_over_tenantless_in_block(tmp_path):
+    from app.plot_map import plot_layered_grid, prefix_fill_color
+    out = str(tmp_path / 'layer.png')
+    nested = [{'prefix': '10.0.0.0/25', 'tenant': None}, {'prefix': '10.0.0.0/28', 'tenant': 5}]
+    colors = {5: '#ff7f0e'}
+    plot_layered_grid('10.0.0.0/8', 24, {}, nested, [], out, 4, colors)
+    expected = [int(prefix_fill_color(5, colors)[i:i + 2], 16) for i in (1, 3, 5)]
+    assert list(load_rgb(out)[1, 1]) == expected

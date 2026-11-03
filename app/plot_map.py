@@ -450,8 +450,11 @@ def plot_layered_grid(prefix, block_len, block_counts, nested_prefixes, children
         if sub.prefixlen <= block_len:
             if color:
                 fill[first:first + 2 ** (block_len - sub.prefixlen)] = _hex_rgb(color)
+        elif color:
+            if first not in partial or partial[first][0] is None:
+                partial[first] = (sub.prefixlen, _hex_rgb(color))
         else:
-            partial.setdefault(first, (sub.prefixlen, _hex_rgb(color or LAYER_NEUTRAL_COLOR)))
+            partial.setdefault(first, (None, _hex_rgb(LAYER_NEUTRAL_COLOR)))
 
     xs, ys = layer_cell_coords(width, height)
     image = np.ones((height * cell_size, width * cell_size, 3))
@@ -563,7 +566,8 @@ def block_labels(network, cell_len, occupied, cell_size):
     The label is the octet that tells groups of one map apart, e.g. the third octet of a /24.
     """
     group_len = cell_len - LABEL_GROUP_BITS
-    if group_len < network.prefixlen or group_len < 8:
+    # One octet must tell the groups apart, otherwise labels would repeat (e.g. 16 groups labelled "0" on a /4)
+    if group_len < network.prefixlen or group_len < 8 or network.prefixlen // 8 != (group_len - 1) // 8:
         return []
     height, width = occupied.shape
     max_bits = get_max_bits(width, height)
