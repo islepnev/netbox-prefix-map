@@ -55,12 +55,73 @@ def test_image_size_is_exact(output_dir, prefix, size):
         assert im.size == (size[0] * CELL_SIZE, size[1] * CELL_SIZE)
 
 
-def test_prefix_larger_than_16_has_data_but_no_image(output_dir):
-    assert not os.path.exists(image_path(output_dir, LAN, "10.0.0.0/8"))
+def layer_cell_box(prefix, block_len, address):
+    """Pixel box (x0, y0, x1, y1) of the inner part of the layered-map cell holding an address."""
+    net = ipaddress.ip_network(prefix)
+    bits = block_len - net.prefixlen
+    width, height = 2 ** (bits - bits // 2), 2 ** (bits // 2)
+    index = (int(ipaddress.ip_address(address)) - int(net.network_address)) >> (32 - block_len)
+    x, y = decode_offset(index, get_max_bits(width, height), width, height)
+    return x * CELL_SIZE + 1, y * CELL_SIZE + 1, (x + 1) * CELL_SIZE, (y + 1) * CELL_SIZE
+
+
+@pytest.mark.parametrize("width,height", [(16, 16), (32, 16), (256, 256)])
+def test_layer_cell_coords_match_decode_offset(width, height):
+    from app.plot_map import layer_cell_coords
+    xs, ys = layer_cell_coords(width, height)
+    bits = get_max_bits(width, height)
+    for index in range(0, width * height, 7):
+        assert (xs[index], ys[index]) == decode_offset(index, bits, width, height)
+
+
+def test_layer_block_len():
+    from app.plot_map import layer_block_len
+    assert [layer_block_len(n) for n in (0, 4, 8, 12, 15)] == [16, 20, 24, 24, 24]
+
+
+def test_short_prefix_gets_layered_map(output_dir, dataset):
     with open(data_path(output_dir, LAN, "10.0.0.0/8")) as f:
         data = json.load(f)
-    assert data['rendered'] is False
+    assert data['rendered'] is False and data['ip_addresses'] == []
+    assert data['layer']['block_len'] == 24 and data['grid'] == [256, 256]
     assert "10.20.0.0/16" in [c['prefix'] for c in data['child_prefixes']]
+    counts = dict(data['layer']['blocks'])
+    expected = {}
+    for ip in dataset['ip_addresses']:
+        if ip['vrf'] == LAN and ':' not in ip['address']:
+            index = (int(ipaddress.ip_address(ip['address'].split('/')[0])) - (10 << 24)) >> 8
+            expected[index] = expected.get(index, 0) + 1
+    assert counts == expected
+    assert sum(counts.values()) == data['ip_count']
+
+    rgb = load_rgb(image_path(output_dir, LAN, "10.0.0.0/8"))
+    assert rgb.shape == (256 * CELL_SIZE, 256 * CELL_SIZE, 3)
+    x0, y0, x1, y1 = layer_cell_box("10.0.0.0/8", 24, "10.20.0.0")  # 134 IPs, nested /26 and /28 inside
+    busy = rgb[y0:y1, x0:x1]
+    assert busy.mean() < 128
+    assert (busy[0, 0] == busy[1, 1]).all() and (busy[0, 0] != busy[0, 1]).any(), "checkerboard"
+    x0, y0, x1, y1 = layer_cell_box("10.0.0.0/8", 24, "10.20.51.0")  # Storage tenant, no nested prefix inside
+    cell = rgb[y0:y1, x0:x1]
+    assert (cell == cell[0, 0]).all() and cell[0, 0].sum() < 3 * 200
+    x0, y0, x1, y1 = layer_cell_box("10.0.0.0/8", 24, "10.99.0.0")  # nothing here
+    assert (rgb[y0:y1, x0:x1] == 255).all()
+    x0, y0, x1, y1 = layer_cell_box("10.0.0.0/8", 24, "10.20.200.0")  # inside 10.20.0.0/16, no IPs
+    assert (rgb[y0:y1, x0:x1] == 255).all()
+
+
+def test_layered_map_outlines_children(output_dir):
+    rgb = load_rgb(image_path(output_dir, LAN, "10.0.0.0/8"))
+    # 10.30.0.0/16 is a 16x16-cell square: its edges are drawn on the gap lines
+    x0, y0, _, _ = layer_cell_box("10.0.0.0/8", 24, "10.30.0.0")
+    x1, y1, _, _ = layer_cell_box("10.0.0.0/8", 24, "10.30.255.0")
+    left, top = x0 - 1, y0 - 1
+    right, bottom = x1 - 1 + CELL_SIZE, y1 - 1 + CELL_SIZE
+    outline = np.array([69, 69, 69])
+    assert (rgb[top, left:right + 1] == outline).all()
+    assert (rgb[bottom, left:right + 1] == outline).all()
+    assert (rgb[top:bottom + 1, left] == outline).all()
+    assert (rgb[top:bottom + 1, right] == outline).all()
+    assert (rgb[top + 1, left + 1:right] != outline).any(), "inside is not outlined"
 
 
 def test_ipv6_is_skipped(output_dir):
