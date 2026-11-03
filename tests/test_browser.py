@@ -133,3 +133,26 @@ def test_pages_have_no_script_errors(open_page, path):
     page = open_page(BASE + path)
     page.wait_for_load_state('networkidle')
     assert page.errors == []
+
+
+def test_data_file_from_older_version(open_page, server, browser):
+    """Pages can be served before the first update rewrites old data files."""
+    ctx = browser.new_context(viewport={'width': 1400, 'height': 900})
+    page = ctx.new_page()
+    errors = []
+    page.on('pageerror', lambda e: errors.append(str(e)))
+    path = f'{BASE}/data/1/10_20_48_0_20'
+
+    def strip_new_fields(route):
+        data = route.fetch().json()
+        old = {k: data[k] for k in ('prefix', 'child_prefixes')}
+        old['ip_addresses'] = [{k: ip[k] for k in ('id', 'address', 'vrf', 'tenant')} for ip in data['ip_addresses']]
+        route.fulfill(json=old)
+
+    page.route(f'**{path}', strip_new_fields)
+    page.goto(f'{server}{BASE}/map/1/10_20_48_0_20')
+    wait_for_map(page)
+    page.mouse.move(*cell_center(page, 1, 0))
+    assert '10.20.48.1' in page.inner_text('#map-tooltip')
+    assert errors == []
+    ctx.close()
