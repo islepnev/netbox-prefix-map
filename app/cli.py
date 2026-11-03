@@ -125,6 +125,46 @@ def save_prefix_tree(prefixes, output_dir):
     logging.info(f"Saved prefix tree data to {prefix_tree_filepath}")
 
 
+def save_summary(prefixes, prefix_tree_obj, ip_addresses, ip_counts, tenant_color_map, output_dir):
+    """Per VRF: IPv4 prefix and address counts, top-level prefixes with usage."""
+    def vrf_key(vrf):
+        return 'None' if vrf is None else str(vrf)
+
+    summary = {}
+    for vrf, trees in prefix_tree_obj.trees.items():
+        tree = trees['ipv4']
+        top = []
+        for prefix in tree:
+            if tree.parent(prefix):
+                continue
+            entry = tree[prefix]
+            top.append({
+                'id': entry.get('id'),
+                'prefix': prefix,
+                'vrf': vrf,
+                'tenant': entry.get('tenant'),
+                'status': entry.get('status'),
+                'description': entry.get('description') or '',
+                'color': prefix_fill_color(entry.get('tenant'), tenant_color_map),
+                'ip_count': ip_counts.get((vrf, prefix), 0),
+                'size': ipaddress.ip_network(prefix).num_addresses,
+                'has_children': bool(tree.children(prefix)),
+            })
+        top.sort(key=lambda p: ipaddress.ip_network(p['prefix']))
+        summary[vrf_key(vrf)] = {'prefix_count': 0, 'ip_count': 0, 'top_prefixes': top}
+    empty = {'prefix_count': 0, 'ip_count': 0, 'top_prefixes': []}
+    for prefix in prefixes:
+        if ':' not in prefix.get('prefix', ':'):
+            summary.setdefault(vrf_key(prefix.get('vrf')), dict(empty))['prefix_count'] += 1
+    for ip in ip_addresses:
+        address = ip.get('address') or ''
+        if ':' in address:
+            continue
+        key = vrf_key(ip.get('vrf'))
+        summary.setdefault(key, dict(empty))['ip_count'] += 1
+    write_json_atomic(os.path.join(output_dir, 'summary.json'), summary)
+
+
 def render_fingerprint(prefix, nested_prefixes, ip_addresses, cell_size, tenant_color_map):
     state = {
         'version': RENDER_VERSION,
@@ -276,6 +316,7 @@ def process_all_prefixes(prefixes, ip_addresses, cell_size, output_dir):
         logging.info(f"Skipped {skipped_ipv6} IPv6 prefixes (IPv6 maps are not supported)")
 
     save_prefix_tree(prefixes, output_dir)
+    save_summary(prefixes, prefix_tree_obj, ip_addresses, ip_counts, tenant_color_map, output_dir)
 
 
 def run_update(args=None, mgr=None):

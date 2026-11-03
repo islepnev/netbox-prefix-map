@@ -1,47 +1,50 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
-    <meta charset="UTF-8">
-    <title>VRF {{ vrf.name or 'Global' }}</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
-    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
-    <script>
-        const BASE_PATH = "{{ base_path }}";
-    </script>
-    <script src="{{ url_for('static', filename='js/prefix_tree.js') }}" defer></script>
+{% include '_head.html' %}
+    <title>VRF {{ vrf.name if vrf else 'Global' }} · Prefix Map</title>
 </head>
-
-<body>
-    <div class="navbar">
-        <div class="breadcrumbs">
-            {% for crumb in generate_breadcrumbs(vrf=vrf or 'None', prefix=prefix) %}
-                {% if crumb.url %}
-                    <a href="{{ crumb.url }}">{{ crumb.name }}</a>
-                    {% if not loop.last %}
-                        <span class="separator">&gt;</span>
-                    {% endif %}
-                {% else %}
-                    <span>{{ crumb.name }}</span>
-                {% endif %}
-            {% endfor %}
-        </div>        
+<body class="doc-page">
+{% include '_topbar.html' %}
+{% from '_usage.html' import usage, percent, count %}
+<main class="page-main">
+    <div class="page-head">
+        <div>
+            <h1>VRF {{ vrf.name if vrf else 'Global' }}</h1>
+            <div class="sub">
+                {% if vrf and vrf.description %}<span>{{ vrf.description }}</span>{% endif %}
+                {% if vrf and vrf.rd %}<span class="mono">RD {{ vrf.rd }}</span>{% endif %}
+                {% if vrf %}<a class="ext" href="{{ netbox_url }}/ipam/vrfs/{{ vrf.id }}/" target="_blank" rel="noopener">NetBox</a>{% endif %}
+            </div>
+        </div>
+        <div class="stats">
+            <div class="stat"><b>{{ count(summary.prefix_count) }}</b><span>IPv4 prefixes</span></div>
+            <div class="stat"><b>{{ count(summary.ip_count) }}</b><span>IP addresses</span></div>
+        </div>
     </div>
-    <div class="container">
-        <div class="sidebar">
-            <b>VRF {% if vrf %}<a href="{{ netbox_url }}/ipam/vrfs/{{ vrf.id }}/">{{ vrf.name }}</a>{% else %}Global{% endif %}</b>
-            <ul>
-                {% for prefix in prefixes if ':' not in prefix.prefix %}
-                <li><a href="{{ base_path }}/map/{{ vrf.id or 'None' }}/{{ prefix.sanitized }}">{{ prefix.display }}</a></li>
+    <div class="card">
+        {% if summary.top_prefixes %}
+        <table class="list" id="prefix-list">
+            <thead>
+                <tr><th>Prefix</th><th class="hide-narrow">Description</th><th class="hide-narrow">Tenant</th><th class="hide-narrow">Status</th><th class="num">Addresses used</th><th class="num">Usage</th></tr>
+            </thead>
+            <tbody>
+                {% for p in summary.top_prefixes %}
+                <tr>
+                    <td><span class="pfx-cell"><span class="tdot{{ '' if p.color else ' none' }}"{% if p.color %} style="background:{{ p.color }}"{% endif %}></span><a href="{{ url_for('app.serve_map', vrf=vrf_key, prefix=p.sanitized) }}">{{ p.prefix }}</a></span></td>
+                    <td class="desc hide-narrow">{{ p.description or '' }}</td>
+                    <td class="hide-narrow">{% if p.tenant %}{{ tenants.get(p.tenant | string) or p.tenant }}{% endif %}</td>
+                    <td class="hide-narrow">{% if p.status %}<span class="pill">{{ p.status | capitalize }}</span>{% endif %}</td>
+                    <td class="num">{{ count(p.ip_count) }} / {{ count(p.size) }}</td>
+                    <td class="num"><span class="usage-cell">{{ usage(p, wide=True) }}<span class="pct">{{ percent(p.ip_count, p.size) }}</span></span></td>
+                </tr>
                 {% endfor %}
-            </ul>
-        </div>
-        <div class="content">
-            <h1>VRF: {{ vrf.name or 'Global' }}</h1>
-            <p>{{ vrf.description }}</p>
-            {% if vrf %}<p><a href="{{ netbox_url }}/ipam/vrfs/{{ vrf.id }}/">View in NetBox</a></p>{% endif %}
-        </div>
+            </tbody>
+        </table>
+        {% else %}
+        <div class="empty">No IPv4 prefixes in this VRF.</div>
+        {% endif %}
     </div>
+</main>
 </body>
-
 </html>

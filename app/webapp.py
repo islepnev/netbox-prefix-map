@@ -192,25 +192,12 @@ def inject_base_path():
 
 
 @app.context_processor
-def inject_breadcrumbs():
-    def generate_breadcrumbs(vrf=None, prefix=None, parents=()):
-        breadcrumbs = [{"name": "NetBox", "url": get_netbox_url()}]
-        breadcrumbs.append({"name": "Prefix Map", "url": url_for('app.index')})
-
-        if vrf:
-            vrf_name = vrf.get('name', 'Global') if isinstance(vrf, dict) else 'Global'
-            vrf_id = vrf.get('id') if isinstance(vrf, dict) else vrf
-            breadcrumbs.append({"name": vrf_name, "url": url_for('app.vrf_view', vrf=vrf_id)})
-
-        for parent in parents:
-            breadcrumbs.append({"name": parent['prefix'], "url": url_for(
-                'app.serve_map', vrf=parent['vrf_key'], prefix=sanitize_name(parent['prefix']))})
-
-        if prefix:
-            breadcrumbs.append({"name": prefix, "url": None})  # Current page
-        return breadcrumbs
-
-    return dict(generate_breadcrumbs=generate_breadcrumbs)
+def inject_generated_at():
+    """Time of the last completed update run, from its last output file."""
+    try:
+        return {'generated_at': os.path.getmtime(os.path.join(OUTPUT_DIR, 'prefix_tree.json'))}
+    except OSError:
+        return {'generated_at': None}
 
 
 @bp.route('/webhook', methods=['POST'])
@@ -300,23 +287,73 @@ def show_errors():
     return render_template('errors.html', logs=recent_log_handler.lines()[::-1])
 
 
+def load_summary():
+    return load_json(os.path.join(OUTPUT_DIR, 'summary.json'))
+
+
+def top_level_prefixes(entries):
+    """Prefixes not contained in another one; duplicates listed once."""
+    networks = {}
+    for entry in entries:
+        try:
+            network = ipaddress.ip_network(entry['prefix'])
+        except (KeyError, ValueError):
+            continue
+        if network.version == 4:
+            networks.setdefault(network, entry)
+    top = []
+    for network in sorted(networks):
+        if top and network.subnet_of(top[-1][0]):
+            continue
+        top.append((network, networks[network]))
+    return top
+
+
+def vrf_summary(vrf_key, summary=None):
+    """Counts and top-level prefixes of a VRF; usage is unknown before the first update writes summary.json."""
+    summary = load_summary() if summary is None else summary
+    if summary:
+        result = dict(summary.get(vrf_key) or {'prefix_count': 0, 'ip_count': 0, 'top_prefixes': []})
+    else:
+        entries = [e for e in load_prefix_tree().get(vrf_key, {}).get('prefixes', []) if ':' not in e.get('prefix', ':')]
+        result = {
+            'prefix_count': len(entries),
+            'ip_count': None,
+            'top_prefixes': [dict(entry, prefix=str(network), ip_count=None, size=network.num_addresses)
+                             for network, entry in top_level_prefixes(entries)],
+        }
+    result['top_prefixes'] = [dict(p, sanitized=sanitize_name(p['prefix'])) for p in result['top_prefixes']]
+    return result
+
+
 @bp.route('/')
 @bp.route('/map')
 def index():
-    vrfs = load_vrf_data()
-    return render_template('index.html', vrfs=vrfs, netbox_url=get_netbox_url())
+    summary = load_summary()
+    vrfs = sorted(load_vrf_data(), key=lambda v: (v.get('name') or '').lower())
+    rows = []
+    for key, vrf in [('None', None)] + [(str(v['id']), v) for v in vrfs]:
+        counts = vrf_summary(key, summary)
+        rows.append({
+            'key': key,
+            'id': vrf['id'] if vrf else None,
+            'name': vrf.get('name') if vrf else 'Global',
+            'description': vrf.get('description') if vrf else '',
+            'rd': vrf.get('rd') if vrf else None,
+            'prefix_count': counts['prefix_count'],
+            'ip_count': counts['ip_count'],
+        })
+    return render_template('index.html', rows=rows, netbox_url=get_netbox_url())
 
 
 @bp.route('/map/<vrf>', methods=['GET'])
 def vrf_view(vrf):
-    prefix_tree = load_prefix_tree()
-    vrfs = load_vrf_data()
-    vrf_info = next((v for v in vrfs if str(v['id']) == vrf), None)
+    vrf_info = next((v for v in load_vrf_data() if str(v['id']) == vrf), None)
     if not vrf_info and vrf != 'None':
         return render_template('error.html', message=f"VRF {vrf} not found."), 404
-
-    prefixes = prefix_tree.get(vrf, {}).get('prefixes', [])
-    return render_template('vrf.html', vrf=vrf_info, prefixes=prefixes, netbox_url=get_netbox_url())
+    tenants, _ = load_names()
+    return render_template('vrf.html', vrf=vrf_info, vrf_key=vrf, summary=vrf_summary(vrf), tenants=tenants,
+                           netbox_url=get_netbox_url())
 
 
 @bp.route('/map/<vrf>/<path:prefix>', methods=['GET'])

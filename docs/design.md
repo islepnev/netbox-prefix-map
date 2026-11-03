@@ -19,7 +19,7 @@
 1. Fetch all objects from NetBox. Records are flattened with pynetbox `serialize()`: nested objects become ids, choice fields become their value (`"active"`, `"reserved"`).
 2. Build one prefix tree per VRF.
 3. For every IPv4 prefix write `data-<vrf>-<prefix>.json` and, for /16 and longer, `address_map-<vrf>-<prefix>.png`.
-4. Write `vrf.json`, `names.json` (tenant and role names) and `prefix_tree.json` (prefix list per VRF).
+4. Write `vrf.json`, `names.json` (tenant and role names), `prefix_tree.json` (prefix list per VRF) and `summary.json` (per VRF: IPv4 prefix and address counts, top-level prefixes with usage). Until the first update writes `summary.json`, the VRF pages derive the top-level prefixes from `prefix_tree.json` without usage.
 
 `<vrf>` is the VRF id or `None`; in `<prefix>`, `.` and `/` are replaced with `_`. All files are written to a temporary name and renamed, so readers never see partial files.
 

@@ -1,0 +1,12 @@
+{% macro usage(p, wide=False) -%}
+{% if p.ip_count is none or not p.size %}
+<span class="usage{{ ' wide' if wide }} na" title="No usage data"></span>
+{%- else %}
+{% set ratio = [p.ip_count / p.size, 1] | min %}
+<span class="usage{{ ' wide' if wide }}{{ ' hot' if ratio > 0.8 }}" title="{{ '{:,}'.format(p.ip_count) }} of {{ '{:,}'.format(p.size) }} addresses"><i style="width:{{ '%.1f' | format([6 if ratio > 0 else 0, ratio * 100] | max) }}%"></i></span>
+{%- endif %}
+{%- endmacro %}
+{% macro percent(used, total) -%}
+{% if used is none or not total %}—{% else %}{% set v = 100 * used / total %}{% if v == 0 %}0%{% elif v < 1 %}&lt;1%{% else %}{{ v | round | int }}%{% endif %}{% endif %}
+{%- endmacro %}
+{% macro count(n) -%}{{ '—' if n is none else '{:,}'.format(n) }}{%- endmacro %}
