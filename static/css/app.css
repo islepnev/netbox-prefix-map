@@ -266,6 +266,7 @@ kbd { font: 11px var(--mono); border: 1px solid var(--line); border-radius: 3px;
 }
 .lg { display: inline-flex; align-items: center; gap: 6px; flex: none; }
 .lg .sw { width: 10px; height: 10px; border-radius: 2px; box-shadow: 0 0 0 1px var(--line); }
+.lg .sw.checker { background: repeating-conic-gradient(#8a8a8a 0 25%, #fff 0 50%) 0 0 / 4px 4px; border-radius: 0; }
 .lg-group { display: flex; gap: 12px; align-items: center; min-width: 0; overflow: hidden; }
 .lg-group:first-child { flex: none; }
 .lg-group.tenants { mask-image: linear-gradient(90deg, #000 calc(100% - 24px), transparent); }

@@ -58,6 +58,13 @@
     let hasIps = false;
     let used = 0;
     let GW = 0, GH = 0, cs = 0;
+    // Layered maps (prefixes shorter than /16): one cell per aligned /blockLen block, with IP counts per block
+    let layer = null;
+    let blockLen = 32, blockSize = 1;
+    let blockStarts = new Float64Array(0);
+    let blockCum = [0];
+    const blockCounts = new Map();
+    const blockStart = (a) => a - ((a - net.start) % blockSize);
     let ipsByAddr = new Map();
     let ipSorted = new Float64Array(0);
     let nested = [];
@@ -69,11 +76,21 @@
         while (lo < hi) { const m = (lo + hi) >> 1; if (ipSorted[m] < v) lo = m + 1; else hi = m; }
         return lo;
     };
-    const countIps = (s, e) => lowerBound(e + 1) - lowerBound(s);
-    const containing = (addr) => nested.filter((n) => addr >= n.start && addr <= n.end);
+    const lowerBoundIn = (arr, v) => {
+        let lo = 0, hi = arr.length;
+        while (lo < hi) { const m = (lo + hi) >> 1; if (arr[m] < v) lo = m + 1; else hi = m; }
+        return lo;
+    };
+    const countIps = (s, e) => {
+        if (!layer) return lowerBound(e + 1) - lowerBound(s);
+        return blockCum[lowerBoundIn(blockStarts, e + 1)] - blockCum[lowerBoundIn(blockStarts, s - blockSize + 1)];
+    };
+    // Nested prefixes covering the whole cell at addr, outermost first
+    const containing = (addr) => nested.filter((n) => addr >= n.start && addr + blockSize - 1 <= n.end);
+    const inside = (addr) => nested.filter((n) => n.start >= addr && n.end <= addr + blockSize - 1 && n.size < blockSize);
     const childAt = (addr) => {
         let best = null;
-        for (const c of children) if (addr >= c.start && addr <= c.end && (!best || c.len > best.len)) best = c;
+        for (const c of children) if (addr >= c.start && addr + blockSize - 1 <= c.end && (!best || c.len > best.len)) best = c;
         return best;
     };
     const childrenOf = (range) => {
@@ -92,7 +109,7 @@
             const overlap = kids.filter((k) => k.start <= end && k.end >= start);
             if (overlap.some((k) => k.start <= start && k.end >= end)) return;
             if (!overlap.length && countIps(start, end) === 0) { blocks.push({ start, len, size }); return; }
-            if (len >= 32) return;
+            if (len >= blockLen) return;
             walk(start, len + 1, overlap);
             walk(start + size / 2, len + 1, overlap);
         })(range.start, range.len, childrenOf(range));
@@ -115,11 +132,22 @@
         for (const p of [data, ...(data.child_prefixes || []), ...(data.nested_prefixes || [])]) {
             if (p.tenant && p.color && !tenantColors.has(String(p.tenant))) tenantColors.set(String(p.tenant), p.color);
         }
+        // A layered image with a data file from an older version: same block size as the renderer, counts unknown
+        if (!data.layer && img && net.len < 16) data.layer = { block_len: Math.min(net.len + 16, 24), blocks: [] };
+        if (data.layer) {
+            layer = data.layer;
+            blockLen = layer.block_len;
+            blockSize = 2 ** (32 - blockLen);
+            const blocks = [...(layer.blocks || [])].sort((a, b) => a[0] - b[0]);
+            blockStarts = Float64Array.from(blocks, ([i]) => net.start + i * blockSize);
+            blockCum = [0];
+            for (const [i, n] of blocks) { blockCounts.set(i, n); blockCum.push(blockCum.at(-1) + n); }
+        }
         if (img) {
             // Data files from older versions lack grid and cell size; both follow from the prefix and the image
-            const hostBits = 32 - net.len;
-            GW = 2 ** (hostBits - Math.floor(hostBits / 2));
-            GH = 2 ** Math.floor(hostBits / 2);
+            const cellBits = blockLen - net.len;
+            GW = 2 ** (cellBits - Math.floor(cellBits / 2));
+            GH = 2 ** Math.floor(cellBits / 2);
             cs = img.naturalWidth / GW;
         }
     }
@@ -146,11 +174,12 @@
         if (GW === 2 * GH && offset >= GH * GH) { const [x, y] = deinterleave(offset - GH * GH); return [x + GH, y]; }
         return deinterleave(offset);
     }
+    const cellOf = (a) => offsetToCell(Math.floor((a - net.start) / blockSize));
     function rangeBounds(start, end) {
-        const [x1, y1] = offsetToCell(start - net.start), [x2, y2] = offsetToCell(end - net.start);
+        const [x1, y1] = cellOf(start), [x2, y2] = cellOf(end);
         return [Math.min(x1, x2), Math.min(y1, y2), Math.max(x1, x2), Math.max(y1, y2)];
     }
-    const cellBounds = (a) => { const [x, y] = offsetToCell(a - net.start); return [x, y, x, y]; };
+    const cellBounds = (a) => { const [x, y] = cellOf(a); return [x, y, x, y]; };
 
     // ---------- state ----------
     let k = 1, fitMode = true, dpr = window.devicePixelRatio || 1;
@@ -230,7 +259,7 @@
         const x = Math.floor(((ev.clientX - r.left) * img.naturalWidth) / r.width / cs);
         const y = Math.floor(((ev.clientY - r.top) * img.naturalHeight) / r.height / cs);
         if (x < 0 || y < 0 || x >= GW || y >= GH) return null;
-        return net.start + cellToOffset(x, y);
+        return net.start + cellToOffset(x, y) * blockSize;
     }
 
     let focusedPrefix;
@@ -252,7 +281,7 @@
 
     // What double-click opens: the child prefix map, else the IP in NetBox
     function openAction(a) {
-        const child = childAt(a);
+        const child = childAt(a) || (layer ? inside(a)[0] : null);
         if (child) return { label: `open map of ${child.p.prefix}`, url: mapUrl(child.p.vrf ?? data.vrf, child.p.prefix) };
         const ip = ipsByAddr.get(a);
         if (ip && ip.id) return { label: "open the IP in NetBox", url: `${NB}/ipam/ip-addresses/${ip.id}/`, external: true };
@@ -277,6 +306,10 @@
         nbLink(`/tenancy/tenants/${id}/`, tenantName(id))) : null);
 
     function freeSection(range, label) {
+        if (range.len >= blockLen) {
+            return sec(el("span", null, "Free blocks in ", el("span", { class: "mono", text: label })), null,
+                el("div", { class: "empty", text: `Smaller than a cell of this map; see the map of ${label}.` }));
+        }
         const fb = freeBlocks(range);
         const shown = fb.blocks.slice(0, 8);
         const body = shown.length
@@ -289,6 +322,53 @@
             : el("div", { class: "empty", text: "No free addresses." });
         const more = fb.blocks.length > shown.length ? el("div", { class: "hint", text: `${fmt(fb.blocks.length - shown.length)} smaller blocks not shown` }) : null;
         return sec(el("span", null, "Free blocks in ", el("span", { class: "mono", text: label })), `${fmt(fb.total)} free`, body, more);
+    }
+
+    function chainSection(chainNodes) {
+        const chain = [
+            ...cfg.parents.map((p) => ({ prefix: p.prefix, id: p.id, vrf: cfg.vrfKey, desc: p.description, tenant: p.tenant })),
+            { prefix: cfg.prefix, id: cfg.prefixId, vrf: cfg.vrfKey, desc: cfg.details.description, tenant: cfg.details.tenant_id, here: true },
+            ...chainNodes.map((n) => ({ prefix: n.p.prefix, id: n.p.id, vrf: n.p.vrf ?? data.vrf, desc: n.p.description, tenant: n.p.tenant })),
+        ];
+        const innerPrefix = chain.at(-1).prefix;
+        return sec("Prefix chain", `${chain.length} levels`, el("ol", { class: "chain" }, chain.map((c) => {
+            const desc = [c.desc, tenantName(c.tenant)].filter(Boolean).join(" · ");
+            return el("li", { class: [c.here ? "here" : "", c.prefix === innerPrefix ? "inner" : ""].join(" ").trim() || null },
+                el("span", { class: "p", text: c.prefix }),
+                el("span", { class: "l" },
+                    c.here ? el("span", { text: "this map" }) : el("a", { href: mapUrl(c.vrf, c.prefix), text: "map" }),
+                    c.id ? nbLink(`/ipam/prefixes/${c.id}/`, "NetBox") : null),
+                desc ? el("span", { class: "d", text: desc, title: desc }) : null);
+        })));
+    }
+
+    // Inspector of a layered map cell: an aligned block with its IP count
+    function renderBlock(a) {
+        const count = blockCounts.get((a - net.start) / blockSize) || 0;
+        const chainNodes = containing(a);
+        const inner = chainNodes.at(-1);
+        const smaller = inside(a);
+        const action = openAction(a);
+        const out = [el("section", { class: "sec" },
+            el("div", { class: "big" }, intToIp(a), el("span", { class: "mask", text: `/${blockLen}` })),
+            el("div", { class: "sub" },
+                count ? el("span", { class: "pill", text: `${fmt(count)} used` }) : el("span", { class: "pill free", text: "No IPs" }),
+                el("span", { class: "mono", text: `${pct(count, blockSize)} of ${fmt(blockSize)}` })),
+            action ? el("div", { class: "hint", text: `Double-click to ${action.label}` })
+                : el("div", { class: "hint", text: "No prefix in this block" }))];
+        out.push(chainSection(chainNodes));
+        if (smaller.length) {
+            const shown = smaller.slice(0, 8);
+            out.push(sec("Prefixes in this block", `${fmt(smaller.length)}`, el("ol", { class: "chain" }, shown.map((n) =>
+                el("li", null, el("span", { class: "p", text: n.p.prefix }),
+                    el("span", { class: "l" }, el("a", { href: mapUrl(n.p.vrf ?? data.vrf, n.p.prefix), text: "map" }),
+                        n.p.id ? nbLink(`/ipam/prefixes/${n.p.id}/`, "NetBox") : null),
+                    n.p.description ? el("span", { class: "d", text: n.p.description, title: n.p.description }) : null)))));
+        }
+        out.push(freeSection(inner || net, inner ? inner.p.prefix : cfg.prefix));
+        $("insp-detail").replaceChildren(...out);
+        $("insp-summary").hidden = true;
+        $("insp-detail").hidden = false;
     }
 
     function setBadge(node) { $("insp-badge").replaceWith(node); node.id = "insp-badge"; }
@@ -309,6 +389,7 @@
                 type: "button", title: "Unpin (Esc)", "aria-label": "Unpin", text: "×", onclick: () => pin(null),
             }))
             : el("span", { class: "badge", text: "click to pin" }));
+        if (layer) { renderBlock(a); return; }
         const ip = ipsByAddr.get(a);
         const chainNodes = containing(a);
         const inner = chainNodes.at(-1);
@@ -335,21 +416,8 @@
             out.push(sec("IP address", null, el("div", { class: "empty" }, "No IP record. ",
                 nbLink(`/ipam/ip-addresses/add/?address=${intToIp(a)}/${mask}${vrfParam}`, "Add in NetBox"))));
         }
-        const chain = [
-            ...cfg.parents.map((p) => ({ prefix: p.prefix, id: p.id, vrf: cfg.vrfKey, desc: p.description, tenant: p.tenant })),
-            { prefix: cfg.prefix, id: cfg.prefixId, vrf: cfg.vrfKey, desc: cfg.details.description, tenant: cfg.details.tenant_id, here: true },
-            ...chainNodes.map((n) => ({ prefix: n.p.prefix, id: n.p.id, vrf: n.p.vrf ?? data.vrf, desc: n.p.description, tenant: n.p.tenant })),
-        ];
-        const innerPrefix = chain.at(-1).prefix;
-        out.push(sec("Prefix chain", `${chain.length} levels`, el("ol", { class: "chain" }, chain.map((c) => {
-            const desc = [c.desc, tenantName(c.tenant)].filter(Boolean).join(" · ");
-            return el("li", { class: [c.here ? "here" : "", c.prefix === innerPrefix ? "inner" : ""].join(" ").trim() || null },
-                el("span", { class: "p", text: c.prefix }),
-                el("span", { class: "l" },
-                    c.here ? el("span", { text: "this map" }) : el("a", { href: mapUrl(c.vrf, c.prefix), text: "map" }),
-                    c.id ? nbLink(`/ipam/prefixes/${c.id}/`, "NetBox") : null),
-                desc ? el("span", { class: "d", text: desc, title: desc }) : null);
-        }))));
+        out.push(chainSection(chainNodes));
+        const innerPrefix = inner ? inner.p.prefix : cfg.prefix;
         out.push(freeSection(inner || net, innerPrefix));
         detail.replaceChildren(...out);
         summary.hidden = true;
@@ -373,7 +441,7 @@
                     el("span", { text: used === null ? "IPs" : `IPs · ${pct(used, total)}` })),
                 el("div", { class: "stat" }, el("b", { text: fmt((data.child_prefixes || []).length) }), el("span", { text: "child prefixes" })),
                 el("div", { class: "stat" }, el("b", { text: fmt(total) }), el("span", { text: "addresses" }))));
-        if (hasIps) $("sum-free").replaceChildren(freeSection(net, cfg.prefix));
+        if (hasIps || layer) $("sum-free").replaceChildren(freeSection(net, cfg.prefix));
     }
 
     function renderLegend() {
@@ -382,11 +450,19 @@
         for (const p of data.nested_prefixes || data.child_prefixes || []) {
             if (p.tenant && p.color && !tenants.has(p.tenant)) tenants.set(p.tenant, p.color);
         }
-        $("legend").replaceChildren(
-            el("span", { class: "lg-group" },
+        const keys = layer
+            ? el("span", { class: "lg-group" },
+                el("span", { class: "lg-label", text: "IPs per block" }),
+                el("span", { class: "lg" }, sw("rgba(0,0,0,.25)"), "few"),
+                el("span", { class: "lg" }, sw("rgba(0,0,0,.575)"), "25%"),
+                el("span", { class: "lg" }, sw("rgba(0,0,0,.9)"), "all"),
+                el("span", { class: "lg" }, el("span", { class: "sw checker" }), "prefixes inside"))
+            : el("span", { class: "lg-group" },
                 el("span", { class: "lg" }, sw("#000"), "In use"),
                 el("span", { class: "lg" }, sw("rgba(0,0,0,.25)"), "Reserved"),
-                el("span", { class: "lg" }, sw("#ff0000"), "With role")),
+                el("span", { class: "lg" }, sw("#ff0000"), "With role"));
+        $("legend").replaceChildren(
+            keys,
             tenants.size ? el("span", { class: "vsep" }) : null,
             tenants.size ? el("span", { class: "lg-group tenants" }, el("span", { class: "lg-label", text: "Tenants" }),
                 [...tenants].sort((a, b) => tenantName(a[0]).localeCompare(tenantName(b[0])))
@@ -394,7 +470,7 @@
             el("span", { class: "right", id: "usage-total" },
                 used === null ? `${fmt(net.size)} addresses`
                     : `${fmt(used)} / ${fmt(net.size)} used · ${((100 * used) / net.size).toFixed(used && used < net.size / 1000 ? 2 : 1)}%`,
-                img ? el("span", { class: "cellnote", text: " · 1 cell = 1 address" }) : null));
+                img ? el("span", { class: "cellnote", text: layer ? ` · 1 cell = /${blockLen}` : " · 1 cell = 1 address" }) : null));
     }
 
     // ---------- search within this map ----------
@@ -413,6 +489,12 @@
         const parsed = img && parseQuery(q);
         if (!parsed) return false;
         const { addr, len } = parsed;
+        if (len === null && layer) {
+            const a = blockStart(addr);
+            pin(a, true);
+            ui.say(`${intToIp(addr)} is in block ${intToIp(a)}/${blockLen} · ${fmt(blockCounts.get((a - net.start) / blockSize) || 0)} IPs — pinned`);
+            return true;
+        }
         if (len === null) {
             const ip = ipsByAddr.get(addr);
             pin(addr, true);
@@ -444,7 +526,7 @@
         const focus = new URLSearchParams(window.location.search).get("focus");
         const parsed = focus && parseQuery(focus);
         if (!parsed) return;
-        if (parsed.len === null) pin(parsed.addr, true);
+        if (parsed.len === null) pin(blockStart(parsed.addr), true);
         else if (parsed.len > net.len) outline(parsePrefix(`${intToIp(parsed.addr - (parsed.addr % 2 ** (32 - parsed.len)))}/${parsed.len}`));
     }
 
