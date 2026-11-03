@@ -1,5 +1,7 @@
+import gzip
 import hashlib
 import hmac
+import ipaddress
 import json
 from flask import Flask, Blueprint, Response, redirect, request, jsonify, send_from_directory, render_template, url_for
 from dotenv import load_dotenv
@@ -119,6 +121,24 @@ def load_prefix_tree():
         return {}
 
 
+def find_parents(vrf, display_prefix):
+    """Enclosing prefixes of the same VRF, outermost first."""
+    try:
+        network = ipaddress.ip_network(display_prefix)
+    except ValueError:
+        return []
+    parents = []
+    for entry in load_prefix_tree().get(vrf, {}).get('prefixes', []):
+        try:
+            candidate = ipaddress.ip_network(entry['prefix'])
+        except ValueError:
+            continue
+        if candidate.version == network.version and candidate.prefixlen < network.prefixlen \
+                and network.subnet_of(candidate):
+            parents.append(candidate)
+    return [{'prefix': str(p), 'vrf_key': vrf} for p in sorted(parents, key=lambda p: p.prefixlen)]
+
+
 def find_prefix_entry(vrf, display_prefix):
     """Find a prefix record (id, tenant, ...) in prefix_tree.json by VRF key and prefix."""
     for entry in load_prefix_tree().get(vrf, {}).get('prefixes', []):
@@ -130,6 +150,20 @@ def find_prefix_entry(vrf, display_prefix):
 def verify_webhook_signature(body: bytes, signature: str) -> bool:
     expected = hmac.new(WEBHOOK_SECRET.encode(), body, hashlib.sha512).hexdigest()
     return hmac.compare_digest(expected, signature or '')
+
+
+NAV_EXCLUDED_KEYS = {'ip_addresses', 'nested_prefixes'}
+
+
+@app.after_request
+def gzip_json(response):
+    if (response.mimetype == 'application/json' and response.status_code == 200
+            and 'gzip' in request.headers.get('Accept-Encoding', '') and not response.direct_passthrough
+            and response.content_length and response.content_length > 1024):
+        response.set_data(gzip.compress(response.get_data(), compresslevel=5))
+        response.headers['Content-Encoding'] = 'gzip'
+        response.headers['Vary'] = 'Accept-Encoding'
+    return response
 
 
 @app.before_request
@@ -150,7 +184,7 @@ def inject_base_path():
 
 @app.context_processor
 def inject_breadcrumbs():
-    def generate_breadcrumbs(vrf=None, prefix=None):
+    def generate_breadcrumbs(vrf=None, prefix=None, parents=()):
         breadcrumbs = [{"name": "NetBox", "url": get_netbox_url()}]
         breadcrumbs.append({"name": "Prefix Map", "url": url_for('app.index')})
 
@@ -158,6 +192,10 @@ def inject_breadcrumbs():
             vrf_name = vrf.get('name', 'Global') if isinstance(vrf, dict) else 'Global'
             vrf_id = vrf.get('id') if isinstance(vrf, dict) else vrf
             breadcrumbs.append({"name": vrf_name, "url": url_for('app.vrf_view', vrf=vrf_id)})
+
+        for parent in parents:
+            breadcrumbs.append({"name": parent['prefix'], "url": url_for(
+                'app.serve_map', vrf=parent['vrf_key'], prefix=sanitize_name(parent['prefix']))})
 
         if prefix:
             breadcrumbs.append({"name": prefix, "url": None})  # Current page
@@ -301,6 +339,10 @@ def serve_map(vrf, prefix):
         prefix=display_prefix,
         prefix_id=prefix_entry.get('id') if prefix_entry else None,
         details=prefix_details(prefix_entry),
+        names=dict(zip(('tenants', 'roles'), load_names())),
+        vrf_key=vrf,
+        sanitized_prefix=sanitized_prefix,
+        parents=find_parents(vrf, display_prefix),
         image_filename=image_filename if image_exists else None,
         data_filename=data_filename
     )
@@ -318,6 +360,8 @@ def serve_data(vrf, prefix):
     data = load_json(json_filepath)
     if not data:
         return jsonify({'error': 'Data not found.'}), 404
+    if request.args.get('nav') == '1':
+        data = {k: v for k, v in data.items() if k not in NAV_EXCLUDED_KEYS}
     return jsonify(data), 200
 
 

@@ -5,6 +5,7 @@
     <meta charset="UTF-8">
     <title>VRF {{ vrf.name or 'Global' }}</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
     <script>
         const BASE_PATH = "{{ base_path }}";
     </script>
@@ -29,7 +30,6 @@
     <div class="container">
         <div class="sidebar">
             <b>VRF {% if vrf %}<a href="{{ netbox_url }}/ipam/vrfs/{{ vrf.id }}/">{{ vrf.name }}</a>{% else %}Global{% endif %}</b>
-            <div id="prefix-tree">Loading...</div>
             <ul>
                 {% for prefix in prefixes if ':' not in prefix.prefix %}
                 <li><a href="{{ base_path }}/map/{{ vrf.id or 'None' }}/{{ prefix.sanitized }}">{{ prefix.display }}</a></li>
