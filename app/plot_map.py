@@ -2,6 +2,7 @@ import ipaddress
 import logging
 import math
 import os
+import zlib
 import matplotlib
 matplotlib.use("Agg")  # renders off the main thread, without a display
 from matplotlib.patches import Rectangle  # noqa: E402
@@ -175,18 +176,16 @@ def get_prefix_rectangles(top_prefix, prefixes, max_bits):
     return rectangles
 
 
-def build_tenant_color_map(prefixes, palette=TABLEAU10_PALETTE):
-    # Extract unique tenant names, allowing for natural numbers and None
-    unique_tenants = sorted(
-        set(prefix.get('tenant') for prefix in prefixes),
-        key=lambda x: (x is not None, str(x))  # Sort None first, then by string representation
-    )
+def tenant_color(tenant, palette=TABLEAU10_PALETTE):
+    # Derived from the immutable NetBox tenant id, so adding or removing tenants never recolors others
+    if isinstance(tenant, int):
+        return palette[(tenant - 1) % len(palette)]
+    return palette[zlib.crc32(str(tenant).encode()) % len(palette)]
 
-    # Assign colors consistently based on sorted tenant names
-    tenant_color_map = {
-        tenant: palette[idx % len(palette)] for idx, tenant in enumerate(unique_tenants)
-    }
-    return tenant_color_map
+
+def build_tenant_color_map(prefixes, palette=TABLEAU10_PALETTE):
+    tenants = {prefix.get('tenant') for prefix in prefixes} - {None}
+    return {tenant: tenant_color(tenant, palette) for tenant in tenants}
 
 
 def get_tenant_color(tenant_id, tenant_color_map):
