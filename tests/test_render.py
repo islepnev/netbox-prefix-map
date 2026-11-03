@@ -220,3 +220,25 @@ def test_data_file_has_browser_fields(output_dir, dataset):
     assert nested["10.20.50.0/25"]['color'] and nested["10.20.48.0/24"]['color'] == '#ea9393'
     gw = next(ip for ip in data['ip_addresses'] if ip['address'] == "10.20.48.1/24")
     assert gw['role'] == 'anycast' and gw['status'] == 'active' and gw['dns_name']
+
+
+def test_ip_index_matches_ip_belongs_to_prefix(dataset):
+    from app.utils import IpIndex
+    index = IpIndex(dataset['ip_addresses'])
+    prefixes = [p for p in dataset['prefixes'] if ':' not in p['prefix']]
+    prefixes.append({"prefix": "10.20.0.0/17", "vrf": None, "status": "container"})
+    prefixes.append({"prefix": "10.20.0.0/17", "vrf": None, "status": "active"})
+    for prefix in prefixes:
+        expected = [ip['id'] for ip in dataset['ip_addresses'] if ip_belongs_to_prefix(ip, prefix)]
+        assert sorted(ip['id'] for ip in index.lookup(prefix)) == sorted(expected), prefix['prefix']
+
+
+def test_child_entries_have_usage(output_dir, dataset):
+    with open(data_path(output_dir, LAN, "10.20.48.0/20")) as f:
+        data = json.load(f)
+    child = next(c for c in data['child_prefixes'] if c['prefix'] == "10.20.50.0/24")
+    net = ipaddress.ip_network("10.20.50.0/24")
+    expected = sum(1 for ip in dataset['ip_addresses'] if ip['vrf'] == LAN and ':' not in ip['address']
+                   and ipaddress.ip_address(ip['address'].split('/')[0]) in net)
+    assert child['ip_count'] == expected and child['size'] == 256 and child['color']
+    assert data['size'] == 4096 and data['ip_count'] == len(data['ip_addresses'])

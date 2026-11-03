@@ -1,3 +1,4 @@
+from bisect import bisect_left, bisect_right
 from collections import defaultdict
 import csv
 import ipaddress
@@ -141,6 +142,42 @@ def ip_belongs_to_prefix(ip_entry, prefix_entry):
     if not global_container and ip_entry.get('vrf') != prefix_vrf:
         return False
     return ip_in_prefix(ip_entry.get('address', ''), prefix_entry.get('prefix', ''))
+
+
+class IpIndex:
+    """IPv4 addresses sorted by address per VRF, for range lookups by prefix."""
+
+    def __init__(self, ip_addresses):
+        by_vrf = defaultdict(list)
+        everything = []
+        for ip in ip_addresses:
+            try:
+                address = int(ipaddress.IPv4Address(ip.get('address', '').split('/')[0]))
+            except ValueError:
+                continue
+            by_vrf[ip.get('vrf')].append((address, ip))
+            everything.append((address, ip))
+        self._by_vrf = {vrf: self._columns(items) for vrf, items in by_vrf.items()}
+        self._all = self._columns(everything)
+
+    @staticmethod
+    def _columns(items):
+        items.sort(key=lambda item: item[0])
+        return [item[0] for item in items], [item[1] for item in items]
+
+    def lookup(self, prefix_entry):
+        """IP records contained in the prefix, same semantics as ip_belongs_to_prefix()."""
+        network = ipaddress.ip_network(prefix_entry['prefix'])
+        if network.version != 4:
+            return []
+        prefix_vrf = prefix_entry.get('vrf')
+        if prefix_vrf is None and choice_value(prefix_entry.get('status')) == 'container':
+            keys, values = self._all
+        else:
+            keys, values = self._by_vrf.get(prefix_vrf, ([], []))
+        start = bisect_left(keys, int(network.network_address))
+        end = bisect_right(keys, int(network.broadcast_address))
+        return values[start:end]
 
 
 def ip_in_prefix(ip_address, prefix):
