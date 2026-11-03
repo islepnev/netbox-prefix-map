@@ -7,4 +7,4 @@ set -e
 python -m app.cli
 
 # Start the Flask application
-python -m app.webapp
+exec python -m app.webapp

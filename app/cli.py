@@ -1,5 +1,7 @@
 import argparse
+import hashlib
 import ipaddress
+import json
 import logging
 import os
 import sys
@@ -7,10 +9,11 @@ from dotenv import load_dotenv
 
 from app.logging_config import setup_logging
 from app.netbox_integration import NetboxAddressManager
-from app.plot_map import build_tenant_color_map, plot_allocation_grid
+from app.plot_map import build_tenant_color_map, get_tenant_color, plot_allocation_grid
 from app.prefix_tree import PrefixTree
 from app.utils import (
-    choice_value, filter_keys_from_dicts, ip_belongs_to_prefix, resolve_output_dir, sanitize_name, write_json_atomic,
+    choice_value, filter_keys_from_dicts, ip_belongs_to_prefix, load_json, resolve_output_dir, sanitize_name,
+    write_json_atomic,
 )
 
 logging_levels = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
@@ -18,7 +21,11 @@ logging_levels = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 MAX_PREFIX_LEN = 32
 # Shorter prefixes (e.g. a sparse /8) would need a 4096x4096+ grid; they get navigation data but no image.
 MIN_RENDER_PREFIX_LEN = 16
-DEFAULT_CELL_SIZE = 12
+# Bump when drawing code changes, to redraw unchanged prefixes
+RENDER_VERSION = 1
+
+# Override via the CELL_SIZE environment variable or the --cell-size CLI flag.
+DEFAULT_CELL_SIZE = 4
 
 
 def parse_arguments():
@@ -40,13 +47,14 @@ def parse_arguments():
         "-o", "--output",
         type=str,
         default="output",
-        help="Output directory"
+        help="Output directory (default: output).",
     )
     parser.add_argument(
-        "-c", "--cell_size",
+        "-c", "--cell-size",
+        dest="cell_size",
         type=int,
         default=DEFAULT_CELL_SIZE,
-        help=f"Size of each grid cell in pixels. Default is {DEFAULT_CELL_SIZE}."
+        help=f"Size of each grid cell in pixels (default: {DEFAULT_CELL_SIZE}).",
     )
 
     args = parser.parse_args()
@@ -103,6 +111,22 @@ def save_prefix_tree(prefixes, output_dir):
     logging.info(f"Saved prefix tree data to {prefix_tree_filepath}")
 
 
+def render_fingerprint(prefix, nested_prefixes, ip_addresses, cell_size, tenant_color_map):
+    state = {
+        'version': RENDER_VERSION,
+        'prefix': prefix,
+        'cell_size': cell_size,
+        'nested': sorted(
+            (p['prefix'], get_tenant_color(p.get('tenant'), tenant_color_map)) for p in nested_prefixes
+        ),
+        'ips': sorted(
+            (ip.get('address', ''), choice_value(ip.get('status')) or '', choice_value(ip.get('role')) or '')
+            for ip in ip_addresses
+        ),
+    }
+    return hashlib.sha256(json.dumps(state).encode()).hexdigest()
+
+
 def process_prefix(prefix_entry, prefix_subtree, descendants, ip_addresses, cell_size, tenant_color_map, output_dir,
                    render=True):
     """
@@ -130,20 +154,28 @@ def process_prefix(prefix_entry, prefix_subtree, descendants, ip_addresses, cell
     child_prefixes = filter_keys_from_dicts(prefix_subtree.get("children", []), prefix_keys)
     nested_prefixes = filter_keys_from_dicts(descendants, prefix_keys)
 
+    fingerprint = None
     if render:
-        plot_allocation_grid(prefix_entry, nested_prefixes, ip_addresses, output_filepath, cell_size, tenant_color_map)
-        logging.debug(f"Generated image for prefix {prefix} at {output_filepath}")
-    elif os.path.exists(output_filepath):
-        os.remove(output_filepath)
-
+        fingerprint = render_fingerprint(prefix, nested_prefixes, ip_addresses, cell_size, tenant_color_map)
     filtered_ip_addresses = filter_keys_from_dicts(ip_addresses, {"id", "address", "vrf", "tenant"})
     data_to_save = {
         'prefix': prefix_entry["prefix"],
         'id': prefix_entry.get("id"),
         'rendered': render,
+        'render_hash': fingerprint,
         'child_prefixes': child_prefixes,
         'ip_addresses': filtered_ip_addresses,
     }
+
+    if render:
+        if os.path.exists(output_filepath) and load_json(json_filepath).get('render_hash') == fingerprint:
+            logging.debug(f"No changes detected for prefix {prefix}. Skipping regeneration.")
+        else:
+            plot_allocation_grid(prefix_entry, nested_prefixes, ip_addresses, output_filepath, cell_size,
+                                 tenant_color_map)
+            logging.debug(f"Generated image for prefix {prefix} at {output_filepath}")
+    elif os.path.exists(output_filepath):
+        os.remove(output_filepath)
 
     write_json_atomic(json_filepath, data_to_save)
     logging.debug(f"Saved data for prefix {prefix} to {json_filepath}")

@@ -177,3 +177,32 @@ def test_tenant_colors_are_stable_when_tenants_change():
     after = build_tenant_color_map([{"tenant": 1}, {"tenant": 3}, {"tenant": 5}, {"tenant": 7}])
     assert before[3] == after[3] and before[7] == after[7]
     assert len({after[t] for t in (1, 3, 5, 7)}) == 4
+
+
+def _render_24(tmp_path, ips, nested_tenant=None, cell_size=CELL_SIZE):
+    from app.cli import process_all_prefixes
+    prefixes = [
+        {"id": 1, "prefix": "172.16.0.0/24", "vrf": 1, "tenant": None, "status": "active"},
+        {"id": 2, "prefix": "172.16.0.0/25", "vrf": 1, "tenant": None, "status": "active"},
+        {"id": 3, "prefix": "172.16.0.0/26", "vrf": 1, "tenant": nested_tenant, "status": "active"},
+    ]
+    process_all_prefixes(prefixes, ips, cell_size, str(tmp_path))
+    with open(image_path(str(tmp_path), 1, "172.16.0.0/24"), 'rb') as f:
+        return f.read()
+
+
+@pytest.mark.parametrize("change", ["status", "role", "nested_tenant", "cell_size"])
+def test_unchanged_skip_still_redraws_on_relevant_change(tmp_path, change):
+    ip = {"id": 1, "address": "172.16.0.5/24", "vrf": 1, "tenant": None, "status": "active", "role": None}
+    first = _render_24(tmp_path, [ip])
+    assert _render_24(tmp_path, [ip]) == first
+    kwargs = {}
+    if change == "status":
+        ip = dict(ip, status="reserved")
+    elif change == "role":
+        ip = dict(ip, role="anycast")
+    elif change == "nested_tenant":
+        kwargs["nested_tenant"] = 2
+    else:
+        kwargs["cell_size"] = CELL_SIZE + 1
+    assert _render_24(tmp_path, [ip], **kwargs) != first
