@@ -188,3 +188,16 @@ def test_data_is_gzipped_when_accepted(client):
     assert r.headers['Content-Encoding'] == 'gzip'
     assert json.loads(gzip.decompress(r.data))['prefix'] == '10.20.0.0/17'
     assert 'Content-Encoding' not in client.get(f'{BASE}/data/1/10_20_0_0_17').headers
+
+
+def test_duplicate_parent_prefixes_listed_once(webapp, monkeypatch):
+    tree = {'1': {'prefixes': [
+        {'id': 1, 'prefix': '10.0.0.0/8', 'description': 'first'},
+        {'id': 2, 'prefix': '10.0.0.0/8', 'description': 'duplicate'},
+        {'id': 3, 'prefix': '10.1.0.0/16'},
+        {'id': 4, 'prefix': '10.1.2.0/24'},
+    ]}}
+    monkeypatch.setattr(webapp, 'load_prefix_tree', lambda: tree)
+    parents = webapp.find_parents('1', '10.1.2.0/24')
+    assert [(p['prefix'], p['id']) for p in parents] == [('10.0.0.0/8', 1), ('10.1.0.0/16', 3)]
+    assert parents[0]['sanitized'] == '10_0_0_0_8'

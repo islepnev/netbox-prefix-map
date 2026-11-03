@@ -285,6 +285,37 @@ def test_page_without_image(open_page):
     assert page.errors == []
 
 
+def test_search_on_map_without_ip_list(open_page):
+    page = open_page(f'{BASE}/map/1/10_0_0_0_8')
+    wait_for_map(page)
+    page.fill('#search', '10.20.48.1')
+    assert 'is in 10.20.0.0/16' in page.inner_text('#search-msg')
+    with page.expect_navigation():
+        page.press('#search', 'Enter')
+    assert page.url.endswith(f'{BASE}/map/1/10_20_0_0_16')
+
+
+def test_old_data_file_without_usage(open_page):
+    def strip(route):
+        data = route.fetch().json()
+        route.fulfill(json={k: data[k] for k in ('prefix', 'child_prefixes', 'ip_addresses')})
+
+    page = open_page(f'{BASE}/map/1/10_0_0_0_8', route=(f'**{BASE}/data/1/10_0_0_0_8', strip))
+    wait_for_map(page)
+    assert '16,777,216 addresses' in page.inner_text('#legend')
+    assert page.inner_text('#sum-usage .stat b >> nth=0') == '—'
+
+
+def test_free_block_highlight_cleared_on_rerender(open_page):
+    page = open_page(f'{BASE}/map/1/10_20_48_0_24')
+    wait_for_map(page)
+    page.mouse.click(*cell_center(page, 0, 0))
+    page.hover('#insp-detail table.free tr >> nth=0')
+    assert page.is_visible('#ov-free')
+    page.keyboard.press('Escape')
+    assert page.is_hidden('#ov-free')
+
+
 @pytest.mark.parametrize("path", ['/', '/map/1', '/map/None', '/map/1/10_0_0_0_8', '/map/None/172_31_0_0_16',
                                   '/map/None/172_31_4_0_24'])
 def test_pages_have_no_script_errors(open_page, path):

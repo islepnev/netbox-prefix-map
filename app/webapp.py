@@ -127,15 +127,16 @@ def find_parents(vrf, display_prefix):
         network = ipaddress.ip_network(display_prefix)
     except ValueError:
         return []
-    parents = []
+    parents = {}
     for entry in load_prefix_tree().get(vrf, {}).get('prefixes', []):
         try:
             candidate = ipaddress.ip_network(entry['prefix'])
         except ValueError:
             continue
+        # NetBox allows duplicate prefixes; keep the first
         if candidate.version == network.version and candidate.prefixlen < network.prefixlen \
                 and network.subnet_of(candidate):
-            parents.append((candidate, entry))
+            parents.setdefault(candidate, entry)
     return [{
         'prefix': str(p),
         'vrf_key': vrf,
@@ -144,7 +145,7 @@ def find_parents(vrf, display_prefix):
         'tenant': entry.get('tenant'),
         'status': entry.get('status'),
         'description': entry.get('description') or '',
-    } for p, entry in sorted(parents, key=lambda item: item[0].prefixlen)]
+    } for p, entry in sorted(parents.items(), key=lambda item: item[0].prefixlen)]
 
 
 def find_prefix_entry(vrf, display_prefix):
