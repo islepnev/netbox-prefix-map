@@ -106,7 +106,7 @@
         data = loaded;
         const ips = data.ip_addresses || [];
         hasIps = data.rendered ?? net.len >= 16;
-        used = data.ip_count ?? ips.length;
+        used = data.ip_count ?? (hasIps ? ips.length : null);
         ipsByAddr = new Map(ips.map((ip) => [ipToInt(ip.address.split("/")[0]), ip]));
         ipSorted = Float64Array.from(ipsByAddr.keys()).sort();
         const list = data.nested_prefixes || data.child_prefixes || [];
@@ -296,6 +296,8 @@
     function renderInspector() {
         const a = pinned ?? hover;
         const detail = $("insp-detail"), summary = $("insp-summary");
+        // Re-rendering removes the hovered free-block row without a mouseleave
+        if (freeHi) { freeHi = null; drawOverlays(); }
         if (a === null || !data) {
             detail.hidden = true;
             summary.hidden = false;
@@ -356,7 +358,7 @@
 
     function renderSummary() {
         const total = net.size;
-        const counts = { role: 0, active: hasIps ? 0 : used, reserved: 0 };
+        const counts = { role: 0, active: hasIps ? 0 : used || 0, reserved: 0 };
         for (const ip of hasIps ? data.ip_addresses || [] : []) {
             if (ip.role) counts.role++;
             else if (ip.status === "reserved") counts.reserved++;
@@ -367,7 +369,8 @@
             el("div", { class: "bigbar" },
                 seg(counts.active, "var(--text)", "In use"), seg(counts.role, "#ff0000", "With role"), seg(counts.reserved, "var(--faint)", "Reserved")),
             el("div", { class: "stats" },
-                el("div", { class: "stat" }, el("b", { text: fmt(used) }), el("span", { text: `IPs · ${pct(used, total)}` })),
+                el("div", { class: "stat" }, el("b", { text: used === null ? "—" : fmt(used) }),
+                    el("span", { text: used === null ? "IPs" : `IPs · ${pct(used, total)}` })),
                 el("div", { class: "stat" }, el("b", { text: fmt((data.child_prefixes || []).length) }), el("span", { text: "child prefixes" })),
                 el("div", { class: "stat" }, el("b", { text: fmt(total) }), el("span", { text: "addresses" }))));
         if (hasIps) $("sum-free").replaceChildren(freeSection(net, cfg.prefix));
@@ -389,7 +392,8 @@
                 [...tenants].sort((a, b) => tenantName(a[0]).localeCompare(tenantName(b[0])))
                     .map(([id, c]) => el("span", { class: "lg" }, sw(c), tenantName(id)))) : null,
             el("span", { class: "right", id: "usage-total" },
-                `${fmt(used)} / ${fmt(net.size)} used · ${((100 * used) / net.size).toFixed(used && used < net.size / 1000 ? 2 : 1)}%`,
+                used === null ? `${fmt(net.size)} addresses`
+                    : `${fmt(used)} / ${fmt(net.size)} used · ${((100 * used) / net.size).toFixed(used && used < net.size / 1000 ? 2 : 1)}%`,
                 img ? el("span", { class: "cellnote", text: " · 1 cell = 1 address" }) : null));
     }
 
@@ -405,6 +409,13 @@
         const addr = ipToInt(addrPart);
         if (addr < net.start || addr > net.end || (len !== null && len < net.len)) {
             ui.say(`${q} is outside this map.`);
+            return;
+        }
+        if (len === null && !hasIps) {
+            const child = childAt(addr);
+            if (!child) { ui.say(`${intToIp(addr)}: IP details are shown on maps of /16 and longer prefixes.`); return; }
+            ui.say(`${intToIp(addr)} is in ${child.p.prefix}. Enter opens its map.`);
+            if (commit) navigate(mapUrl(child.p.vrf ?? data.vrf, child.p.prefix));
             return;
         }
         if (len === null) {
