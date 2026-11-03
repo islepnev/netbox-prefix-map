@@ -118,3 +118,57 @@ def test_webhook_signature(client, stub_updater, webapp, monkeypatch):
     good = dict(headers, **{'X-Hook-Signature': signature})
     assert client.post(f'{BASE}/webhook', data=body, headers=good).status_code == 200
     assert stub_updater.calls == 1
+
+
+def test_healthz(client):
+    r = client.get(f'{BASE}/healthz')
+    assert r.status_code == 200
+    assert r.get_json()['status'] == 'ok'
+
+
+def test_metrics(client, stub_updater, webapp, monkeypatch):
+    class Status:
+        def status(self):
+            return {'runs': 3, 'failures': 1, 'running': False, 'pending': True, 'last_duration': 1.5,
+                    'last_success_at': 1700000000.0}
+
+        def webhook_received(self):
+            pass
+    monkeypatch.setattr(webapp, 'updater_manager', Status())
+    before = client.get(f'{BASE}/metrics').data.decode()
+    client.post(f'{BASE}/webhook', json={"event": "created", "model": "ipaddress"})
+    client.post(f'{BASE}/webhook', json={"event": "updated", "model": "device"})
+    text = client.get(f'{BASE}/metrics').data.decode()
+    assert 'prefix_map_updates_total 3' in text
+    assert 'prefix_map_update_pending 1' in text
+    assert 'prefix_map_last_success_timestamp_seconds 1700000000.0' in text
+
+    def count(t, result):
+        return int(next(line for line in t.splitlines()
+                        if line.startswith(f'prefix_map_webhooks_total{{result="{result}"}}')).split()[-1])
+    assert count(text, 'accepted') == count(before, 'accepted') + 1
+    assert count(text, 'ignored') == count(before, 'ignored') + 1
+
+
+def test_healthcheck_bypasses_proxy(webapp, monkeypatch):
+    import socket
+    import threading
+    from werkzeug.serving import make_server
+    from app import healthcheck
+
+    with socket.socket() as s:
+        s.bind(('127.0.0.1', 0))
+        port = s.getsockname()[1]
+    server = make_server('127.0.0.1', port, webapp.app)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        for var in ('HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy', 'ALL_PROXY'):
+            monkeypatch.setenv(var, 'http://127.0.0.1:9')
+        monkeypatch.delenv('NO_PROXY', raising=False)
+        monkeypatch.delenv('no_proxy', raising=False)
+        monkeypatch.setenv('PORT', str(port))
+        assert healthcheck.main() == 0
+        monkeypatch.setenv('PORT', '9')
+        assert healthcheck.main() == 1
+    finally:
+        server.shutdown()

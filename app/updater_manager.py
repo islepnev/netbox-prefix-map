@@ -39,12 +39,19 @@ class UpdaterManager:
         if start:
             self._thread.start()
 
-    def webhook_received(self):
+    def request_update(self):
         with self._lock:
             self._pending = True
-            self.last_webhook_at = time.time()
         self._wake.set()
+
+    def webhook_received(self):
+        with self._lock:
+            self.last_webhook_at = time.time()
+        self.request_update()
         logging.info("Webhook received.")
+
+    def is_alive(self):
+        return self._thread.is_alive()
 
     def stop(self, timeout=None):
         self._stop.set()
@@ -98,7 +105,7 @@ class UpdaterManager:
         try:
             logging.info("Starting updater...")
             result = self.updater_function()
-            ok = result is not False  # full_update() reports failure by returning False
+            ok = result is not False
             if not ok:
                 error = "update function reported failure"
         except (Exception, SystemExit) as e:  # SystemExit would silently end the worker thread

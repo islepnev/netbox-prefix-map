@@ -1,10 +1,5 @@
-#!/bin/bash
-
-# Exit immediately if a command exits with a non-zero status
+#!/bin/sh
 set -e
 
-# Run the CLI script to generate output data files
-python -m app.cli
-
-# Start the Flask application
-exec python -m app.webapp
+# One worker: the updater thread lives in the web process
+exec gunicorn --workers 1 --threads 8 --bind "0.0.0.0:${PORT:-5000}" --access-logfile - app.webapp:app
