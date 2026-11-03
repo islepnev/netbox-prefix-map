@@ -89,6 +89,14 @@ def save_vrf_data(vrfs, output_dir):
     logging.info(f"Saved VRF data to {vrf_filepath}")
 
 
+def save_names(tenants, roles, output_dir):
+    names = {
+        'tenants': {str(t['id']): t.get('name') for t in tenants},
+        'roles': {str(r['id']): r.get('name') for r in roles},
+    }
+    write_json_atomic(os.path.join(output_dir, 'names.json'), names)
+
+
 def save_prefix_tree(prefixes, output_dir):
     prefix_tree = {}
     for prefix in prefixes:
@@ -100,6 +108,9 @@ def save_prefix_tree(prefixes, output_dir):
             'id': prefix['id'],
             'prefix': prefix['prefix'],
             'tenant': prefix.get('tenant'),
+            'status': choice_value(prefix.get('status')),
+            'role': prefix.get('role'),
+            'description': prefix.get('description') or '',
             'vrf': vrf_id,
             'sanitized': sanitized_prefix,
             'display': prefix['prefix'],
@@ -161,6 +172,7 @@ def process_prefix(prefix_entry, prefix_subtree, descendants, ip_addresses, cell
     data_to_save = {
         'prefix': prefix_entry["prefix"],
         'id': prefix_entry.get("id"),
+        'vrf': vrf,
         'rendered': render,
         'render_hash': fingerprint,
         'child_prefixes': child_prefixes,
@@ -253,6 +265,7 @@ def run_update(args=None, mgr=None):
     ip_addresses = mgr.get_ip_addresses()
     vrfs = mgr.get_vrfs()
     save_vrf_data(vrfs, output_dir)
+    save_names(mgr.get_tenants(), mgr.get_roles(), output_dir)
     process_all_prefixes(prefixes, ip_addresses, cell_size, output_dir)
 
 

@@ -14,7 +14,7 @@
 <body>
     <div class="navbar">
         <div class="breadcrumbs">
-            {% for crumb in generate_breadcrumbs(vrf=vrf, prefix=prefix) %}
+            {% for crumb in generate_breadcrumbs(vrf=vrf or 'None', prefix=prefix) %}
                 {% if crumb.url %}
                     <a href="{{ crumb.url }}">{{ crumb.name }}</a>
                     {% if not loop.last %}
@@ -45,14 +45,38 @@
                         <th>Prefix</th>
                         <td>{% if prefix_id %}<a href="{{ netbox_url }}/ipam/prefixes/{{ prefix_id }}/">{{ prefix }}</a>{% else %}{{ prefix }}{% endif %}</td>
                     </tr>
+                    {% if details.description %}
+                    <tr>
+                        <th>Description</th>
+                        <td>{{ details.description }}</td>
+                    </tr>
+                    {% endif %}
                     <tr>
                         <th>VRF</th>
                         {% if vrf %}
-                        <td><a href="{{ netbox_url }}/ipam/vrfs/{{ vrf.id }}/">{{ vrf.name }}</a> {{ vrf.description }}</td>
+                        <td><a href="{{ netbox_url }}/ipam/vrfs/{{ vrf.id }}/">{{ vrf.name }}</a> {{ vrf.description or '' }}</td>
                         {% else %}
                         <td>Global</td>
                         {% endif %}
                     </tr>
+                    {% if details.tenant_id %}
+                    <tr>
+                        <th>Tenant</th>
+                        <td><a href="{{ netbox_url }}/tenancy/tenants/{{ details.tenant_id }}/">{{ details.tenant_name or details.tenant_id }}</a></td>
+                    </tr>
+                    {% endif %}
+                    {% if details.status %}
+                    <tr>
+                        <th>Status</th>
+                        <td>{{ details.status | capitalize }}</td>
+                    </tr>
+                    {% endif %}
+                    {% if details.role_id %}
+                    <tr>
+                        <th>Role</th>
+                        <td><a href="{{ netbox_url }}/ipam/roles/{{ details.role_id }}/">{{ details.role_name or details.role_id }}</a></td>
+                    </tr>
+                    {% endif %}
                 </table>
             </div>
         </div>
