@@ -201,3 +201,52 @@ def test_duplicate_parent_prefixes_listed_once(webapp, monkeypatch):
     parents = webapp.find_parents('1', '10.1.2.0/24')
     assert [(p['prefix'], p['id']) for p in parents] == [('10.0.0.0/8', 1), ('10.1.0.0/16', 3)]
     assert parents[0]['sanitized'] == '10_0_0_0_8'
+
+
+def ipv4_counts(dataset, vrf):
+    prefixes = [p for p in dataset['prefixes'] if p['vrf'] == vrf and ':' not in p['prefix']]
+    ips = [ip for ip in dataset['ip_addresses'] if ip['vrf'] == vrf and ':' not in ip['address']]
+    return len(prefixes), len(ips)
+
+
+def test_summary_file(output_dir, dataset):
+    import json
+    import os
+    with open(os.path.join(output_dir, 'summary.json')) as f:
+        summary = json.load(f)
+    for key, vrf in (('1', 1), ('None', None)):
+        assert (summary[key]['prefix_count'], summary[key]['ip_count']) == ipv4_counts(dataset, vrf)
+    assert [p['prefix'] for p in summary['1']['top_prefixes']] == ['10.0.0.0/8']
+    assert [p['prefix'] for p in summary['None']['top_prefixes']] == ['172.31.0.0/16', '192.168.0.0/24']
+    top = summary['1']['top_prefixes'][0]
+    assert top['size'] == 2 ** 24 and top['has_children'] and top['ip_count'] == summary['1']['ip_count']
+
+
+def test_index_shows_counts(client, dataset):
+    html = client.get(f'{BASE}/').data.decode()
+    prefixes, ips = ipv4_counts(dataset, 1)
+    row = html[html.index(f'href="{BASE}/map/1"'):]
+    row = row[:row.index('</tr>')]
+    assert f'>{prefixes:,}<' in row and f'>{ips:,}<' in row
+    assert f'href="{BASE}/map/None"' in html
+
+
+def test_vrf_page_lists_top_level_prefixes_with_usage(client):
+    html = client.get(f'{BASE}/map/None').data.decode()
+    assert f'href="{BASE}/map/None/172_31_0_0_16"' in html
+    assert f'href="{BASE}/map/None/192_168_0_0_24"' in html
+    assert '172_31_4_0_24' not in html, "nested prefixes are reached through maps"
+    assert 'Management' in html and 'title="7 of 256 addresses"' in html
+
+
+def test_vrf_page_without_summary_file(client, webapp, monkeypatch):
+    monkeypatch.setattr(webapp, 'load_summary', lambda: {})
+    html = client.get(f'{BASE}/map/1').data.decode()
+    assert f'href="{BASE}/map/1/10_0_0_0_8"' in html and '10_20_0_0_16' not in html
+    assert 'No usage data' in html
+    assert client.get(f'{BASE}/').status_code == 200
+
+
+def test_top_level_prefixes(webapp):
+    entries = [{'prefix': p} for p in ('10.1.0.0/16', '10.0.0.0/8', '10.0.0.0/8', '192.168.0.0/24', '2001:db8::/32')]
+    assert [str(n) for n, _ in webapp.top_level_prefixes(entries)] == ['10.0.0.0/8', '192.168.0.0/24']

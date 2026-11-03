@@ -25,5 +25,5 @@
         <div id="search-msg" role="status" hidden></div>
     </div>
     <span class="vsep"></span>
-    <div id="fresh" data-health-url="{{ url_for('app.healthz') }}"><span class="dot"></span><span id="fresh-text"></span></div>
+    <div id="fresh" data-health-url="{{ url_for('app.healthz') }}" data-generated-at="{{ generated_at or '' }}"><span class="dot"></span><span id="fresh-text"></span></div>
 </header>

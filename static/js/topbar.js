@@ -4,7 +4,7 @@ window.PrefixMapTop = (() => {
     const search = document.getElementById("search");
     const msg = document.getElementById("search-msg");
     const STALE_SECONDS = 24 * 3600;
-    let generatedAt = null;
+    let generatedAt = fresh && Number(fresh.dataset.generatedAt) || null;
     let health = null;
     let healthError = null;
     let searchHandler = null;
