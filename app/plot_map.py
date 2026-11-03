@@ -440,3 +440,112 @@ def plot_allocation_grid(top_level_prefix_entry, child_prefixes, relevant_ips, o
     os.replace(tmp_file, output_file)
     plt.close(fig)
     logging.debug(f"Prefix map {top_level_prefix} saved to {output_file}")
+
+
+# Layered maps: prefixes too short for one cell per address get one cell per aligned block
+LAYER_MAX_CELL_BITS = 16
+LAYER_MAX_BLOCK_LEN = 24
+LAYER_USAGE_COLOR = np.array([0.0, 0.0, 0.0])
+LAYER_GRID_COLOR = np.array([0.80, 0.80, 0.80])
+LAYER_OUTLINE_COLOR = np.array([0.27, 0.27, 0.27])
+
+
+def layer_block_len(prefix_len):
+    """Block size of a layered map: at most 2^16 cells, blocks no smaller than /24."""
+    return min(prefix_len + LAYER_MAX_CELL_BITS, LAYER_MAX_BLOCK_LEN)
+
+
+def layer_cell_coords(grid_width, grid_height):
+    """(x, y) arrays of every cell index in Morton order, as decode_offset() lays them out."""
+    n = grid_width * grid_height
+    index = np.arange(n, dtype=np.int64)
+    square = grid_height * grid_height if grid_width == 2 * grid_height else n
+    base, half = index % square, index // square
+    x = np.zeros(n, dtype=np.int64)
+    y = np.zeros(n, dtype=np.int64)
+    for bit in range(16):
+        x |= ((base >> (2 * bit)) & 1) << bit
+        y |= ((base >> (2 * bit + 1)) & 1) << bit
+    return x + half * grid_height, y
+
+
+def _hex_rgb(color):
+    color = color.lstrip('#')
+    return np.array([int(color[i:i + 2], 16) / 255 for i in (0, 2, 4)])
+
+
+def layer_usage_alpha(count, block_size):
+    """Darkness of a block: none when empty, then growing with the share of used addresses."""
+    if not count:
+        return 0.0
+    return 0.25 + 0.65 * min(1.0, count / block_size) ** 0.5
+
+
+def plot_layered_grid(prefix, block_len, block_counts, nested_prefixes, children, output_file, cell_size,
+                      tenant_color_map):
+    """
+    One cell per aligned /block_len block, in Morton order like the address maps.
+    Fill: tenant color of the longest nested prefix covering the block; a checkerboard when nested prefixes cover
+    only part of it. Darkness: share of used addresses. Lines: every 16 cells and around direct children.
+    """
+    network = ipaddress.ip_network(prefix)
+    start = int(network.network_address)
+    cell_bits = block_len - network.prefixlen
+    width, height = 2 ** (cell_bits - cell_bits // 2), 2 ** (cell_bits // 2)
+    n = width * height
+    shift = 32 - block_len
+
+    fill = np.ones((n, 3))
+    partial = {}
+    for p in sorted(nested_prefixes, key=lambda p: ipaddress.ip_network(p['prefix']).prefixlen):
+        color = prefix_fill_color(p.get('tenant'), tenant_color_map)
+        sub = ipaddress.ip_network(p['prefix'])
+        first = (int(sub.network_address) - start) >> shift
+        if sub.prefixlen <= block_len:
+            if color:
+                fill[first:first + 2 ** (block_len - sub.prefixlen)] = _hex_rgb(color)
+        elif color:
+            partial.setdefault(first, (sub.prefixlen, _hex_rgb(color)))
+
+    xs, ys = layer_cell_coords(width, height)
+    image = np.ones((height * cell_size, width * cell_size, 3))
+    body = cell_size - 1
+    checker = (np.add.outer(np.arange(body), np.arange(body)) % 2 == 0)[..., None]
+    for index in range(n):
+        count = block_counts.get(index, 0)
+        base = fill[index]
+        if count == 0 and index not in partial and base[0] == base[1] == base[2] == 1.0:
+            continue
+        cell = np.broadcast_to(base, (body, body, 3)).copy()
+        if index in partial:
+            cell = np.where(checker, partial[index][1], cell)
+        alpha = layer_usage_alpha(count, 2 ** shift)
+        if alpha:
+            cell = cell * (1 - alpha) + LAYER_USAGE_COLOR * alpha
+        px, py = xs[index] * cell_size + 1, ys[index] * cell_size + 1
+        image[py:py + body, px:px + body] = cell
+
+    for i in range(0, height, 16):
+        image[i * cell_size, :] = LAYER_GRID_COLOR
+    for i in range(0, width, 16):
+        image[:, i * cell_size] = LAYER_GRID_COLOR
+
+    for child in children:
+        sub = ipaddress.ip_network(child['prefix'])
+        if sub.prefixlen > block_len:
+            continue
+        first = (int(sub.network_address) - start) >> shift
+        last = first + 2 ** (block_len - sub.prefixlen) - 1
+        x1, x2 = sorted((int(xs[first]), int(xs[last])))
+        y1, y2 = sorted((int(ys[first]), int(ys[last])))
+        left, right = x1 * cell_size, min((x2 + 1) * cell_size, image.shape[1] - 1)
+        top, bottom = y1 * cell_size, min((y2 + 1) * cell_size, image.shape[0] - 1)
+        image[top, left:right + 1] = LAYER_OUTLINE_COLOR
+        image[bottom, left:right + 1] = LAYER_OUTLINE_COLOR
+        image[top:bottom + 1, left] = LAYER_OUTLINE_COLOR
+        image[top:bottom + 1, right] = LAYER_OUTLINE_COLOR
+
+    tmp_file = f"{output_file}.tmp"
+    plt.imsave(tmp_file, (image * 255).round().astype(np.uint8), format='png')
+    os.replace(tmp_file, output_file)
+    logging.debug(f"Layered map {prefix} saved to {output_file}")
