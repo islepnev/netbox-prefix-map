@@ -1,5 +1,3 @@
-<!-- templates/map.html -->
-
 <!DOCTYPE html>
 <html lang="en">
 
@@ -35,13 +33,17 @@
         </div>
         <div class="content">
             <div id="map-container">
+                {% if image_filename %}
                 <img id="map-image" src="{{ base_path }}/images/{{ image_filename }}" alt="Prefix Map">
+                {% else %}
+                <p>No map image for {{ prefix }}: maps are drawn for /16 and smaller prefixes. Choose a child prefix in the tree.</p>
+                {% endif %}
             </div>
             <div id="prefix-details">
                 <table>
                     <tr>
                         <th>Prefix</th>
-                        <td><a href="{{ netbox_url }}/ipam/prefixes/{{ prefix_id }}/">{{ prefix }}</a></td>
+                        <td>{% if prefix_id %}<a href="{{ netbox_url }}/ipam/prefixes/{{ prefix_id }}/">{{ prefix }}</a>{% else %}{{ prefix }}{% endif %}</td>
                     </tr>
                     <tr>
                         <th>VRF</th>
