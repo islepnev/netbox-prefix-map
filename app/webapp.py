@@ -1,28 +1,25 @@
-# app/webapp.py
-
+import hashlib
+import hmac
 import json
-from threading import Thread
 from flask import Flask, Blueprint, redirect, request, jsonify, send_from_directory, render_template, url_for
 from dotenv import load_dotenv
 import logging
-import subprocess
 import os
 
 from app.cli import full_update
-from app.logging_config import setup_logging
+from app.logging_config import recent_log_handler, setup_logging
 from app.updater_manager import UpdaterManager
+from app.utils import resolve_output_dir
 
 load_dotenv()
 setup_logging()
 
 BASE_PATH = os.getenv('BASE_PATH', '/prefix-map')
 
-OUTPUT_DIR = os.getenv('OUTPUT_DIR', 'output')
-OUTPUT_DIR = os.path.join(os.path.dirname(__file__), '..', OUTPUT_DIR)
+OUTPUT_DIR = resolve_output_dir()
 
 NETBOX_URL = os.getenv('NETBOX_API_URL')
 
-# Initialize Flask app
 app = Flask(
     __name__,
     static_folder=os.path.join(os.path.dirname(__file__), "..", "static"),
@@ -32,7 +29,14 @@ app = Flask(
 
 bp = Blueprint('app', __name__, url_prefix=BASE_PATH)
 
-updater_manager = UpdaterManager(full_update, debounce_interval=60)
+# NetBox signs the raw body with HMAC-SHA512 of this secret (X-Hook-Signature)
+WEBHOOK_SECRET = os.getenv('WEBHOOK_SECRET', '')
+if not WEBHOOK_SECRET:
+    logging.warning("WEBHOOK_SECRET is not set: webhook requests are not authenticated.")
+
+WEBHOOK_MODELS = {'prefix', 'ipaddress', 'vrf', 'tenant', 'iprange'}
+
+updater_manager = UpdaterManager(full_update, debounce_interval=float(os.getenv('UPDATE_DEBOUNCE_SECONDS', 60)))
 
 
 def sanitize_name(name):
@@ -82,7 +86,17 @@ def load_prefix_tree():
         return {}
 
 
-prefix_map = Blueprint('prefix_map', __name__)
+def find_prefix_entry(vrf, display_prefix):
+    """Find a prefix record (id, tenant, ...) in prefix_tree.json by VRF key and prefix."""
+    for entry in load_prefix_tree().get(vrf, {}).get('prefixes', []):
+        if entry.get('prefix') == display_prefix:
+            return entry
+    return None
+
+
+def verify_webhook_signature(body: bytes, signature: str) -> bool:
+    expected = hmac.new(WEBHOOK_SECRET.encode(), body, hashlib.sha512).hexdigest()
+    return hmac.compare_digest(expected, signature or '')
 
 
 @app.before_request
@@ -124,10 +138,15 @@ def webhook():
     """
     Endpoint to receive webhook events from NetBox.
     """
-    data = request.json
+    if WEBHOOK_SECRET and not verify_webhook_signature(request.get_data(), request.headers.get('X-Hook-Signature')):
+        logging.warning("Rejected webhook with missing or invalid signature.")
+        return jsonify({'status': 'error', 'message': 'Invalid signature.'}), 403
+
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({'status': 'error', 'message': 'Expected a JSON object.'}), 400
     logging.debug(f"Received webhook data: {data}")
 
-    # Define relevant event types
     relevant_events = [
         'created',
         'updated',
@@ -135,34 +154,25 @@ def webhook():
     ]
 
     event_type = data.get('event', '')
-    if event_type in relevant_events:
-        logging.info(f"Processing event: {event_type}")
-        try:
-            # Trigger the visualization script
-            updater_manager.webhook_received()
-            return jsonify({"status": "success", "message": "Update scheduled."}), 200
-
-        except subprocess.CalledProcessError as e:
-            logging.error(f"Error updating visualization grid: {e}")
-            return jsonify({'status': 'error', 'message': str(e)}), 500
-    else:
+    model = data.get('model')
+    if event_type not in relevant_events:
         logging.info(f"Ignored event: {event_type}")
         return jsonify({'status': 'ignored'}), 200
+    if model and model not in WEBHOOK_MODELS:
+        logging.info(f"Ignored {event_type} event for model: {model}")
+        return jsonify({'status': 'ignored'}), 200
+
+    logging.info(f"Processing event: {event_type} {model or ''}".rstrip())
+    updater_manager.webhook_received()
+    return jsonify({"status": "success", "message": "Update scheduled."}), 200
 
 
 @bp.route('/errors', methods=['GET'])
 def show_errors():
     """
-    Endpoint to display recent error logs.
+    Endpoint to display recent warnings and errors of this process.
     """
-    try:
-        with open('ip_allocation.log', 'r') as log_file:
-            logs = log_file.readlines()
-        # Render logs in an HTML template
-        return render_template('errors.html', logs=logs)
-    except Exception as e:
-        logging.error(f"Failed to read log file: {e}")
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+    return render_template('errors.html', logs=recent_log_handler.lines()[::-1])
 
 
 @bp.route('/')
@@ -178,7 +188,7 @@ def vrf_view(vrf):
     vrfs = load_vrf_data()
     vrf_info = next((v for v in vrfs if str(v['id']) == vrf), None)
     if not vrf_info and vrf != 'None':
-        return render_template('error.html', message="VRF not found"), 404
+        return render_template('error.html', message=f"VRF {vrf} not found."), 404
 
     prefixes = prefix_tree.get(vrf, {}).get('prefixes', [])
     return render_template('vrf.html', vrf=vrf_info, prefixes=prefixes, netbox_url=get_netbox_url())
@@ -192,7 +202,6 @@ def serve_map(vrf, prefix):
     vrfs = load_vrf_data()
     vrf_info = next((v for v in vrfs if str(v['id']) == vrf), None)
 
-    # Reconstruct the display prefix from the sanitized prefix
     display_prefix = reconstruct_prefix(prefix)
 
     sanitized_vrf = sanitize_name(vrf)
@@ -201,16 +210,19 @@ def serve_map(vrf, prefix):
     image_filename = f"address_map-{sanitized_vrf}-{sanitized_prefix}.png"
     data_filename = f"data-{sanitized_vrf}-{sanitized_prefix}.json"
 
-    if not os.path.exists(os.path.join(OUTPUT_DIR, image_filename)):
-        return f"Visualization for prefix {prefix} not found.", 404
+    image_exists = os.path.exists(os.path.join(OUTPUT_DIR, image_filename))
+    if not image_exists and not os.path.exists(os.path.join(OUTPUT_DIR, data_filename)):
+        return render_template('error.html', message=f"Visualization for prefix {display_prefix} not found."), 404
+
+    prefix_entry = find_prefix_entry(vrf, display_prefix)
 
     return render_template(
         'map.html',
         netbox_url=get_netbox_url(),
         vrf=vrf_info,
         prefix=display_prefix,
-        # prefix_id=prefix["id"],
-        image_filename=image_filename,
+        prefix_id=prefix_entry.get('id') if prefix_entry else None,
+        image_filename=image_filename if image_exists else None,
         data_filename=data_filename
     )
 

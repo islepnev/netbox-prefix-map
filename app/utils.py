@@ -1,8 +1,7 @@
-# app/utils.py
-
 from collections import defaultdict
 import csv
 import ipaddress
+import json
 import logging
 import os
 import re
@@ -120,6 +119,30 @@ def get_top_level_prefix(prefixes):
     raise ValueError("No valid /16 prefix found in the prefixes file.")
 
 
+def choice_value(field):
+    """
+    Normalize a NetBox choice field to its lowercase value.
+
+    pynetbox ``serialize()`` yields the value string (e.g. ``"reserved"``),
+    while raw API JSON yields ``{"value": "reserved", "label": "Reserved"}``.
+    """
+    if isinstance(field, dict):
+        field = field.get('value')
+    return str(field).lower() if field else None
+
+
+def ip_belongs_to_prefix(ip_entry, prefix_entry):
+    """
+    VRF-aware containment, mirroring NetBox ``Prefix.get_child_ips()``: a prefix holds IPs
+    of its own VRF, except a Global container, which holds IPs of all VRFs.
+    """
+    prefix_vrf = prefix_entry.get('vrf')
+    global_container = prefix_vrf is None and choice_value(prefix_entry.get('status')) == 'container'
+    if not global_container and ip_entry.get('vrf') != prefix_vrf:
+        return False
+    return ip_in_prefix(ip_entry.get('address', ''), prefix_entry.get('prefix', ''))
+
+
 def ip_in_prefix(ip_address, prefix):
     try:
         ip = ipaddress.ip_address(ip_address.split('/')[0])
@@ -213,3 +236,25 @@ def _unused_build_prefix_tree(prefixes):
     return {vrf: {str(version): list(tree.values()) for version, tree in ip_versions.items()} 
             for vrf, ip_versions in trees.items()}
 
+
+
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+
+
+def resolve_output_dir(output_dir=None):
+    """
+    Resolve the output directory the same way for the CLI and the web app.
+    Relative paths are taken relative to the project root, not the current directory.
+    """
+    output_dir = output_dir or os.getenv('OUTPUT_DIR') or 'output'
+    if os.path.isabs(output_dir):
+        return output_dir
+    return os.path.join(PROJECT_ROOT, output_dir)
+
+
+def write_json_atomic(path, data):
+    """Write JSON via a temp file + rename, so readers never see a half-written file."""
+    tmp_path = f"{path}.tmp"
+    with open(tmp_path, 'w') as f:
+        json.dump(data, f, indent=2)
+    os.replace(tmp_path, path)

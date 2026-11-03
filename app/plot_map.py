@@ -1,15 +1,16 @@
-# app/plot_map.py
-
 import ipaddress
 import logging
 import math
-from matplotlib.patches import Rectangle
-import matplotlib.pyplot as plt
-import numpy as np
-import sys
+import os
+import zlib
+import matplotlib
+matplotlib.use("Agg")  # renders off the main thread, without a display
+from matplotlib.patches import Rectangle  # noqa: E402
+import matplotlib.pyplot as plt  # noqa: E402
+import numpy as np  # noqa: E402
 
-from app.color_design import TABLEAU10_PALETTE, blend_colors, design_color_palette
-from app.utils import expand_ip_entry, extract_ip_details
+from app.color_design import TABLEAU10_PALETTE, blend_colors, design_color_palette  # noqa: E402
+from app.utils import choice_value, expand_ip_entry, extract_ip_details  # noqa: E402
 
 
 Z_DEPTH_IP_CELLS = 110  # on top
@@ -78,17 +79,8 @@ def create_allocation_grid(prefix, ip_addresses):
     Each cell represents a single IP address.
     Returns a dictionary mapping (x, y) to IP details.
     """
-    try:
-        prefix_obj = ipaddress.ip_network(prefix)
-        # if prefix_obj.prefixlen != 16:
-            # raise ValueError("Top-level prefix must be /16")
-        logging.debug(f"Processing prefix: {prefix_obj}")
-    except ValueError as ve:
-        logging.error(f"Invalid prefix '{prefix}': {ve}")
-        sys.exit(1)
-    except Exception as e:
-        logging.error(f"Error processing prefix '{prefix}': {e}")
-        sys.exit(1)
+    prefix_obj = ipaddress.ip_network(prefix)
+    logging.debug(f"Processing prefix: {prefix_obj}")
 
     grid_width, grid_height = calculate_grid_dimensions(prefix)
     max_bits = get_max_bits(grid_width, grid_height)
@@ -108,9 +100,14 @@ def create_allocation_grid(prefix, ip_addresses):
                 offset = int(ip) - int(prefix_obj.network_address)
                 x, y = decode_offset(offset, max_bits, grid_width, grid_height)
                 if 0 <= x < grid_width and 0 <= y < grid_height:
-                    grid[y][x] = 1  # Mark as allocated
-                    ip_details[(x, y)] = extract_ip_details(ip, ip_entry)
-                    allocated_count += 1
+                    grid[y][x] = 1
+                    details = extract_ip_details(ip, ip_entry)
+                    existing = ip_details.get((x, y))
+                    # Same address in several VRFs (Global container)
+                    if existing is None or ip_display_rank(details) > ip_display_rank(existing):
+                        ip_details[(x, y)] = details
+                    if existing is None:
+                        allocated_count += 1
                     if allocated_count % 1000 == 0:
                         logging.info(f"Allocated {allocated_count} IPs...")
                 else:
@@ -179,18 +176,16 @@ def get_prefix_rectangles(top_prefix, prefixes, max_bits):
     return rectangles
 
 
-def build_tenant_color_map(prefixes, palette=TABLEAU10_PALETTE):
-    # Extract unique tenant names, allowing for natural numbers and None
-    unique_tenants = sorted(
-        set(prefix.get('tenant') for prefix in prefixes),
-        key=lambda x: (x is not None, str(x))  # Sort None first, then by string representation
-    )
+def tenant_color(tenant, palette=TABLEAU10_PALETTE):
+    # Derived from the immutable NetBox tenant id, so adding or removing tenants never recolors others
+    if isinstance(tenant, int):
+        return palette[(tenant - 1) % len(palette)]
+    return palette[zlib.crc32(str(tenant).encode()) % len(palette)]
 
-    # Assign colors consistently based on sorted tenant names
-    tenant_color_map = {
-        tenant: palette[idx % len(palette)] for idx, tenant in enumerate(unique_tenants)
-    }
-    return tenant_color_map
+
+def build_tenant_color_map(prefixes, palette=TABLEAU10_PALETTE):
+    tenants = {prefix.get('tenant') for prefix in prefixes} - {None}
+    return {tenant: tenant_color(tenant, palette) for tenant in tenants}
 
 
 def get_tenant_color(tenant_id, tenant_color_map):
@@ -210,21 +205,28 @@ def _unused_get_tenant_color(tenant, tenant_color_map):
     return tenant_color_map.get(normalized, 'none')
 
 
+def ip_display_rank(details):
+    """Higher wins when several IP records share one cell: role > in use > reserved > inactive."""
+    if details.get('role'):
+        return 3
+    status = choice_value(details.get('status'))
+    return {'inactive': 0, 'reserved': 1}.get(status, 2)
+
+
 def determine_ip_color(details, palette):
     """
     Determine the color and opacity for an IP address based on its details.
     Returns a tuple of (color, alpha).
     """
-    if details['role']:
-        return (palette['tags']['Special'], 1.0)  # Deep red for non-empty role
-    # if details['tags']:
-    #     return (palette['tags']['Special'], 1.0)  # Deep red for non-empty tag
-    elif details['status'] == 'Reserved':
-        return ('black', 0.25)  # 25% opaque black for Reserved
-    elif details['status'] == 'Inactive':
-        return ('none', 0)  # Transparent for Inactive
+    status = choice_value(details.get('status'))
+    if details.get('role'):
+        return (palette['tags']['Special'], 1.0)
+    elif status == 'reserved':
+        return ('black', 0.25)
+    elif status == 'inactive':
+        return ('none', 0)
     else:
-        return ('black', 1)  # Normal
+        return ('black', 1)
 
 
 def get_prefix_label(prefix):
@@ -357,13 +359,12 @@ def finalize_plot(ax, image_width, image_height, prefix_entry):
     """
     Finalize plot settings.
     """
-    ax.set_xlim(0, image_width+1)
-    ax.set_ylim(0, image_height+1)
+    # One data unit per output pixel, so cell edges land on whole pixels
+    ax.set_xlim(0, image_width)
+    ax.set_ylim(0, image_height)
     ax.invert_yaxis()  # To have (0,0) at top-left
     ax.set_axis_off()
-    fig = ax.get_figure()
-    fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
-    # plt.title(f"{prefix_entry.get('prefix')} {prefix_entry.get('description')}", pad=10)
+    ax.set_position([0, 0, 1, 1])
 
 
 def construct_prefix_label(network):
@@ -429,42 +430,33 @@ def plot_allocation_grid(top_level_prefix_entry, child_prefixes, relevant_ips, o
     top_level_prefix = top_level_prefix_entry.get("prefix", "").strip()
     logging.info(top_level_prefix)
 
-    # Create a grid for IP allocation
     grid, ip_details = create_allocation_grid(top_level_prefix, relevant_ips)
     grid_width, grid_height = calculate_grid_dimensions(top_level_prefix)
     max_bits = get_max_bits(grid_width, grid_height)
 
-    # Get rectangles for prefixes
     rectangles = get_prefix_rectangles(top_level_prefix, child_prefixes, max_bits)
 
-    # Proceed to plot
     palette = design_color_palette()
 
     image_width = grid_width * cell_size
     image_height = grid_height * cell_size
     fig, ax = plt.subplots(figsize=(image_width / 100, image_height / 100), dpi=100)
 
-    # Set background
     ax.set_facecolor(palette['background'])
 
-    # Draw sparse 16x16 grid lines with low contrast dotted lines
     draw_sparse_grid(ax, cell_size, grid_width, grid_height, palette)
 
-    # Draw navigation labels
     draw_navigation_labels(ax, top_level_prefix, cell_size, grid_width, grid_height, palette)
 
-    # # Annotate axes with cell indices
-    # annotate_axes(ax, image_width, image_height, cell_size, grid_width, grid_height)
-
-    # Draw prefix rectangles with low contrast based on tenant
     draw_prefix_rectangles(ax, rectangles, cell_size, tenant_color_map)
 
-    # Plot each allocated IP
     plot_allocated_ips(ax, ip_details, cell_size, palette)
 
-    # Finalize and save the plot
     finalize_plot(ax, image_width, image_height, top_level_prefix_entry)
 
-    plt.savefig(output_file, dpi=100, bbox_inches='tight', pad_inches=0)
-    plt.close()
+    # bbox_inches='tight' would break the 1:1 pixel mapping; rename keeps the write atomic
+    tmp_file = f"{output_file}.tmp"
+    fig.savefig(tmp_file, dpi=100, format='png')
+    os.replace(tmp_file, output_file)
+    plt.close(fig)
     logging.debug(f"Prefix map {top_level_prefix} saved to {output_file}")
