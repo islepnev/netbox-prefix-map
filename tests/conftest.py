@@ -1,5 +1,3 @@
-# tests/conftest.py
-
 import os
 import sys
 import tempfile

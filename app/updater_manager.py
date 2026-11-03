@@ -1,5 +1,3 @@
-# app/updater_manager.py
-
 import logging
 import threading
 import time
@@ -25,9 +23,8 @@ class UpdaterManager:
         self._wake = threading.Event()
         self._stop = threading.Event()
         self._pending = False
-        self._last_start = None  # clock() of the last update start
+        self._last_start = None
 
-        # Status, for observability (wall-clock timestamps)
         self.running = False
         self.runs = 0
         self.failures = 0
@@ -85,7 +82,6 @@ class UpdaterManager:
                 continue
             delay = self._seconds_until_allowed()
             if delay > 0:
-                # Wait out the debounce interval; further webhooks are coalesced
                 self._stop.wait(delay)
                 continue
             with self._lock:
@@ -105,7 +101,7 @@ class UpdaterManager:
             ok = result is not False  # full_update() reports failure by returning False
             if not ok:
                 error = "update function reported failure"
-        except (Exception, SystemExit) as e:  # never let the worker thread die
+        except (Exception, SystemExit) as e:  # SystemExit would silently end the worker thread
             error = str(e)
             logging.error(f"Updater encountered an error: {e}")
         finished = time.time()

@@ -1,5 +1,3 @@
-# app/utils.py
-
 from collections import defaultdict
 import csv
 import ipaddress

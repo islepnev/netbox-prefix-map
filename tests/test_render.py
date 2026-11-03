@@ -1,5 +1,3 @@
-# tests/test_render.py
-
 import ipaddress
 import json
 import os
@@ -89,7 +87,7 @@ def test_active_cells_are_pixel_aligned_across_whole_image(output_dir, dataset):
         x0, y0, x1, y1 = cell_box(prefix, ip['address'])
         block = rgb[y0:y1, x0:x1]
         assert (block.sum(axis=2) == 0).all(), f"cell of {ip['address']} at ({x0},{y0}) is not solid black"
-        # The 1 px gap row/column before the cell is not part of it (the cell is not oversized)
+        # Gap before the cell stays unfilled, i.e. the cell is not oversized
         assert not (rgb[y0 - 1, x0:x1].sum(axis=1) == 0).all(), f"gap row above {ip['address']} is filled"
         assert not (rgb[y0:y1, x0 - 1].sum(axis=1) == 0).all(), f"gap column left of {ip['address']} is filled"
 
@@ -145,7 +143,7 @@ def test_nested_subnets_are_still_drawn(output_dir):
     """A /26 two levels below the /17 must still be outlined on the /17 map (dotted black border)."""
     prefix = "10.20.0.0/17"
     rgb = load_rgb(image_path(output_dir, LAN, prefix))
-    x0, y0, _, _ = cell_box(prefix, "10.20.50.0")  # 10.20.50.0/25 is nested /25 -> /20 -> /17
+    x0, y0, _, _ = cell_box(prefix, "10.20.50.0")
     x_end = cell_box(prefix, "10.20.50.127")[2]
     border_row = rgb[y0 - 1, x0:x_end]  # top edge of the /25 box, inside its own cell gap row
     assert (border_row.sum(axis=1) < 100).any()
@@ -169,6 +167,5 @@ def test_global_container_spans_vrfs(tmp_path):
     rgb = load_rgb(image_path(str(tmp_path), 'None', "172.16.0.0/22"))
     x0, y0, x1, y1 = cell_box("172.16.0.0/22", "172.16.1.5")
     assert (rgb[y0:y1, x0:x1].sum(axis=2) == 0).all(), "active record must win over inactive ones"
-    # The VRF 7 /24 is outlined on the Global container map
     bx0, by0, _, _ = cell_box("172.16.0.0/22", "172.16.1.0")
     assert (rgb[by0 - 1, bx0:bx0 + 16 * CELL_SIZE].sum(axis=1) < 100).any()

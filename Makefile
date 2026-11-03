@@ -90,7 +90,6 @@ clean-output: ## Remove the generated output directory
 run: venv ## Run the web application locally
 	@$(VENV_DIR)/bin/python -m app.webapp
 
-# Run the test suite (offline, synthetic data)
 .PHONY: test
 test: venv ## Run the test suite
 	@$(VENV_DIR)/bin/python -m pytest -q
