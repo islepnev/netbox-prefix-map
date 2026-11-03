@@ -26,6 +26,8 @@
     // Morton (Z-order) layout; a 2:1 grid is two squares, the second half of the range on the right
     let data = null;
     let net = null;
+    let grid = null;
+    let cellSize = null;
 
     function interleave(x, y) {
         let offset = 0;
@@ -45,13 +47,13 @@
     }
 
     function cellToOffset(x, y) {
-        const [width, height] = data.grid;
+        const [width, height] = grid;
         if (width === 2 * height && x >= height) return height * height + interleave(x - height, y);
         return interleave(x, y);
     }
 
     function offsetToCell(offset) {
-        const [width, height] = data.grid;
+        const [width, height] = grid;
         if (width === 2 * height && offset >= height * height) {
             const [x, y] = deinterleave(offset - height * height);
             return [x + height, y];
@@ -114,9 +116,9 @@
         const rect = img.getBoundingClientRect();
         const px = ((event.clientX - rect.left) * img.naturalWidth) / rect.width;
         const py = ((event.clientY - rect.top) * img.naturalHeight) / rect.height;
-        const x = Math.floor(px / data.cell_size);
-        const y = Math.floor(py / data.cell_size);
-        if (x < 0 || y < 0 || x >= data.grid[0] || y >= data.grid[1]) return null;
+        const x = Math.floor(px / cellSize);
+        const y = Math.floor(py / cellSize);
+        if (x < 0 || y < 0 || x >= grid[0] || y >= grid[1]) return null;
         const address = net.start + cellToOffset(x, y);
         return {
             x, y, address,
@@ -128,7 +130,7 @@
 
     function placeBox(box, x1, y1, x2, y2) {
         const k = img.getBoundingClientRect().width / img.naturalWidth;
-        const cs = data.cell_size;
+        const cs = cellSize;
         box.style.left = `${x1 * cs * k}px`;
         box.style.top = `${y1 * cs * k}px`;
         box.style.width = `${(x2 - x1 + 1) * cs * k}px`;
@@ -224,7 +226,7 @@
             [swatch("#ff0000"), "With role"],
         ];
         const tenants = new Map();
-        for (const p of data.nested_prefixes) {
+        for (const p of data.nested_prefixes || []) {
             if (p.tenant && p.color && !tenants.has(p.tenant)) tenants.set(p.tenant, p.color);
         }
         [...tenants.entries()]
@@ -238,7 +240,7 @@
         }));
 
         const total = net.end - net.start + 1;
-        const used = data.ip_addresses.length;
+        const used = (data.ip_addresses || []).length;
         const percent = ((100 * used) / total).toFixed(used && used < total / 1000 ? 2 : 1);
         document.getElementById("map-usage").textContent = `${used} of ${total} addresses (${percent}%)`;
         if (data.generated_at) {
@@ -250,19 +252,24 @@
     function init(loaded) {
         data = loaded;
         net = parsePrefix(data.prefix);
-        ipsByAddress = new Map(data.ip_addresses.map((ip) => [ipToInt(ip.address.split("/")[0]), ip]));
-        nested = data.nested_prefixes.map((p) => ({ ...parsePrefix(p.prefix), p }));
-        children = data.child_prefixes.map((p) => ({ ...parsePrefix(p.prefix), p }));
+        // Data files from older versions lack grid and cell size; both follow from the prefix and the image
+        const hostBits = 32 - net.len;
+        grid = [2 ** (hostBits - Math.floor(hostBits / 2)), 2 ** Math.floor(hostBits / 2)];
+        cellSize = img.naturalWidth / grid[0];
+        ipsByAddress = new Map((data.ip_addresses || []).map((ip) => [ipToInt(ip.address.split("/")[0]), ip]));
+        nested = (data.nested_prefixes || []).map((p) => ({ ...parsePrefix(p.prefix), p }));
+        children = (data.child_prefixes || []).map((p) => ({ ...parsePrefix(p.prefix), p }));
         renderLegend();
     }
 
     const imageReady = img.complete ? Promise.resolve() : new Promise((resolve) => img.addEventListener("load", resolve));
     imageReady.then(() => setScale(fitScale(), false));
-    fetch(view.dataset.dataUrl)
-        .then((response) => {
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-            return response.json();
-        })
+    const dataReady = fetch(view.dataset.dataUrl).then((response) => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return response.json();
+    });
+    Promise.all([dataReady, imageReady])
+        .then(([loaded]) => loaded)
         .then(init)
         .catch((error) => {
             document.getElementById("map-usage").textContent = `Map data unavailable: ${error.message}`;
