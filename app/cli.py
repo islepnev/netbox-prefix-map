@@ -1,5 +1,3 @@
-# app/cli.py
-
 import argparse
 import ipaddress
 import logging
@@ -53,7 +51,6 @@ def parse_arguments():
 
     args = parser.parse_args()
 
-    # Ensure log level is case insensitive and validate
     args.log_level = args.log_level.upper()
     if args.log_level not in logging_levels:
         parser.error(
@@ -118,57 +115,26 @@ def process_prefix(prefix_entry, prefix_subtree, descendants, ip_addresses, cell
         return
     logging.debug(f"Processing prefix {str(prefix_entry)}")
 
-    # Get VRF name
     vrf = prefix_entry.get('vrf', None)
 
-    # Sanitize VRF and prefix for filenames
     sanitized_vrf = sanitize_name(vrf)
     sanitized_prefix = sanitize_name(prefix)
 
-    # Define output filenames
     output_filename = f"address_map-{sanitized_vrf}-{sanitized_prefix}.png"
     output_filepath = os.path.join(output_dir, output_filename)
 
     json_filename = f"data-{sanitized_vrf}-{sanitized_prefix}.json"
     json_filepath = os.path.join(output_dir, json_filename)
 
-    # Direct children (navigation) and all descendants (drawing)
     prefix_keys = {"id", "prefix", "vrf", "tenant"}
     child_prefixes = filter_keys_from_dicts(prefix_subtree.get("children", []), prefix_keys)
     nested_prefixes = filter_keys_from_dicts(descendants, prefix_keys)
-
-    # # Prepare data to save
-    # data_to_save = {
-    #     'prefix': prefix_entry,
-    #     'child_prefixes': child_prefixes,
-    #     'ip_addresses': ip_addresses,
-    # }
-
-    # # Check if JSON data has changed
-    # data_changed = True
-    # if os.path.exists(json_filepath):
-    #     with open(json_filepath, 'r') as f:
-    #         existing_data = json.load(f)
-    #     if existing_data == data_to_save:
-    #         data_changed = False
-
-    # if data_changed:
-    #     # Save JSON data
-    #     with open(json_filepath, 'w') as f:
-    #         json.dump(data_to_save, f, indent=2)
-    #     logging.info(f"Saved data for prefix {prefix} to {json_filepath}")
-
-    # if not data_changed and os.path.exists(output_filepath):
-    #     logging.debug(f"No changes detected for prefix {prefix}. Skipping image regeneration.")
-    #     return
-
-    # Generate image
 
     if render:
         plot_allocation_grid(prefix_entry, nested_prefixes, ip_addresses, output_filepath, cell_size, tenant_color_map)
         logging.debug(f"Generated image for prefix {prefix} at {output_filepath}")
     elif os.path.exists(output_filepath):
-        os.remove(output_filepath)  # stale image from an earlier run
+        os.remove(output_filepath)
 
     filtered_ip_addresses = filter_keys_from_dicts(ip_addresses, {"id", "address", "vrf", "tenant"})
     data_to_save = {
@@ -185,7 +151,6 @@ def process_prefix(prefix_entry, prefix_subtree, descendants, ip_addresses, cell
 
 def process_all_prefixes(prefixes, ip_addresses, cell_size, output_dir):
 
-    # Build separate prefix trees for each VRF
     prefix_tree_obj = PrefixTree()
     for prefix_entry in prefixes:
         prefix_data = {
@@ -206,23 +171,21 @@ def process_all_prefixes(prefixes, ip_addresses, cell_size, output_dir):
             vrf = prefix_entry.get('vrf')  # None for Global VRF
             network = ipaddress.ip_network(prefix, strict=False)
             if network.version != 4:
-                skipped_ipv6 += 1  # IPv6 maps are out of scope
+                skipped_ipv6 += 1
                 continue
             prefix_length = network.prefixlen
             if prefix_length > MAX_PREFIX_LEN:
                 continue
-            # Get the subtree for the current prefix
             prefix_subtree = prefix_tree_obj.get_subtree(prefix, vrf)
             render = prefix_length >= MIN_RENDER_PREFIX_LEN
 
-            # Filter ip_addresses by prefix (not needed when no image is drawn)
             filtered_ip_addresses = [
                 ip for ip in ip_addresses
                 if ip_belongs_to_prefix(ip, prefix_entry)
             ] if render else []
 
             if vrf is None and choice_value(prefix_entry.get('status')) == 'container':
-                # Like NetBox, a Global container spans all VRFs (its IPs are matched the same way)
+                # NetBox semantics: a Global container spans all VRFs
                 descendants = prefix_tree_obj.get_descendants_all_vrfs(prefix)
             else:
                 descendants = prefix_tree_obj.get_descendants(prefix, vrf)

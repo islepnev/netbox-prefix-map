@@ -1,5 +1,3 @@
-# app/webapp.py
-
 import hashlib
 import hmac
 import json
@@ -22,7 +20,6 @@ OUTPUT_DIR = resolve_output_dir()
 
 NETBOX_URL = os.getenv('NETBOX_API_URL')
 
-# Initialize Flask app
 app = Flask(
     __name__,
     static_folder=os.path.join(os.path.dirname(__file__), "..", "static"),
@@ -32,12 +29,11 @@ app = Flask(
 
 bp = Blueprint('app', __name__, url_prefix=BASE_PATH)
 
-# Shared secret configured on the NetBox webhook; NetBox signs the body with HMAC-SHA512
+# NetBox signs the raw body with HMAC-SHA512 of this secret (X-Hook-Signature)
 WEBHOOK_SECRET = os.getenv('WEBHOOK_SECRET', '')
 if not WEBHOOK_SECRET:
     logging.warning("WEBHOOK_SECRET is not set: webhook requests are not authenticated.")
 
-# NetBox models whose changes affect the maps
 WEBHOOK_MODELS = {'prefix', 'ipaddress', 'vrf', 'tenant', 'iprange'}
 
 updater_manager = UpdaterManager(full_update, debounce_interval=float(os.getenv('UPDATE_DEBOUNCE_SECONDS', 60)))
@@ -151,7 +147,6 @@ def webhook():
         return jsonify({'status': 'error', 'message': 'Expected a JSON object.'}), 400
     logging.debug(f"Received webhook data: {data}")
 
-    # Define relevant event types
     relevant_events = [
         'created',
         'updated',
@@ -207,7 +202,6 @@ def serve_map(vrf, prefix):
     vrfs = load_vrf_data()
     vrf_info = next((v for v in vrfs if str(v['id']) == vrf), None)
 
-    # Reconstruct the display prefix from the sanitized prefix
     display_prefix = reconstruct_prefix(prefix)
 
     sanitized_vrf = sanitize_name(vrf)
