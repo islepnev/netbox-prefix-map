@@ -77,10 +77,26 @@ class PrefixTree:
         """
         node_data = tree[prefix].copy()
         node_data['children'] = []
-        for child_prefix in tree.children(prefix):
+        # pytricia's children() returns all descendants; keep direct children only
+        for child_prefix in self._direct_children(tree, prefix):
             child_node = self._build_node(tree, child_prefix)
             node_data['children'].append(child_node)
         return node_data
+
+    @staticmethod
+    def _direct_children(tree, prefix):
+        return [child for child in tree.children(prefix) if tree.parent(child) == prefix]
+
+    def _tree_for(self, prefix, vrf):
+        network = ipaddress.ip_network(prefix)
+        return self.trees[vrf]['ipv4' if network.version == 4 else 'ipv6']
+
+    def get_descendants(self, prefix, vrf=None):
+        """All prefixes nested under ``prefix`` (any depth), as stored prefix dicts."""
+        tree = self._tree_for(prefix, vrf)
+        if prefix not in tree:
+            return []
+        return [tree[child] for child in tree.children(prefix)]
 
     def get_subtree(self, prefix, vrf=None):
         """
@@ -127,4 +143,5 @@ class PrefixTree:
                     traverse(child)
 
         traverse(subtree)
-        return sorted(children, key=lambda p: ipaddress.ip_network(p).prefixlen)
+        # Order by length, then address (a set has no stable order)
+        return sorted(children, key=lambda p: (ipaddress.ip_network(p).prefixlen, ipaddress.ip_network(p)))
