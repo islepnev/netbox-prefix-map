@@ -10,6 +10,7 @@
 | `app/plot_map.py` | Image rendering (matplotlib, Agg backend) |
 | `app/updater_manager.py` | Background update scheduling |
 | `app/webapp.py` | Flask application: pages, data endpoint, webhook, health and metrics |
+| `static/js/map.js` | Map page: zoom, hover details, click navigation, legend |
 | `static/js/prefix_tree.js` | Prefix tree in the map page sidebar |
 
 ## Update run
@@ -57,6 +58,15 @@ Tenant colors are taken from a 16-color palette by tenant id, so a tenant keeps 
 The web app requests an update at startup (unless `INITIAL_UPDATE=0`) and on each relevant webhook. The webhook accepts `created`, `updated` and `deleted` events for prefixes, IP addresses, IP ranges, VRFs and tenants. With `WEBHOOK_SECRET` set, the `X-Hook-Signature` header must be the HMAC-SHA512 of the request body.
 
 Because the updater lives in the web process, the server runs with a single gunicorn worker.
+
+## Map page
+
+The browser loads the PNG and the prefix data file (`/data/<vrf>/<prefix>`, gzip-compressed when accepted). The data file carries the grid size, cell size, nested prefixes with their fill colors, IP addresses and parent prefixes, so the page resolves the cell under the pointer with the same layout as the renderer.
+
+- Zoom steps are whole device pixels per image pixel; the image is never resampled.
+- Hovering shows the address, its IP record or "free", and the innermost prefix; the cell and the prefix are outlined.
+- Clicking opens the child prefix that contains the cell; in a prefix without children it opens the IP address in NetBox.
+- The prefix tree loads children on expand from `/data/...?nav=1`, which omits addresses and nested prefixes.
 
 ## Observability
 
