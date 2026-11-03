@@ -3,6 +3,7 @@
 import ipaddress
 import logging
 import math
+import os
 import matplotlib
 matplotlib.use("Agg")  # headless backend; rendering runs off the main thread (updater)
 from matplotlib.patches import Rectangle  # noqa: E402
@@ -102,8 +103,13 @@ def create_allocation_grid(prefix, ip_addresses):
                 x, y = decode_offset(offset, max_bits, grid_width, grid_height)
                 if 0 <= x < grid_width and 0 <= y < grid_height:
                     grid[y][x] = 1  # Mark as allocated
-                    ip_details[(x, y)] = extract_ip_details(ip, ip_entry)
-                    allocated_count += 1
+                    details = extract_ip_details(ip, ip_entry)
+                    existing = ip_details.get((x, y))
+                    # Same address in several VRFs (Global container): show the most significant one
+                    if existing is None or ip_display_rank(details) > ip_display_rank(existing):
+                        ip_details[(x, y)] = details
+                    if existing is None:
+                        allocated_count += 1
                     if allocated_count % 1000 == 0:
                         logging.info(f"Allocated {allocated_count} IPs...")
                 else:
@@ -201,6 +207,14 @@ def _unused_get_tenant_color(tenant, tenant_color_map):
 
     # Return the assigned color or default if tenant is unknown
     return tenant_color_map.get(normalized, 'none')
+
+
+def ip_display_rank(details):
+    """Higher wins when several IP records share one cell: role > in use > reserved > inactive."""
+    if details.get('role'):
+        return 3
+    status = choice_value(details.get('status'))
+    return {'inactive': 0, 'reserved': 1}.get(status, 2)
 
 
 def determine_ip_color(details, palette):
@@ -460,7 +474,10 @@ def plot_allocation_grid(top_level_prefix_entry, child_prefixes, relevant_ips, o
     # Finalize and save the plot
     finalize_plot(ax, image_width, image_height, top_level_prefix_entry)
 
-    # No bbox_inches='tight': it may crop or pad and break the 1:1 pixel mapping
-    fig.savefig(output_file, dpi=100)
+    # No bbox_inches='tight': it may crop or pad and break the 1:1 pixel mapping.
+    # Write to a temp file and rename, so the web app never serves a half-written image.
+    tmp_file = f"{output_file}.tmp"
+    fig.savefig(tmp_file, dpi=100, format='png')
+    os.replace(tmp_file, output_file)
     plt.close(fig)
     logging.debug(f"Prefix map {top_level_prefix} saved to {output_file}")
