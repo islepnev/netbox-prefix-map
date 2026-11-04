@@ -26,7 +26,7 @@
 
 Each data file keeps `changes`: what the last update that changed the prefix added, removed or changed, compared with the previous data file: IP records (address and VRF; status, role, DNS name) and nested prefixes, at most 1,000 of each with full counts, and the time (`at`, `since`). An update without changes keeps the previous record; the first update has none.
 
-An image is redrawn only when its inputs change. The inputs are hashed (`render_hash` in the data file): address, status and role of each IP, nested prefixes with their tenant colors, cell size and `RENDER_VERSION`. Bump `RENDER_VERSION` when drawing code changes.
+An image is redrawn only when its inputs change. The inputs are hashed (`render_hash` in the data file): address, status and role of each IP, nested prefixes with their tenant colors and statuses, cell size and `RENDER_VERSION`. Bump `RENDER_VERSION` when drawing code changes.
 
 ## Address membership
 
@@ -43,6 +43,7 @@ Each cell is `CELL_SIZE` pixels: a 1 px gap followed by the cell body. The axes 
 | Element | Style |
 |---|---|
 | Nested prefix | Tenant color blended 50% with white, dotted border; longer prefixes on top |
+| Reserved or deprecated prefix | Diagonal stripes, 1 px every two cells, at half the brightness of what is under them; a child prefix with a tenant covers them, one without does not |
 | IP with a role | Red |
 | DHCP or SLAAC IP | Black at 55% opacity |
 | Reserved or deprecated IP | Black at 25% opacity |
@@ -64,12 +65,13 @@ Prefixes shorter than /16 would need a grid of 4096 × 4096 cells or more. They 
 | Block with nested prefixes inside | Checkerboard of the shortest such prefix with a tenant, gray when none has one |
 | IP addresses in the block | Black overlay, 25% opacity for one address up to 90% for a full block |
 | Direct child prefix of a block or larger | Dark outline on the cell gap lines |
+| Reserved or deprecated prefix of a block or larger | Stripes as on address maps |
 | Grid | Light lines every 16 cells |
 | Labels | As on address maps, for each 16 × 16-cell group (the second octet of a /16 on a /8 map); none when no single octet tells the groups apart (/1 to /7) |
 
 The data file carries `layer` (`block_len`, `blocks`: block index and IP count) instead of the IP list. On the page a cell is a block: the inspector shows its IP count, the prefix chain, prefixes inside it and free blocks down to the block size; double-click opens the map of the child prefix covering the block, or of the first prefix inside it.
 
-Tenant colors are taken from a 16-color palette by tenant id, so a tenant keeps its color when others are added or removed. The palette has no gray: a gray fill would read as a reserved IP.
+Tenant colors are taken from a 16-color palette by tenant id, so a tenant keeps its color when others are added or removed. The palette has no gray: a gray fill would read as a reserved IP. Tenant ids 16 apart share a color; the map page legend marks tenants of the current map that share one (`=`, with the other names in the tooltip), and the exported SVG names them after the tenant.
 
 ## Updates
 
@@ -87,7 +89,8 @@ Because the updater lives in the web process, the server runs with a single guni
 
 Layout: top bar (VRF, prefix path, search, freshness), prefix tree on the left, map in the center, inspector on the right, legend and usage at the bottom. The side panels collapse (`[`, `]`); the state is kept in local storage. The page configuration (prefix, parents, names, URLs) is embedded as JSON; the browser loads the PNG and the prefix data file (`/data/<vrf>/<prefix>`, gzip-compressed when accepted). The data file carries the grid size, cell size, nested prefixes with their fill colors, IP addresses and parent prefixes, so the page resolves the cell under the pointer with the same layout as the renderer. Missing fields (data files from older versions) are derived or treated as empty.
 
-- Zoom is in whole device pixels per cell (4, 5, 6, 7, 8, 10, 12, ... with the default cell size); Fit picks the largest one that fits the view. The PNG is scaled with nearest-neighbour sampling; since a cell spans exactly cs image pixels and c device pixels, every cell gets the same pixel pattern. Overlays are placed on cell edges.
+- Zoom is in whole device pixels per cell (4, 5, 6, 7, 8, 10, 12, ... with the default cell size); Fit picks the largest one that fits the view. The PNG is scaled with nearest-neighbour sampling; since a cell spans exactly cs image pixels and c device pixels, every cell gets the same pixel pattern. Below 1x the cell size halves down to 1 device pixel (2 and 1 with the default cell size), so a /8 layered map fits small screens; there the gaps cannot be kept and the PNG is scaled smoothly. Overlays are placed on cell edges.
+- Ctrl (Cmd) + wheel and touchpad pinch zoom one step per notch, keeping the map point under the pointer in place once the map overflows the view; the plain wheel scrolls. Dragging with the mouse pans; a move of 4 px or more is a drag, and the click that ends it does not pin.
 - The pinned address (or outlined prefix) is written to `?focus=` with `history.replaceState`, so the URL is a permalink. Arrow keys move the pin by one cell (Shift: 16), Enter opens it, `c` copies the address. Copy buttons sit next to addresses, prefixes and free blocks; on plain-http hosts, where `navigator.clipboard` is unavailable, a hidden textarea and `execCommand('copy')` are used.
 - The free-block list has a size picker: "largest" lists the largest free blocks; `/N` lists the first free aligned /N blocks by address, as NetBox "first available prefix" would. The choice is kept in local storage.
 - Hovering shows the address, its IP record or "free", the prefix chain and the free blocks of the innermost prefix in the inspector; the cell and the prefix are outlined. Clicking pins the cell; clicking it again or Esc unpins.
@@ -99,7 +102,8 @@ Layout: top bar (VRF, prefix path, search, freshness), prefix tree on the left, 
 - The prefix tree shows the path from the outermost parent to the current prefix; other branches load on expand from `/data/...?nav=1`, which omits addresses and nested prefixes. Tree rows and the map highlight each other.
 - Text search: other queries of 2 characters or more go to `/search` as text, matched case-insensitively against IP DNS names and descriptions (`search_index.json`) and prefix descriptions, tenant and role names; IP results link to the innermost prefix map with `?focus=`. At most 50 results.
 - Search: an address or prefix inside the map is pinned or outlined in place; other queries go to `/search`, which returns, per VRF, the prefix itself or the innermost prefix containing the query, with the IP record if any. Result links carry `?focus=<query>`, which pins or outlines it when the map opens.
-- Export and print (`static/js/map_export.js`): an SVG is drawn in the browser from the data file, with the same layout as the PNG: one rect per IP (per block with its usage darkness on layered maps), nested prefixes with tenant fills and dotted outlines, the octet labels as text, a title and a legend. "Download SVG" saves it; on print (`beforeprint`, Ctrl+P included) it replaces the page through the print stylesheet, so the browser prints a vector map with legend and no UI, landscape for 2:1 maps. In black and white, tenants get hatch patterns instead of colors and IPs with a role become hollow black cells.
+- Export and print (`static/js/map_export.js`): an SVG is drawn in the browser from the data file, with the same layout as the PNG: one rect per IP (per block with its usage darkness on layered maps), nested prefixes with tenant fills and dotted outlines, the octet labels as text, a title and a legend. "Download SVG" saves it; on print (`beforeprint`, Ctrl+P included) it replaces the page through the print stylesheet, so the browser prints a vector map with legend and no UI, landscape for 2:1 maps. In black and white, tenants get hatches instead of colors (16 hatches in order of first appearance on the map; beyond 16 the legend names tenants sharing one) and IPs with a role become hollow black cells. Hatches and the checkerboard of layered maps are drawn as vector lines, dots and squares clipped to each rectangle, not as SVG patterns: Chromium prints patterns as bitmaps (the /17 of the test data gave a 29 MB PDF of raster tiles, a /16 2.6 MB with 270 of them; now 0.3 and 0.4 MB, all vector). The hatch pitch is about 1.6 mm on paper, not tied to the cell size, so it does not read as the cell grid; a rectangle too small for it gets a finer pitch.
+- Clicking a tenant in the legend (or Enter on it) outlines its outermost prefixes on the map and names them in a toast; clicking it again clears the outline.
 - The freshness dot polls `/healthz` and turns amber when the last update failed, the updater stopped or the data is older than 24 h.
 - Colors of the page follow the system light or dark theme; the map keeps its white background.
 

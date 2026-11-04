@@ -114,19 +114,99 @@ def test_zoom_is_whole_device_pixels_per_cell(open_page, dpr):
 
 
 def test_zoom_steps(open_page):
-    """Zoom out to 1 x, then in: 4, 5, 6, 7, 8, 10, 12 device pixels per cell, and back down the same way."""
+    """Zoom out to 0.25 x, then in: 1, 2, 4, 5, 6, 7, 8, 10, 12 device pixels per cell, and back down the same way."""
     page = open_page(f'{BASE}/map/1/10_20_48_0_20', viewport=(1400, 900))
     wait_for_map(page)
     for _ in range(30):
         page.keyboard.press('-')
+    assert page.is_disabled('#zoom-out')
     seen = [page.evaluate('window.__prefixMap.c')]
-    for _ in range(6):
+    for _ in range(8):
         page.keyboard.press('+')
         seen.append(page.evaluate('window.__prefixMap.c'))
-    assert seen == [CELL_SIZE * 1, 5, 6, 7, 8, 10, 12] if CELL_SIZE == 4 else seen == sorted(set(seen))
-    for _ in range(6):
+    assert seen == [1, 2, 4, 5, 6, 7, 8, 10, 12] if CELL_SIZE == 4 else seen == sorted(set(seen))
+    assert seen[0] == 1
+    for _ in range(8):
         page.keyboard.press('-')
-    assert page.evaluate('window.__prefixMap.c') == CELL_SIZE
+    assert page.evaluate('window.__prefixMap.c') == seen[0]
+
+
+@pytest.mark.parametrize("dpr", [1, 2])
+def test_ctrl_wheel_zooms_about_the_pointer(open_page, dpr):
+    """Once the map overflows the view, the cell under the pointer stays under it (a centred map stays centred)."""
+    page = open_page(f'{BASE}/map/1/10_20_48_0_20', device_scale_factor=dpr, viewport=(1200, 800))
+    wait_for_map(page)
+    for _ in range(4):
+        page.keyboard.press('+')
+    addr = '10.20.60.0'  # the middle cell of the /20
+    x, y = cell_center(page, *cell_of('10.20.48.0/20', addr))
+    page.mouse.move(x, y)
+    assert page.inner_text('#insp-detail .big').startswith(addr + '/')
+    c0 = page.evaluate('window.__prefixMap.c')
+    page.keyboard.down('Control')
+    for _ in range(3):
+        page.mouse.wheel(0, -100)
+    page.keyboard.up('Control')
+    c1 = page.evaluate('window.__prefixMap.c')
+    assert c1 > c0
+    page.mouse.move(x + 1, y)
+    page.mouse.move(x, y)
+    assert page.inner_text('#insp-detail .big').startswith(addr + '/'), "the cell under the pointer stays"
+    page.keyboard.down('Control')
+    page.mouse.wheel(0, 100)
+    page.keyboard.up('Control')
+    c2 = page.evaluate('window.__prefixMap.c')
+    assert c2 < c1
+    page.mouse.move(x + 1, y)
+    page.mouse.move(x, y)
+    assert page.inner_text('#insp-detail .big').startswith(addr + '/')
+    page.mouse.wheel(0, 100)
+    assert page.evaluate('window.__prefixMap.c') == c2, "the plain wheel scrolls, it does not zoom"
+    assert page.errors == []
+
+
+def test_drag_pans_and_does_not_pin(open_page):
+    page = open_page(f'{BASE}/map/1/10_20_48_0_20', viewport=(1200, 800))
+    wait_for_map(page)
+    for _ in range(6):
+        page.keyboard.press('+')
+    before = page.eval_on_selector('#viewport', 'v => [v.scrollLeft, v.scrollTop]')
+    vp = page.locator('#viewport').bounding_box()
+    x, y = vp['x'] + vp['width'] / 2, vp['y'] + vp['height'] / 2
+    page.mouse.move(x, y)
+    page.mouse.down()
+    page.mouse.move(x - 60, y - 40, steps=5)
+    assert 'dragging' in page.get_attribute('#viewport', 'class')
+    page.mouse.up()
+    after = page.eval_on_selector('#viewport', 'v => [v.scrollLeft, v.scrollTop]')
+    assert [round(a - b) for a, b in zip(after, before)] == [60, 40]
+    assert 'focus=' not in page.url and 'dragging' not in (page.get_attribute('#viewport', 'class') or '')
+    page.mouse.click(x, y)
+    assert 'focus=' in page.evaluate('location.href'), "a click still pins"
+    assert page.errors == []
+
+
+@pytest.mark.parametrize("dpr", [1, 2])
+def test_fit_goes_below_1x(open_page, dpr):
+    """A /8 layered map (256 x 256 cells, 1024 device px at 1 x) fits a small window."""
+    page = open_page(f'{BASE}/map/1/10_0_0_0_8', device_scale_factor=dpr, viewport=(1000, 700))
+    wait_for_map(page)
+    c = page.evaluate('window.__prefixMap.c')
+    img, vp = page.evaluate("""() => ["map-img", "viewport"].map(id => {
+        const r = document.getElementById(id).getBoundingClientRect();
+        return [r.left, r.top, r.right, r.bottom];
+    })""")
+    assert img[0] >= vp[0] and img[1] >= vp[1] and img[2] <= vp[2] and img[3] <= vp[3], "the map is inside the view"
+    assert c < CELL_SIZE
+    assert page.inner_text('#zoom-level') == f'{float(f"{c / CELL_SIZE:.2f}"):g}×'
+    assert page.eval_on_selector('#map-img', 'i => getComputedStyle(i).imageRendering') == 'auto'
+    page.mouse.move(*cell_center(page, *layer_cell('10.0.0.0/8', 24, '10.20.0.0')))
+    assert '10.20.0.0/24' in page.inner_text('#insp-detail')
+    page.keyboard.press('+')
+    while page.evaluate('window.__prefixMap.c') < CELL_SIZE:
+        page.keyboard.press('+')
+    assert page.eval_on_selector('#map-img', 'i => getComputedStyle(i).imageRendering') == 'pixelated'
+    assert page.errors == []
 
 
 @pytest.mark.parametrize("dpr", [1, 2])
@@ -615,14 +695,122 @@ def test_svg_export_has_a_cell_per_ip_and_a_legend(open_page, dataset):
     assert 'url(#t0)' not in svg
 
 
-def test_svg_export_black_and_white_hatches_tenants(open_page):
+def hatches_of(root):
+    """Hatch number of each hatched prefix rectangle: the hatch paths follow their rectangle."""
+    out, last = {}, None
+    body = next(g for g in root.iter(SVG_NS + 'g') if (g.get('transform') or '').startswith('translate'))
+    for e in body.iter():
+        if e.tag == SVG_NS + 'rect' and e.find(SVG_NS + 'title') is not None:
+            last = e.find(SVG_NS + 'title').text
+        elif e.tag == SVG_NS + 'path' and (e.get('class') or '').startswith('hatch-') and last:
+            out[last] = int(e.get('class').split('-')[1])
+    return out
+
+
+def test_svg_export_black_and_white_hatches_tenants(open_page, dataset):
+    """Tenants get vector hatches, no SVG patterns: Chromium prints patterns as bitmaps."""
     page = open_page(f'{BASE}/map/1/10_20_0_0_17')
     wait_for_map(page)
+    svg, root = export_svg(page, mono=True)
+    assert '<pattern' not in svg
+    hatches = hatches_of(root)
+    tenants = {p['prefix']: p['tenant'] for p in dataset['prefixes'] if p['vrf'] == 1}
+    by_tenant = {}
+    for prefix, n in hatches.items():
+        by_tenant.setdefault(tenants[prefix], set()).add(n)
+    assert len(by_tenant) == 8 and all(len(v) == 1 for v in by_tenant.values()), "one hatch per tenant"
+    assert len({min(v) for v in by_tenant.values()}) == 8, "eight tenants, eight hatches"
+    untenanted = [r for r in root.iter(SVG_NS + 'rect') if r.find(SVG_NS + 'title') is not None
+                  and not tenants.get(r.find(SVG_NS + 'title').text)]
+    assert untenanted and all(r.get('fill') == 'none' for r in untenanted)
+
+
+def test_svg_export_has_no_patterns(open_page):
+    for path in ('10_0_0_0_8', '10_20_0_0_17'):
+        page = open_page(f'{BASE}/map/1/{path}')
+        wait_for_map(page)
+        for mono in (False, True):
+            svg, _ = export_svg(page, mono=mono)
+            assert '<pattern' not in svg and 'url(#' not in svg, (path, mono)
+
+
+def retenant(mapping):
+    """Route handler that sets the tenant (and its colour) of nested prefixes: {prefix: (tenant, color)}."""
+    def handle(route):
+        data = route.fetch().json()
+        for p in data['nested_prefixes']:
+            if p['prefix'] in mapping:
+                p['tenant'], p['color'] = mapping[p['prefix']]
+        route.fulfill(json=data)
+    return handle
+
+
+def test_legend_marks_tenants_sharing_a_colour(open_page):
+    """Colours repeat every 16 tenant ids; the legend names tenants that look the same on this map."""
+    route = retenant({'10.20.0.64/26': (17, '#8fbbd9')})  # colour of tenant 1, Core
+    page = open_page(f'{BASE}/map/1/10_20_0_0_17', route=(f'**{BASE}/data/1/10_20_0_0_17', route))
+    wait_for_map(page)
+    marked = page.eval_on_selector_all('#legend .lg.same-color', 'els => els.map(e => [e.textContent, e.title])')
+    assert [m[0] for m in marked] == ['Core=', 'Tenant 17=']
+    assert marked[0][1].startswith('Same colour as Tenant 17.') and marked[1][1].startswith('Same colour as Core.')
+    assert page.locator('#legend .lg:not(.same-color):has-text("Office")').count() == 1
+    svg, _ = export_svg(page)
+    assert 'Core (same colour as Tenant 17)' in svg
     _, root = export_svg(page, mono=True)
-    patterns = root.findall(f'.//{SVG_NS}pattern')
-    assert len(patterns) >= 8
-    fills = {r.get('fill') for r in root.iter(SVG_NS + 'rect') if r.find(SVG_NS + 'title') is not None}
-    assert fills <= {f'url(#t{i})' for i in range(len(patterns))} | {'none'}
+    assert not any('same pattern' in (t.text or '') for t in root.iter(SVG_NS + 'text'))
+    assert page.errors == []
+
+
+def test_svg_export_black_and_white_has_16_distinct_hatches(open_page, output_dir):
+    with open(os.path.join(output_dir, 'data-1-10_20_0_0_17.json')) as f:
+        nested = json.load(f)['nested_prefixes']
+    mapping = {p['prefix']: (i + 1, '#123456') for i, p in enumerate(nested[:17])}
+    page = open_page(f'{BASE}/map/1/10_20_0_0_17', route=(f'**{BASE}/data/1/10_20_0_0_17', retenant(mapping)))
+    wait_for_map(page)
+    _, root = export_svg(page, mono=True)
+    hatches = hatches_of(root)
+    assert set(hatches.values()) == set(range(16)), "17 tenants use all 16 hatches"
+    same = [t.text for t in root.iter(SVG_NS + 'text') if 'same pattern' in (t.text or '')]
+    assert len(same) == 2, same
+
+
+def test_reserved_prefix_in_legend_chain_and_svg(open_page):
+    page = open_page(f'{BASE}/map/1/10_20_0_0_17')
+    wait_for_map(page)
+    assert page.locator('#legend .lg:has(.sw.striped)').inner_text() == 'Reserved, deprecated prefix'
+    page.mouse.move(*cell_center(page, *cell_of('10.20.0.0/17', '10.20.5.200')))
+    assert page.inner_text('#insp-detail .chain li.inner .d').startswith('reserved · ')
+    for mono in (False, True):
+        svg, root = export_svg(page, mono=mono)
+        assert len(root.findall(f'.//{SVG_NS}path[@class="striped"]')) == 1
+        assert 'Reserved, deprecated prefix' in svg
+    page = open_page(f'{BASE}/map/1/10_20_48_0_24')
+    wait_for_map(page)
+    assert page.locator('#legend .sw.striped').count() == 0
+    assert page.errors == []
+
+
+def test_legend_tenant_outlines_its_prefixes(open_page, output_dir):
+    with open(os.path.join(output_dir, 'data-1-10_20_0_0_17.json')) as f:
+        nested = [ipaddress.ip_network(p['prefix']) for p in json.load(f)['nested_prefixes'] if p['tenant'] == 2]
+    outermost = {str(n) for n in nested if not any(o != n and n.subnet_of(o) for o in nested)}
+    page = open_page(f'{BASE}/map/1/10_20_0_0_17')
+    wait_for_map(page)
+    office = page.locator('#legend .tenant-toggle', has_text='Office')
+    office.click()
+    assert office.get_attribute('aria-pressed') == 'true'
+    titles = page.eval_on_selector_all('#ov-tenant .ov-tenant', 'els => els.map(e => e.title)')
+    assert set(titles) == outermost and len(titles) == len(outermost) > 1
+    assert f'Office: {len(outermost)} prefixes outlined' in page.inner_text('#toast')
+    page.keyboard.press('+')
+    box = page.eval_on_selector('#ov-tenant .ov-tenant', 'e => e.getBoundingClientRect().width')
+    assert box > 0
+    office.click()
+    assert page.is_hidden('#ov-tenant') and office.get_attribute('aria-pressed') == 'false'
+    page.locator('#legend .tenant-toggle', has_text='Lab').focus()
+    page.keyboard.press('Enter')
+    assert page.locator('#ov-tenant .ov-tenant').count() >= 1
+    assert page.errors == []
 
 
 def test_svg_export_of_layered_map(open_page):
@@ -777,6 +965,8 @@ def test_fractional_zoom_keeps_cells_identical(open_page, output_dir, dpr, press
     wait_for_map(page)
     for _ in range(30):
         page.keyboard.press('-')
+    while page.evaluate('window.__prefixMap.c') < CELL_SIZE:
+        page.keyboard.press('+')
     for _ in range(presses):
         page.keyboard.press('+')
     c = page.evaluate('window.__prefixMap.c')

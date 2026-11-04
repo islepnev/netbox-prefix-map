@@ -278,19 +278,19 @@ def test_tenant_colors_are_stable_when_tenants_change():
     assert len({after[t] for t in (1, 3, 5, 7)}) == 4
 
 
-def _render_24(tmp_path, ips, nested_tenant=None, cell_size=CELL_SIZE):
+def _render_24(tmp_path, ips, nested_tenant=None, cell_size=CELL_SIZE, nested_status="active"):
     from app.cli import process_all_prefixes
     prefixes = [
         {"id": 1, "prefix": "172.16.0.0/24", "vrf": 1, "tenant": None, "status": "active"},
         {"id": 2, "prefix": "172.16.0.0/25", "vrf": 1, "tenant": None, "status": "active"},
-        {"id": 3, "prefix": "172.16.0.0/26", "vrf": 1, "tenant": nested_tenant, "status": "active"},
+        {"id": 3, "prefix": "172.16.0.0/26", "vrf": 1, "tenant": nested_tenant, "status": nested_status},
     ]
     process_all_prefixes(prefixes, ips, cell_size, str(tmp_path))
     with open(image_path(str(tmp_path), 1, "172.16.0.0/24"), 'rb') as f:
         return f.read()
 
 
-@pytest.mark.parametrize("change", ["status", "role", "nested_tenant", "cell_size"])
+@pytest.mark.parametrize("change", ["status", "role", "nested_tenant", "cell_size", "nested_status"])
 def test_unchanged_skip_still_redraws_on_relevant_change(tmp_path, change):
     ip = {"id": 1, "address": "172.16.0.5/24", "vrf": 1, "tenant": None, "status": "active", "role": None}
     first = _render_24(tmp_path, [ip])
@@ -302,6 +302,8 @@ def test_unchanged_skip_still_redraws_on_relevant_change(tmp_path, change):
         ip = dict(ip, role="anycast")
     elif change == "nested_tenant":
         kwargs["nested_tenant"] = 2
+    elif change == "nested_status":
+        kwargs["nested_status"] = "reserved"
     else:
         kwargs["cell_size"] = CELL_SIZE + 1
     assert _render_24(tmp_path, [ip], **kwargs) != first
@@ -490,3 +492,67 @@ def test_changes_survive_an_update_without_changes(tmp_path, monkeypatch):
     run_update(mgr=FakeNetboxManager(dataset))
     with open(path) as f:
         assert json.load(f)['changes'] == first
+
+
+def stripe_pixels(image, x0, y0, x1, y1):
+    """Pixels on the stripe lines ((x - y) % 2 cells == 0) inside the box, and the others."""
+    ys, xs = np.indices(image.shape[:2])
+    box = (xs >= x0) & (xs < x1) & (ys >= y0) & (ys < y1)
+    on = box & ((xs - ys) % (2 * CELL_SIZE) == 0)
+    return image[on], image[box & ~on]
+
+
+def stripes_in_free_cells(image, map_prefix, inside, used):
+    """Share of stripe pixels darker than the other pixels of their cell, over the cell bodies without an IP."""
+    darker, total = 0, 0
+    for a in ipaddress.ip_network(inside):
+        if str(a) in used:
+            continue
+        x0, y0, x1, y1 = cell_box(map_prefix, str(a))
+        on, off = stripe_pixels(image, x0, y0, x1, y1)
+        if len(on) and len(off):
+            total += len(on)
+            darker += int((on.sum(axis=1) < np.median(off.sum(axis=1)) - 60).sum())
+    return darker / total
+
+
+def test_reserved_prefix_is_striped(output_dir, dataset):
+    """10.20.5.0/24 is reserved, with a tenant and no child prefix; 10.20.48.0/24 is active."""
+    used = {ip['address'].split('/')[0] for ip in dataset['ip_addresses'] if ip['vrf'] == LAN}
+    image = load_rgb(image_path(output_dir, LAN, "10.20.0.0/17"))
+    assert stripes_in_free_cells(image, "10.20.0.0/17", "10.20.5.0/24", used) > 0.9
+    assert stripes_in_free_cells(image, "10.20.0.0/17", "10.20.48.0/24", used) < 0.05  # labels, prefix borders
+
+
+@pytest.mark.parametrize("status,tenant,striped", [
+    ("deprecated", None, True), ("reserved", 2, True), ("active", None, False), ("container", None, False)])
+def test_prefix_status_stripes(tmp_path, status, tenant, striped):
+    _render_24(tmp_path, [], nested_tenant=tenant, nested_status=status)
+    image = load_rgb(image_path(str(tmp_path), 1, "172.16.0.0/24"))
+    share = stripes_in_free_cells(image, "172.16.0.0/24", "172.16.0.0/26", set())
+    assert share > 0.9 if striped else share == 0
+    assert stripes_in_free_cells(image, "172.16.0.0/24", "172.16.0.128/25", set()) == 0
+
+
+def test_tenant_child_covers_stripes(tmp_path):
+    """A reserved /25 with an active /26 child that has a tenant: the child is not striped, the rest is."""
+    from app.cli import process_all_prefixes
+    prefixes = [
+        {"id": 1, "prefix": "172.16.0.0/24", "vrf": 1, "tenant": None, "status": "active"},
+        {"id": 2, "prefix": "172.16.0.0/25", "vrf": 1, "tenant": None, "status": "reserved"},
+        {"id": 3, "prefix": "172.16.0.0/26", "vrf": 1, "tenant": 3, "status": "active"},
+    ]
+    process_all_prefixes(prefixes, [], CELL_SIZE, str(tmp_path))
+    image = load_rgb(image_path(str(tmp_path), 1, "172.16.0.0/24"))
+    assert stripes_in_free_cells(image, "172.16.0.0/24", "172.16.0.0/26", set()) == 0
+    assert stripes_in_free_cells(image, "172.16.0.0/24", "172.16.0.64/26", set()) > 0.9
+def test_layered_map_stripes_reserved_prefix(output_dir):
+    """10.30.0.0/16 is reserved and has no tenant: grey stripes on white on the /8 map."""
+    image = load_rgb(image_path(output_dir, LAN, "10.0.0.0/8"))
+    x0, y0, _, _ = layer_cell_box("10.0.0.0/8", 24, "10.30.0.0")
+    on, off = stripe_pixels(image, x0 - 1, y0 - 1, x0 - 1 + 16 * CELL_SIZE, y0 - 1 + 16 * CELL_SIZE)
+    gray = (on.max(axis=1) < 200) & (on.min(axis=1) > 60)
+    assert gray.mean() > 0.5
+    x0, y0, _, _ = layer_cell_box("10.0.0.0/8", 24, "10.99.0.0")
+    on, _ = stripe_pixels(image, x0, y0, x0 + 8 * CELL_SIZE, y0 + 8 * CELL_SIZE)
+    assert (on.min(axis=1) > 200).mean() > 0.9, "free space is not striped"

@@ -267,6 +267,32 @@ def get_prefix_label(prefix):
         return ""
 
 
+# Reserved and deprecated prefixes get diagonal stripes, one pixel wide every two cells, in a darker shade of what is
+# under them. A child prefix with a tenant covers them, as its fill covers the parent's; one without a tenant does not.
+STRIPED_PREFIX_STATUSES = {'reserved', 'deprecated'}
+STRIPE_SHADE = 0.5
+
+
+def striped_cells(areas, grid_width, grid_height):
+    """areas: (x1, y1, x2, y2, prefix length, status, tenant) in cells; returns the cells to stripe."""
+    mask = np.zeros((grid_height, grid_width), dtype=bool)
+    for x1, y1, x2, y2, _, status, tenant in sorted(areas, key=lambda a: a[4]):
+        if choice_value(status) in STRIPED_PREFIX_STATUSES:
+            mask[y1:y2 + 1, x1:x2 + 1] = True
+        elif tenant:
+            mask[y1:y2 + 1, x1:x2 + 1] = False
+    return mask
+
+
+def paint_status_stripes(image, mask, cell_size):
+    if not mask.any():
+        return
+    pixels = np.repeat(np.repeat(mask, cell_size, axis=0), cell_size, axis=1)
+    ys, xs = np.indices(pixels.shape)
+    pixels &= (xs - ys) % (2 * cell_size) == 0
+    image[pixels] *= STRIPE_SHADE
+
+
 def draw_prefix_rectangles(ax, rectangles, cell_size, tenant_color_map):
     for rect_info in rectangles:
         x1 = rect_info['x1'] * cell_size
@@ -405,6 +431,9 @@ def plot_allocation_grid(top_level_prefix_entry, child_prefixes, relevant_ips, o
     image = np.asarray(fig.canvas.buffer_rgba())[..., :3] / 255
     plt.close(fig)
     image = image.copy()
+    paint_status_stripes(image, striped_cells(
+        [(r['x1'], r['y1'], r['x2'], r['y2'], ipaddress.ip_network(r['prefix']).prefixlen, r['status'], r['tenant'])
+         for r in rectangles], grid_width, grid_height), cell_size)
     range_cells = range_cell_coords(ipaddress.ip_network(top_level_prefix), ip_ranges, max_bits, grid_width, grid_height)
     # Only on addresses without an IP record: a dot would show through the lighter IP shades
     range_cells -= set(ip_details)
@@ -507,6 +536,18 @@ def plot_layered_grid(prefix, block_len, block_counts, nested_prefixes, children
             cell = cell * (1 - alpha) + LAYER_USAGE_COLOR * alpha
         px, py = xs[index] * cell_size + 1, ys[index] * cell_size + 1
         image[py:py + body, px:px + body] = cell
+
+    areas = []
+    for p in nested_prefixes:
+        sub = ipaddress.ip_network(p['prefix'])
+        if sub.prefixlen > block_len:
+            continue
+        first = (int(sub.network_address) - start) >> shift
+        last = first + 2 ** (block_len - sub.prefixlen) - 1
+        x1, x2 = sorted((int(xs[first]), int(xs[last])))
+        y1, y2 = sorted((int(ys[first]), int(ys[last])))
+        areas.append((x1, y1, x2, y2, sub.prefixlen, p.get('status'), p.get('tenant')))
+    paint_status_stripes(image, striped_cells(areas, width, height), cell_size)
 
     for i in range(0, height, 16):
         image[i * cell_size, :] = LAYER_GRID_COLOR

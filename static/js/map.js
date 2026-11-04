@@ -274,24 +274,37 @@
     // ---------- zoom ----------
     const PAD = 16, MAX_SCALE = 16;
     const maxC = () => cs * MAX_SCALE;
+    // Below 1x the cell size halves down to 1 device pixel (2, 1 with the default cell size); the gaps cannot be kept
+    // there, so the image is scaled smoothly instead of nearest-neighbour.
+    function lowSteps() {
+        const steps = [];
+        for (let v = cs; v > 1;) { v = Math.max(1, Math.floor(v / 2)); steps.push(v); }
+        return steps;
+    }
+    const minC = () => lowSteps().at(-1) ?? cs;
     function fitC() {
         const w = (viewport.clientWidth - 2 * PAD) * dpr, h = (viewport.clientHeight - 2 * PAD) * dpr;
-        return Math.max(cs, Math.min(maxC(), Math.floor(w / GW), Math.floor(h / GH)));
+        const f = Math.min(maxC(), Math.floor(w / GW), Math.floor(h / GH));
+        return f >= cs ? f : lowSteps().find((v) => v <= f) ?? minC();
     }
     // Zoom steps grow by about a quarter: 4, 5, 6, 7, 8, 10, 12, 14, 16, 20, ...
     const stepOf = (v) => Math.max(1, 2 ** (Math.floor(Math.log2(v)) - 2));
     function zoomStep(v, dir) {
+        if (dir > 0 && v < cs) return lowSteps().reverse().find((s) => s > v) ?? cs;
+        if (dir < 0 && v <= cs) return lowSteps().find((s) => s < v) ?? minC();
         if (dir > 0) return Math.min(maxC(), Math.floor(v / stepOf(v)) * stepOf(v) + stepOf(v));
         const down = v - stepOf(v - 1);
         return Math.max(cs, Math.ceil(down / stepOf(down)) * stepOf(down));
     }
     const scaleText = (v) => `${Number((v / cs).toFixed(2))}×`;
-    function layout(keepCenter) {
+    // keep: keep the map point under the view centre in place, or under anchor ([x, y] in viewport pixels) when given
+    function layout(keep, anchor) {
         if (!img || !img.naturalWidth) return;
         const vw = viewport.clientWidth, vh = viewport.clientHeight;
+        const [ax, ay] = anchor || [vw / 2, vh / 2];
         const oldW = stage.offsetWidth || 1, oldH = stage.offsetHeight || 1;
-        const cx = (viewport.scrollLeft + vw / 2 - stage.offsetLeft) / oldW;
-        const cy = (viewport.scrollTop + vh / 2 - stage.offsetTop) / oldH;
+        const cx = (viewport.scrollLeft + ax - stage.offsetLeft) / oldW;
+        const cy = (viewport.scrollTop + ay - stage.offsetTop) / oldH;
         const w = (GW * c) / dpr, h = (GH * c) / dpr;
         img.style.width = `${w}px`;
         img.style.height = `${h}px`;
@@ -301,23 +314,63 @@
         stage.style.top = `${topPx}px`;
         wrap.style.width = `${left + w + PAD}px`;
         wrap.style.height = `${topPx + h + PAD}px`;
-        if (keepCenter) {
-            viewport.scrollLeft = cx * w + left - vw / 2;
-            viewport.scrollTop = cy * h + topPx - vh / 2;
+        if (keep) {
+            viewport.scrollLeft = cx * w + left - ax;
+            viewport.scrollTop = cy * h + topPx - ay;
         }
         document.documentElement.style.setProperty("--hair", `${1 / dpr}px`);
         stage.classList.add("laid-out");
         $("zoom-level").textContent = scaleText(c);
         $("zoom-level").title = `1 ${layer ? "cell" : "address"} = ${c} device px`;
-        $("zoom-out").disabled = c <= cs;
+        img.classList.toggle("smooth", c < cs);
+        $("zoom-out").disabled = c <= minC();
         $("zoom-in").disabled = c >= maxC();
         $("zoom-fit").classList.toggle("active", fitMode);
         drawOverlays();
     }
-    function setC(v, byUser) {
-        c = Math.max(cs, Math.min(maxC(), v));
+    function setC(v, byUser, anchor) {
+        c = Math.max(minC(), Math.min(maxC(), v));
         fitMode = !byUser;
-        layout(true);
+        layout(true, anchor);
+    }
+
+    // Ctrl/Cmd + wheel and touchpad pinch (a wheel event with ctrlKey) zoom about the pointer, one step per notch;
+    // the plain wheel scrolls. Dragging with the primary button pans; a drag does not pin.
+    function enableWheelAndDrag() {
+        let wheelSum = 0;
+        viewport.addEventListener("wheel", (ev) => {
+            if (!ev.ctrlKey && !ev.metaKey) return;
+            ev.preventDefault();
+            wheelSum += ev.deltaMode === 1 ? ev.deltaY * 40 : ev.deltaY;
+            if (Math.abs(wheelSum) < 40) return;
+            const dir = wheelSum < 0 ? 1 : -1;
+            wheelSum = 0;
+            const r = viewport.getBoundingClientRect();
+            const next = zoomStep(c, dir);
+            if (next !== c) setC(next, true, [ev.clientX - r.left, ev.clientY - r.top]);
+        }, { passive: false });
+        let drag = null, dragged = false;
+        viewport.addEventListener("pointerdown", (ev) => {
+            if (ev.button !== 0 || ev.pointerType !== "mouse") return;
+            drag = { x: ev.clientX, y: ev.clientY, left: viewport.scrollLeft, top: viewport.scrollTop, id: ev.pointerId };
+            dragged = false;
+        });
+        viewport.addEventListener("pointermove", (ev) => {
+            if (!drag || ev.pointerId !== drag.id) return;
+            const dx = ev.clientX - drag.x, dy = ev.clientY - drag.y;
+            if (!dragged && Math.hypot(dx, dy) < 4) return;
+            if (!dragged) { dragged = true; viewport.setPointerCapture(ev.pointerId); viewport.classList.add("dragging"); }
+            viewport.scrollLeft = drag.left - dx;
+            viewport.scrollTop = drag.top - dy;
+        });
+        const end = () => {
+            drag = null;
+            viewport.classList.remove("dragging");
+        };
+        viewport.addEventListener("pointerup", end);
+        viewport.addEventListener("pointercancel", end);
+        // The click that ends a drag is not a pin
+        viewport.addEventListener("click", (ev) => { if (dragged) { dragged = false; ev.stopPropagation(); } }, true);
     }
 
     // ---------- overlays, aligned to cell edges ----------
@@ -342,11 +395,41 @@
             ? rangeBounds(selected.start, selected.end) : null);
         place(ov.free, freeHi ? rangeBounds(freeHi.start, freeHi.start + freeHi.size - 1) : null);
         drawChanges();
+        drawTenant();
     }
 
     // ---------- changes of the last update that changed this prefix ----------
     const CHANGE_KINDS = [["added", "added"], ["removed", "removed"], ["changed", "changed"]];
     let showChanges = store.get("prefix-map.show-changes") === "1";
+    // ---------- prefixes of one tenant, outlined from the legend ----------
+    let tenantHi = null;
+    const tenantPrefixes = (id) => {
+        const own = nested.filter((n) => String(n.p.tenant) === String(id) && !(layer && n.len > blockLen));
+        // Outermost only: a tenant's /24 inside its own /20 adds nothing to the outline
+        return own.filter((n) => !own.some((o) => o !== n && o.start <= n.start && o.end >= n.end && o.len < n.len));
+    };
+    function drawTenant() {
+        const box = $("ov-tenant");
+        if (!box) return;
+        if (tenantHi === null || !img) { box.hidden = true; return; }
+        const u = c / dpr;
+        box.replaceChildren(...tenantPrefixes(tenantHi).map((n) => {
+            const [x1, y1, x2, y2] = rangeBounds(n.start, n.end);
+            return el("div", { class: "ov-tenant", title: n.p.prefix,
+                style: `left:${x1 * u}px;top:${y1 * u}px;width:${(x2 - x1 + 1) * u}px;height:${(y2 - y1 + 1) * u}px` });
+        }));
+        box.hidden = false;
+    }
+    function toggleTenant(id) {
+        tenantHi = String(tenantHi) === String(id) ? null : id;
+        drawTenant();
+        document.querySelectorAll("#legend .tenant-toggle").forEach((e) => e.setAttribute("aria-pressed", String(e.dataset.tenant === String(tenantHi))));
+        if (tenantHi !== null) {
+            const list = tenantPrefixes(tenantHi);
+            toast(`${tenantName(tenantHi)}: ${list.length} ${list.length === 1 ? "prefix" : "prefixes"} outlined${list.length ? ` (${list.slice(0, 3).map((n) => n.p.prefix).join(", ")}${list.length > 3 ? ", …" : ""})` : ""}. Click again to clear.`);
+        }
+    }
+
     function drawChanges() {
         const box = $("ov-changes");
         const ch = data && data.changes;
@@ -473,6 +556,7 @@
         reserved: { color: "rgba(0,0,0,.25)", svg: ["#000", 0.25], label: "Reserved, deprecated" },
         inactive: { color: "rgba(0,0,0,.1)", svg: ["#000", 0.1], label: "Inactive" },
     };
+    const STRIPED_STATUS = new Set(["reserved", "deprecated"]);  // prefix statuses drawn with stripes
     const STATUS_KIND = { dhcp: "dhcp", slaac: "dhcp", reserved: "reserved", deprecated: "reserved", inactive: "inactive" };
     const ipKind = (ip) => (ip.role ? "role" : STATUS_KIND[ip.status] || "active");
     const ipColor = (ip) => IP_KINDS[ipKind(ip)].color;
@@ -556,14 +640,14 @@
 
     function chainSection(chainNodes) {
         const chain = [
-            ...cfg.parents.map((p) => ({ prefix: p.prefix, id: p.id, vrf: cfg.vrfKey, desc: p.description, tenant: p.tenant, pool: p.is_pool, vlan: p.vlan })),
+            ...cfg.parents.map((p) => ({ prefix: p.prefix, id: p.id, vrf: cfg.vrfKey, desc: p.description, tenant: p.tenant, pool: p.is_pool, vlan: p.vlan, status: p.status })),
             { prefix: cfg.prefix, id: cfg.prefixId, vrf: cfg.vrfKey, desc: cfg.details.description, tenant: cfg.details.tenant_id, here: true,
-                pool: data.is_pool ?? cfg.details.is_pool, vlan: cfg.details.vlan_id },
-            ...chainNodes.map((n) => ({ prefix: n.p.prefix, id: n.p.id, vrf: n.p.vrf ?? data.vrf, desc: n.p.description, tenant: n.p.tenant, pool: n.p.is_pool, vlan: n.p.vlan })),
+                pool: data.is_pool ?? cfg.details.is_pool, vlan: cfg.details.vlan_id, status: data.status ?? cfg.details.status },
+            ...chainNodes.map((n) => ({ prefix: n.p.prefix, id: n.p.id, vrf: n.p.vrf ?? data.vrf, desc: n.p.description, tenant: n.p.tenant, pool: n.p.is_pool, vlan: n.p.vlan, status: n.p.status })),
         ];
         const innerPrefix = chain.at(-1).prefix;
         return sec("Prefix chain", `${chain.length} levels`, el("ol", { class: "chain" }, chain.map((c) => {
-            const desc = [c.pool ? "pool" : null, c.desc, tenantName(c.tenant), vlanName(c.vlan)].filter(Boolean).join(" · ");
+            const desc = [STRIPED_STATUS.has(c.status) ? c.status : null, c.pool ? "pool" : null, c.desc, tenantName(c.tenant), vlanName(c.vlan)].filter(Boolean).join(" · ");
             return el("li", { class: [c.here ? "here" : "", c.prefix === innerPrefix ? "inner" : ""].join(" ").trim() || null },
                 el("span", { class: "p", text: c.prefix }),
                 el("span", { class: "l" },
@@ -719,13 +803,25 @@
                 .filter((kind) => !hasIps || kind === "active" || kind === "role" || (data.ip_addresses || []).some((ip) => ipKind(ip) === kind))
                 .map((kind) => el("span", { class: "lg" }, sw(IP_KINDS[kind].color), IP_KINDS[kind].label)),
                 ranges.length ? el("span", { class: "lg" }, el("span", { class: "sw range" }), "IP range") : null);
+        const striped = nested.some((n) => STRIPED_STATUS.has(n.p.status) && !(layer && n.len > blockLen))
+            ? el("span", { class: "lg" }, el("span", { class: "sw striped" }), "Reserved, deprecated prefix") : null;
+        if (striped) keys.append(striped);
         // replaceChildren() would print null as text
         $("legend").replaceChildren(...[
             keys,
             tenants.size ? el("span", { class: "vsep" }) : null,
             tenants.size ? el("span", { class: "lg-group tenants" }, el("span", { class: "lg-label", text: "Tenants" }),
                 [...tenants].sort((a, b) => tenantName(a[0]).localeCompare(tenantName(b[0])))
-                    .map(([id, c]) => el("span", { class: "lg" }, sw(c), tenantName(id)))) : null,
+                    .map(([id, c]) => {
+                        // Colours come from a 16-colour palette by tenant id: tenants 1 and 17 look the same
+                        const same = [...tenants].filter(([o, oc]) => o !== id && oc === c).map(([o]) => tenantName(o));
+                        const pressed = String(tenantHi) === String(id);
+                        return el("span", { class: same.length ? "lg tenant-toggle same-color" : "lg tenant-toggle", role: "button", tabindex: "0",
+                            "data-tenant": String(id), "aria-pressed": String(pressed),
+                            title: (same.length ? `Same colour as ${same.join(", ")}. ` : "") + "Click to outline its prefixes",
+                            onclick: () => toggleTenant(id), onkeydown: (ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); toggleTenant(id); } } },
+                            sw(c), tenantName(id), same.length ? el("span", { class: "same-mark", text: "=" }) : null);
+                    })) : null,
             el("span", { class: "right", id: "usage-total" },
                 usageText(),
                 img ? el("span", { class: "cellnote", text: layer ? ` · 1 cell = /${blockLen}` : " · 1 cell = 1 address" }) : null),
@@ -856,6 +952,7 @@
         $("zoom-out").addEventListener("click", () => setC(zoomStep(c, -1), true));
         $("zoom-fit").addEventListener("click", () => setC(fitC(), false));
         new ResizeObserver(() => { if (fitMode) c = fitC(); layout(!fitMode); }).observe(viewport);
+        enableWheelAndDrag();
         const watchDpr = () => matchMedia(`(resolution: ${dpr}dppx)`).addEventListener("change", () => {
             dpr = window.devicePixelRatio || 1;
             if (fitMode) c = fitC();
