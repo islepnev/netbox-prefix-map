@@ -2,67 +2,12 @@
 <html lang="{{ lang }}">
 <head>
 {% include '_head.html' %}
-    <title>Help · Prefix Map</title>
+    <title>{{ t('topbar.help') }} · {{ t('app.name') }}</title>
 </head>
 <body class="doc-page">
 {% include '_topbar.html' %}
 <main class="page-main prose">
-    <h1>How to read the map</h1>
-    <p>One cell is one IPv4 address. The cells do not run line by line like text: they follow a Z-order (Morton) curve. The first half of a prefix is the left or top half of its map, the first quarter is the top-left quarter, and so on down to single addresses.</p>
-    <img class="diagram" src="{{ url_for('static', filename='img/z-order.svg') }}" alt="Z-order layout of a /27: addresses 0 to 31, with a /30, a /29 and a /28 as rectangles" width="392" height="292">
-    <ul>
-        <li>Every aligned subnet is a rectangle: a /24 is a 16 × 16 square on a /16 map, a /25 is half of it, a /26 a quarter.</li>
-        <li>Neighbouring subnets are neighbouring rectangles, but two cells side by side are not always consecutive addresses.</li>
-        <li>An odd prefix length (/17, /23) gives two squares side by side: the second half of the range is the right square.</li>
-        <li>Grey numbers are the octet that tells the 16 × 16 squares apart, e.g. the third octet of each /24 on a /16 or /20 map. They are drawn on free cells only.</li>
-        <li>Prefixes shorter than /16 get one cell per block (a /24 on a /8 map). Darker means more IP addresses in the block; a checkerboard means smaller prefixes inside it.</li>
-    </ul>
-
-    <h2>Colours</h2>
-    <ul>
-        <li>Fill: the tenant of the innermost child prefix. White: no child prefix, or one without a tenant. Dotted lines are prefix boundaries.</li>
-        <li>There are 16 tenant colours, by tenant id, so tenants 16 ids apart share one. The inspector names the tenant.</li>
-        <li>IP addresses: black in use; dark grey DHCP or SLAAC; light grey reserved or deprecated; faint grey inactive; red with a role (anycast, VIP, …).</li>
-        <li>Diagonal stripes: a reserved or deprecated prefix. The prefix chain in the inspector names the status.</li>
-        <li>A small dark dot: an address without an IP record inside a NetBox IP range (a DHCP scope, a planned block).</li>
-        <li>Usage bars: addresses with an IP record out of all addresses, counted through any nested prefixes, containers included. Over 80% is drawn in orange.</li>
-    </ul>
-
-    <h2>Free space</h2>
-    <ul>
-        <li>An address is free when it has no IP record, no child prefix covers it and it is in no IP range.</li>
-        <li>The network and broadcast addresses of a subnet are not free. In pools, containers, /31 and /32 they are, as in NetBox.</li>
-        <li>Child containers are transparent: space not assigned inside them counts as free in their parent.</li>
-        <li>Free blocks are aligned: the inspector lists the largest ones, or the first ones of a chosen size by address.</li>
-    </ul>
-
-    <h2>Data</h2>
-    <ul>
-        <li>Maps are drawn from NetBox and redrawn when NetBox reports a change through its webhook, and periodically when the server is set up so. The dot in the top bar turns amber when the last update failed or the data is older than 24 hours.</li>
-        <li>A container in the Global VRF spans all VRFs, as in NetBox. When one address has several records (several VRFs, or duplicates), the map shows the one with a role, then an active one, then reserved, then inactive. The inspector lists all of them and the prefix summary lists such addresses.</li>
-        <li>"Last change" in the prefix summary lists what the last update that changed this prefix added, removed or changed: IP records (status, role, DNS name) and child prefixes. "Show on the map" outlines them: green added, red removed, amber changed. The history below lists the last 10 updates that changed the prefix; click one to show it.</li>
-        <li>IPv4 only.</li>
-    </ul>
-
-    <h2>Working with the map</h2>
-    <table class="list keys">
-        <tbody>
-            <tr><td>Hover, click</td><td>Inspect an address; click pins it, the URL then links to it</td></tr>
-            <tr><td>Double-click, <kbd>Enter</kbd></td><td>Open the child prefix map, or the IP address in NetBox</td></tr>
-            <tr><td><kbd>←</kbd> <kbd>→</kbd> <kbd>↑</kbd> <kbd>↓</kbd></td><td>Move the pin; with <kbd>Shift</kbd>, by 16 cells</td></tr>
-            <tr><td><kbd>c</kbd></td><td>Copy the pinned address</td></tr>
-            <tr><td><kbd>Esc</kbd></td><td>Unpin</td></tr>
-            <tr><td><kbd>/</kbd></td><td>Search an address or prefix in all VRFs, or text in DNS names, descriptions, tenant and role names; <code>free /26</code> lists free /26 blocks in all VRFs, <code>free /26 in 10.20.0.0/16</code> within a prefix</td></tr>
-            <tr><td><kbd>+</kbd> <kbd>−</kbd> <kbd>0</kbd></td><td>Zoom in, out to the next sharp level; fit the map to the window</td></tr>
-            <tr><td>Wheel, pinch</td><td>Zoom about the pointer</td></tr>
-            <tr><td>Drag</td><td>Move the map; a drag does not pin</td></tr>
-            <tr><td><kbd>[</kbd> <kbd>]</kbd></td><td>Show or hide the prefix tree and the inspector</td></tr>
-            <tr><td>Click a tenant in the legend</td><td>Outline its prefixes on the map and list them with usage in the inspector; the URL keeps it; click again to clear</td></tr>
-            <tr><td>Print</td><td>Prints the map alone, as vector graphics with title and legend; "Download SVG" in the inspector saves the same drawing</td></tr>
-        </tbody>
-    </table>
-
-    <p class="credit">NetBox Prefix Map by Ilia Slepnev · <a href="https://github.com/islepnev/netbox-prefix-map">github.com/islepnev/netbox-prefix-map</a> · Apache License 2.0</p>
+{% include '_help_' ~ lang ~ '.html' %}
 </main>
 </body>
 </html>

@@ -176,9 +176,10 @@ class TemplateText(__import__('html.parser').parser.HTMLParser):
             self.add(data)
 
 
-# Help prose is checked by structure (test_help_bodies_match); the rest must take its text from the catalogues
+# Help prose has one template per language (_help_<lang>.html), checked by structure in test_help_bodies_match;
+# the other templates take their text from the catalogues
 TEMPLATES = sorted(os.path.basename(p) for p in glob.glob(os.path.join(ROOT, 'templates', '*.html'))
-                   if os.path.basename(p) != 'help.html')
+                   if not os.path.basename(p).startswith('_help_'))
 
 
 @pytest.mark.parametrize('name', TEMPLATES)
@@ -197,3 +198,33 @@ def test_keys_built_at_run_time_exist():
         + [f'search.error.{c}' for c in ('bad_prefix', 'free_not_ready', 'bad_query')] \
         + [f'status.{s}' for s in ('active', 'container', 'reserved', 'deprecated', 'dhcp', 'slaac', 'inactive')]
     assert [k for k in keys if k not in i18n.CATALOGUES['en']] == []
+
+
+class Structure(__import__('html.parser').parser.HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.tags = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag not in ('code',):
+            self.tags.append(tag)
+
+
+def help_structure(lang):
+    parser = Structure()
+    with open(os.path.join(ROOT, 'templates', f'_help_{lang}.html'), encoding='utf-8') as f:
+        parser.feed(f.read())
+    return parser.tags
+
+
+@pytest.mark.parametrize('lang', i18n.LANGUAGES)
+def test_help_bodies_match(lang):
+    """Every language has a help body with the same headings, list items, table rows and keys as English."""
+    assert help_structure(lang) == help_structure('en')
+
+
+def test_help_in_russian(client):
+    html = client.get(f'{BASE}/help', headers={'Accept-Language': 'ru'}).data.decode()
+    assert '<h1>Как читать карту</h1>' in html and '<title>Справка · Prefix Map</title>' in html
+    assert 'img/z-order.ru.svg' in html, "the diagram has its text in Russian"
+    assert client.get(f'{BASE}/static/img/z-order.ru.svg').status_code == 200

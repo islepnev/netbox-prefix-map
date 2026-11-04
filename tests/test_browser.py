@@ -1143,11 +1143,12 @@ def test_language_switch_keeps_the_pin(open_page):
 
 # Latin words a Russian page may show: acronyms, key names, product names
 LATIN_ALLOWED = {'IP', 'IPs', 'IPv4', 'VRF', 'NetBox', 'DNS', 'DHCP', 'SLAAC', 'SVG', 'RD', 'VLAN', 'Enter', 'Esc',
-                 'Shift', 'Prefix', 'Map', 'EN', 'RU', 'English', 'px', 'Z'}
+                 'Shift', 'Prefix', 'Map', 'EN', 'RU', 'English', 'px', 'Z', 'anycast', 'VIP'}
 VISIBLE_TEXT = '''() => {
-    // Log lines on /errors stay in English
+    // Log lines on /errors stay in English; search examples and the credit line on /help are not translated
     let text = document.body.innerText;
-    for (const e of document.querySelectorAll(".log")) text = text.replace(e.innerText, "");
+    for (const e of document.querySelectorAll(".log, .prose code, .prose .credit"))
+        text = text.replace(e.innerText, "");
     const parts = [document.title, text];
     for (const e of document.querySelectorAll("[title], [aria-label], [placeholder], img[alt]"))
         if (e.offsetParent !== null || e.closest("#top"))
@@ -1182,7 +1183,7 @@ def latin_words(page, allowed):
 def test_russian_pages_have_no_english(open_page, dataset):
     allowed = LATIN_ALLOWED | data_words(dataset)
     found = {}
-    for path in ('/', '/map/1', '/map/None', '/errors', '/map/999'):
+    for path in ('/', '/map/1', '/map/None', '/errors', '/map/999', '/help'):
         page = open_page(f'{BASE}{path}?lang=ru')
         found[path] = latin_words(page, allowed)
     page = open_page(f'{BASE}/map/1/10_20_0_0_17?lang=ru')
