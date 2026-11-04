@@ -1,5 +1,9 @@
 # NetBox Prefix Map
 
+[![CI](https://github.com/islepnev/netbox-prefix-map/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/islepnev/netbox-prefix-map/actions/workflows/ci.yml)
+[![NetBox 4.x](https://img.shields.io/badge/NetBox-4.x-blue)](#требования)
+[![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
+
 **Карта мира для вашего адресного пространства IPv4.** Каждый адрес — ячейка, каждая подсеть — прямоугольник, у каждого арендатора свой цвет. Сразу видно, что занято, что свободно и кому принадлежит, от /8 до отдельного адреса.
 
 ![Карта /17: блоки арендаторов, занятые адреса, закреплённый свободный адрес с цепочкой префиксов и свободными блоками](docs/img/hero.ru.png)
