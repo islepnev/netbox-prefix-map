@@ -37,7 +37,7 @@
     <h2>Data</h2>
     <ul>
         <li>Maps are drawn from NetBox and redrawn when NetBox reports a change through its webhook. The dot in the top bar turns amber when the last update failed or the data is older than 24 hours.</li>
-        <li>A container in the Global VRF spans all VRFs, as in NetBox. When one address exists in several VRFs, the record with a role is shown, then an active one, then reserved, then inactive.</li>
+        <li>A container in the Global VRF spans all VRFs, as in NetBox. When one address has several records (several VRFs, or duplicates), the map shows the one with a role, then an active one, then reserved, then inactive. The inspector lists all of them and the prefix summary lists such addresses.</li>
         <li>IPv4 only.</li>
     </ul>
 
