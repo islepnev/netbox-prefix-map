@@ -813,6 +813,29 @@ def test_legend_tenant_outlines_its_prefixes(open_page, output_dir):
     assert page.errors == []
 
 
+def test_free_search_matches_the_map_and_opens_it(open_page, server):
+    """The server finds as many free /26 in the /17 as the map page lists, and Enter opens the first one."""
+    import urllib.request
+    with urllib.request.urlopen(f'{server}{BASE}/search?q=free%20/26%20in%2010.20.0.0/17') as r:
+        body = json.load(r)
+    page = open_page(f'{BASE}/map/1/10_20_0_0_17')
+    wait_for_map(page)
+    on_map = page.evaluate("""() => window.__prefixMap.freeBlocks('10.20.0.0/17').blocks
+        .filter(b => b.len <= 26).reduce((s, b) => s + b.size / 64, 0)""")
+    assert body['counts'] == {'LAN': on_map}
+    page.fill('#search', 'free /26')
+    page.wait_for_selector('#search-msg li')
+    assert page.inner_text('#search-msg').startswith('Free: ')
+    first = page.inner_text('#search-msg li a >> nth=0')
+    assert first.endswith('/26')
+    with page.expect_navigation():
+        page.press('#search', 'Enter')
+    assert page.url.endswith(f'?focus={first}')
+    wait_for_map(page)
+    assert page.is_visible('#ov-select')
+    assert page.errors == []
+
+
 def test_svg_export_of_layered_map(open_page):
     page = open_page(f'{BASE}/map/1/10_0_0_0_8')
     wait_for_map(page)

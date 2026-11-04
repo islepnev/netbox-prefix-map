@@ -70,6 +70,10 @@ window.PrefixMapTop = (() => {
         const li = node("li");
         const link = node("a", "mono", r.kind === "ip" ? r.address : r.prefix);
         link.href = r.url;
+        if (r.kind === "free") {
+            li.append(node("span", "chip", r.vrf_name), link, node("span", "desc", ` free · in ${r.in}`));
+            return li;
+        }
         if (r.kind === "ip") {
             li.append(node("span", "chip", r.vrf_name), link, node("span", "desc", ` in ${r.prefix}`));
             li.append(node("div", "ip", [r.ip.dns_name, r.ip.description].filter(Boolean).join(" · ")));
@@ -87,16 +91,23 @@ window.PrefixMapTop = (() => {
 
     function serverSearch(q, commit, ui) {
         const seq = ++searchSeq;
-        fetch(`${search.dataset.searchUrl}?q=${encodeURIComponent(q)}`)
+        const vrf = search.dataset.vrf ? `&vrf=${encodeURIComponent(search.dataset.vrf)}` : "";
+        fetch(`${search.dataset.searchUrl}?q=${encodeURIComponent(q)}${vrf}`)
             .then((r) => r.json().then((body) => ({ ok: r.ok, body })))
             .then(({ ok, body }) => {
                 if (seq !== searchSeq) return;
                 if (!ok) { ui.bad(); say(body.error || "Search failed."); return; }
-                if (!body.results.length) { say(body.text ? `${q}: no names or descriptions match.` : `${q}: no prefix contains it.`); return; }
+                if (!body.results.length) {
+                    say(body.free ? `${q}: no free block of that size.` : body.text ? `${q}: no names or descriptions match.` : `${q}: no prefix contains it.`);
+                    return;
+                }
                 if (commit) { window.location.href = body.results[0].url; return; }
                 const list = node("ul");
                 list.append(...body.results.map(resultItem));
-                say([node("div", null, body.truncated ? `First ${body.results.length} matches; Enter opens the first:` : "Enter opens the first map:"), list]);
+                const head = body.free
+                    ? `Free: ${Object.entries(body.counts).map(([vrf, n]) => `${n.toLocaleString("en-US")} in ${vrf}`).join(", ")}; the first ones by address. Enter opens the first:`
+                    : body.truncated ? `First ${body.results.length} matches; Enter opens the first:` : "Enter opens the first map:";
+                say([node("div", null, head), list]);
             })
             .catch((error) => { if (seq === searchSeq) say(`Search failed: ${error.message}`); });
     }
