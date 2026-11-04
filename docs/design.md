@@ -79,9 +79,10 @@ Tenant colors are taken from a 16-color palette by tenant id, so a tenant keeps 
 
 - An update request when idle starts a run immediately.
 - Requests during a run or within `UPDATE_DEBOUNCE_SECONDS` of the last start are merged into one follow-up run, started no earlier than that interval after the previous start.
+- With `UPDATE_INTERVAL_SECONDS` > 0, an update is requested when none has started for that long (a periodic poll, for objects without a webhook such as IP addresses). Webhook and startup runs reset the timer. Polls obey `UPDATE_DEBOUNCE_SECONDS` like any request.
 - Exceptions are recorded and do not stop the thread.
 
-The web app requests an update at startup (unless `INITIAL_UPDATE=0`) and on each relevant webhook. The webhook accepts `created`, `updated` and `deleted` events for prefixes, IP addresses, IP ranges, VRFs and tenants. With `WEBHOOK_SECRET` set, the `X-Hook-Signature` header must be the HMAC-SHA512 of the request body.
+The web app requests an update at startup (unless `INITIAL_UPDATE=0`), on each relevant webhook and, when set, every `UPDATE_INTERVAL_SECONDS`. `/metrics` counts runs by trigger (`startup`, `webhook`, `poll`). The webhook accepts `created`, `updated` and `deleted` events for prefixes, IP addresses, IP ranges, VRFs and tenants. With `WEBHOOK_SECRET` set, the `X-Hook-Signature` header must be the HMAC-SHA512 of the request body.
 
 Because the updater lives in the web process, the server runs with a single gunicorn worker.
 
