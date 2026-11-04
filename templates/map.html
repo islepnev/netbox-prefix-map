@@ -8,6 +8,7 @@
     <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
     <script src="{{ url_for('static', filename='js/topbar.js') }}" defer></script>
     <script src="{{ url_for('static', filename='js/prefix_tree.js') }}" defer></script>
+    <script src="{{ url_for('static', filename='js/map_export.js') }}" defer></script>
     <script src="{{ url_for('static', filename='js/map.js') }}" defer></script>
 </head>
 <body class="map-page">
@@ -90,6 +91,7 @@
                 </dl>
             </section>
             <div id="sum-free"></div>
+            <div id="sum-export"></div>
             <section class="sec">
                 <h3>Links</h3>
                 <div class="links">
@@ -105,8 +107,11 @@
                 <h3>Keys</h3>
                 <div class="howto">
                     <div>Hover to inspect, click to pin, <kbd>Esc</kbd> to unpin</div>
-                    <div>Double-click opens the child prefix or the IP in NetBox</div>
+                    <div>Double-click or <kbd>Enter</kbd> opens the child prefix or the IP in NetBox</div>
+                    <div><kbd>←</kbd> <kbd>→</kbd> <kbd>↑</kbd> <kbd>↓</kbd> move the pin (<kbd>Shift</kbd>: 16 cells) · <kbd>c</kbd> copy</div>
                     <div><kbd>/</kbd> search · <kbd>+</kbd> <kbd>−</kbd> <kbd>0</kbd> zoom · <kbd>[</kbd> <kbd>]</kbd> panels</div>
+                    <div>The URL keeps the pinned address: share it as a link</div>
+                    <div>Addresses follow a Z curve, so every aligned subnet is a rectangle: a /24 is 16 × 16 cells, grey numbers are its octet</div>
                 </div>
             </section>
             {% endif %}

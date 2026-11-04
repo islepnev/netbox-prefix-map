@@ -1,4 +1,5 @@
 import ipaddress
+import json
 import os
 import socket
 import threading
@@ -176,9 +177,9 @@ def test_click_pins_and_escape_unpins(open_page):
 def test_double_click_drills_down(open_page):
     page = open_page(f'{BASE}/map/1/10_20_48_0_20')
     wait_for_map(page)
-    with page.expect_navigation():
+    # The first click pins and rewrites ?focus= in place; wait for the real navigation
+    with page.expect_navigation(url=f'**{BASE}/map/1/10_20_48_0_24'):
         page.mouse.dblclick(*cell_center(page, *cell_of('10.20.48.0/20', '10.20.48.1')))
-    assert page.url.endswith(f'{BASE}/map/1/10_20_48_0_24')
 
 
 def test_double_click_in_leaf_opens_ip_in_netbox(open_page, dataset):
@@ -208,6 +209,49 @@ def test_free_blocks_are_free_and_aligned(open_page, dataset):
         assert not any(block.overlaps(c) for c in children), row
         sizes.append(block.num_addresses)
     assert sizes == sorted(sizes, reverse=True)
+
+
+def free_block_rows(page, where='#sum-free'):
+    return [ipaddress.ip_network(r) for r in
+            page.eval_on_selector_all(f'{where} table.free td:first-child', 'els => els.map(e => e.textContent)')]
+
+
+def test_network_and_broadcast_are_not_free(open_page, dataset):
+    page = open_page(f'{BASE}/map/1/10_20_50_0_24')
+    wait_for_map(page)
+    edges = [ipaddress.ip_address('10.20.50.0'), ipaddress.ip_address('10.20.50.255')]
+    rows = free_block_rows(page)
+    assert rows and not any(e in block for block in rows for e in edges)
+    used = {ip['address'].split('/')[0] for ip in dataset['ip_addresses']}
+    assert '10.20.50.255' not in used
+    page.mouse.move(*cell_center(page, *cell_of('10.20.50.0/24', '10.20.50.255')))
+    assert page.inner_text('#insp-detail .pill') == 'Broadcast address'
+    assert page.locator('#insp-detail a[href*="/ip-addresses/add/"]').count() == 0
+
+
+def test_pool_edges_are_usable(open_page, dataset):
+    """NetBox pools have no network or broadcast address."""
+    page = open_page(f'{BASE}/map/1/10_20_36_128_26')
+    wait_for_map(page)
+    used = {ip['address'].split('/')[0] for ip in dataset['ip_addresses']}
+    rows = free_block_rows(page)
+    for edge in ('10.20.36.128', '10.20.36.191'):
+        if edge not in used:
+            assert any(ipaddress.ip_address(edge) in block for block in rows), edge
+
+
+def test_legend_without_tenants_has_no_stray_text(open_page):
+    page = open_page(f'{BASE}/map/None/172_31_4_0_24')
+    wait_for_map(page)
+    assert 'null' not in page.inner_text('#legend')
+
+
+def test_legend_lists_ip_statuses_of_the_map(open_page):
+    page = open_page(f'{BASE}/map/1/10_20_0_0_17')
+    wait_for_map(page)
+    legend = page.inner_text('#legend')
+    for label in ('In use', 'DHCP', 'Reserved, deprecated', 'With role'):
+        assert label in legend
 
 
 def test_tree_shows_path_and_expands_lazily(open_page, server):
@@ -307,9 +351,8 @@ def test_layered_map_hover_and_drill_down(open_page):
     assert inside == ['10.20.0.64/26', '10.20.0.192/28']
     page.mouse.move(*cell_center(page, *layer_cell('10.0.0.0/8', 24, '10.99.0.0')))
     assert 'No prefix in this block' in page.inner_text('#insp-detail')
-    with page.expect_navigation():
+    with page.expect_navigation(url=f'**{BASE}/map/1/10_30_0_0_16'):
         page.mouse.dblclick(*cell_center(page, *layer_cell('10.0.0.0/8', 24, '10.30.7.0')))
-    assert page.url.endswith(f'{BASE}/map/1/10_30_0_0_16')
     assert page.errors == []
 
 
@@ -406,7 +449,8 @@ def test_free_block_highlight_cleared_on_rerender(open_page):
     page.hover('#insp-detail table.free tr >> nth=0')
     assert page.is_visible('#ov-free')
     page.keyboard.press('Escape')
-    assert page.is_hidden('#ov-free')
+    # The summary may put another free-block row under the pointer; only that one may be highlighted
+    assert page.is_hidden('#ov-free') or page.locator('#sum-free table.free tr:hover').count() == 1
 
 
 @pytest.mark.parametrize("path", ['/', '/map/1', '/map/None', '/map/1/10_0_0_0_8', '/map/None/172_31_0_0_16',
@@ -464,3 +508,144 @@ def test_map_hidden_until_first_layout(open_page):
     held[0].continue_()
     wait_for_map(page)
     assert page.eval_on_selector('#stage', 'e => getComputedStyle(e).visibility') == 'visible'
+
+
+def test_pin_is_kept_in_url(open_page):
+    page = open_page(f'{BASE}/map/1/10_20_48_0_20')
+    wait_for_map(page)
+    page.mouse.click(*cell_center(page, *cell_of('10.20.48.0/20', '10.20.49.7')))
+    # page.url can lag behind history.replaceState(); read the location itself
+    assert page.evaluate('location.href').endswith('/map/1/10_20_48_0_20?focus=10.20.49.7')
+    page.reload()
+    wait_for_map(page)
+    assert page.inner_text('#insp-detail .big').startswith('10.20.49.7/')
+    page.keyboard.press('Escape')
+    assert page.evaluate('location.href').endswith('/map/1/10_20_48_0_20')
+
+
+def test_arrow_keys_move_pin_and_enter_opens(open_page):
+    page = open_page(f'{BASE}/map/1/10_20_48_0_20')
+    wait_for_map(page)
+    page.mouse.click(*cell_center(page, 0, 0))
+    page.mouse.move(0, 0)
+    page.keyboard.press('ArrowRight')  # Morton order: x=1, y=0 is offset 1
+    assert page.inner_text('#insp-detail .big').startswith('10.20.48.1/')
+    page.keyboard.press('ArrowDown')  # x=1, y=1 is offset 3
+    assert page.inner_text('#insp-detail .big').startswith('10.20.48.3/')
+    page.keyboard.press('Shift+ArrowRight')  # x=17, y=1: the next /24
+    assert page.inner_text('#insp-detail .big').startswith('10.20.49.3/')
+    page.keyboard.press('ArrowLeft')
+    page.keyboard.press('ArrowLeft')
+    assert page.evaluate('location.href').endswith('?focus=10.20.48.87')  # x=15, y=1: back in 10.20.48.0/24
+    with page.expect_navigation(url=f'**{BASE}/map/1/10_20_48_0_24'):
+        page.keyboard.press('Enter')
+
+
+def test_copy_address_and_free_block(open_page):
+    page = open_page(f'{BASE}/map/1/10_20_48_0_24')
+    page.context.grant_permissions(['clipboard-read', 'clipboard-write'])
+    wait_for_map(page)
+    page.mouse.click(*cell_center(page, *cell_of('10.20.48.0/24', '10.20.48.9')))
+    page.keyboard.press('c')
+    assert page.evaluate('navigator.clipboard.readText()') == '10.20.48.9'
+    assert page.inner_text('#toast') == 'Copied 10.20.48.9'
+    first = page.inner_text('#insp-detail table.free tr >> nth=0 >> td >> nth=0')
+    page.click('#insp-detail table.free tr >> nth=0 >> button.copy')
+    assert page.evaluate('navigator.clipboard.readText()') == first
+
+
+def test_free_blocks_of_one_size(open_page, dataset):
+    page = open_page(f'{BASE}/map/1/10_20_0_0_17')
+    wait_for_map(page)
+    page.select_option('#sum-free select', '26')
+    rows = free_block_rows(page)
+    assert rows and all(r.prefixlen == 26 for r in rows)
+    assert rows == sorted(rows)
+    used = {ipaddress.ip_address(ip['address'].split('/')[0]) for ip in dataset['ip_addresses'] if ip['vrf'] == 1}
+    children = [ipaddress.ip_network(p['prefix']) for p in dataset['prefixes'] if p['vrf'] == 1
+                and ':' not in p['prefix'] and ipaddress.ip_network(p['prefix']).prefixlen > 17
+                and ipaddress.ip_network(p['prefix']).subnet_of(ipaddress.ip_network('10.20.0.0/17'))]
+    for r in rows:
+        assert not any(a in r for a in used) and not any(r.overlaps(c) for c in children), r
+    assert '× /26' in page.inner_text('#sum-free h3')
+    page.reload()
+    wait_for_map(page)
+    assert page.input_value('#sum-free select') == '26'
+
+
+def export_svg(page, mono=False):
+    import xml.etree.ElementTree as ET
+    svg = page.evaluate(f'PrefixMapExport.build({{mono: {"true" if mono else "false"}}})')
+    return svg, ET.fromstring(svg)  # raises on malformed XML
+
+
+SVG_NS = '{http://www.w3.org/2000/svg}'
+
+
+def test_svg_export_has_a_cell_per_ip_and_a_legend(open_page, dataset):
+    page = open_page(f'{BASE}/map/1/10_20_50_0_24')
+    wait_for_map(page)
+    svg, root = export_svg(page)
+    ips = [ip for ip in dataset['ip_addresses'] if ip['vrf'] == 1
+           and ipaddress.ip_address(ip['address'].split('/')[0]) in ipaddress.ip_network('10.20.50.0/24')]
+    cell_groups = [g for g in root.iter(SVG_NS + 'g') if g.get('fill-opacity')]
+    assert sum(len(g.findall(SVG_NS + 'rect')) for g in cell_groups) == len(ips)
+    texts = [t.text for t in root.iter(SVG_NS + 'text')]
+    assert texts[0].startswith('10.20.50.0/24 · VRF LAN')
+    for label in ('In use', 'Printers'):
+        assert label in texts
+    assert 'url(#t0)' not in svg
+
+
+def test_svg_export_black_and_white_hatches_tenants(open_page):
+    page = open_page(f'{BASE}/map/1/10_20_0_0_17')
+    wait_for_map(page)
+    _, root = export_svg(page, mono=True)
+    patterns = root.findall(f'.//{SVG_NS}pattern')
+    assert len(patterns) >= 8
+    fills = {r.get('fill') for r in root.iter(SVG_NS + 'rect') if r.find(SVG_NS + 'title') is not None}
+    assert fills <= {f'url(#t{i})' for i in range(len(patterns))} | {'none'}
+
+
+def test_svg_export_of_layered_map(open_page):
+    page = open_page(f'{BASE}/map/1/10_0_0_0_8')
+    wait_for_map(page)
+    svg, root = export_svg(page)
+    assert '1 cell = /24' in svg
+    assert root.get('viewBox').startswith('0 0 2560 ')
+
+
+def test_svg_export_escapes_user_text(open_page):
+    evil = '<b onclick="x">&</b>'
+
+    def inject(route):
+        html = route.fetch().text()
+        # Only inside the page config: elsewhere the raw tag would be page markup, not text
+        head, config = html.split('id="page-config">', 1)
+        route.fulfill(body=head + 'id="page-config">' + config.replace('Storage block', json.dumps(evil)[1:-1]),
+                      content_type='text/html')
+
+    page = open_page(f'{BASE}/map/1/10_20_48_0_20', route=(f'**{BASE}/map/1/10_20_48_0_20', inject))
+    wait_for_map(page)
+    svg, root = export_svg(page)
+    assert evil in next(root.iter(SVG_NS + 'text')).text
+
+
+def test_print_shows_only_the_vector_map(open_page):
+    page = open_page(f'{BASE}/map/1/10_20_48_0_20')
+    wait_for_map(page)
+    page.evaluate('PrefixMapExport.preparePrint()')
+    page.emulate_media(media='print')
+    assert page.is_visible('#print-sheet svg')
+    for hidden in ('#top', '#tree-panel', '#insp-panel', '#map-panel', '#legend'):
+        assert page.is_hidden(hidden), hidden
+    page.emulate_media(media='screen')
+    assert page.is_hidden('#print-sheet') and page.is_visible('#map-img')
+
+
+def test_free_space_inside_child_containers_counts_as_free(open_page):
+    """10.20.128.0/17 is an empty container: its space is free on the /16 map."""
+    page = open_page(f'{BASE}/map/1/10_20_0_0_16')
+    wait_for_map(page)
+    assert ipaddress.ip_network('10.20.128.0/17') in free_block_rows(page)
+    assert 'assigned' in page.inner_text('#sum-usage')

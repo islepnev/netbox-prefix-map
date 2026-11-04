@@ -3,7 +3,7 @@
 # Predefined Tableau 10 inspired palette (16 colors)
 TABLEAU10_PALETTE = [
     '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728',
-    '#9467bd', '#8c564b', '#e377c2', '#7f7f7f',
+    '#9467bd', '#8c564b', '#e377c2', '#e5c100',  # yellow, not gray: gray reads as a reserved IP
     '#bcbd22', '#17becf', '#aec7e8', '#ffbb78',
     '#98df8a', '#ff9896', '#c5b0d5', '#c49c94'
 ]

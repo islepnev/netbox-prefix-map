@@ -34,6 +34,42 @@
     const nbLink = (path, text) => el("a", { class: "ext", href: `${NB}${path}`, target: "_blank", rel: "noopener", text });
     const top = window.PrefixMapTop;
 
+    // ---------- clipboard: navigator.clipboard needs https or localhost; plain-http LAN hosts use the fallback ----------
+    let toastTimer;
+    function toast(text) {
+        let t = $("toast");
+        if (!t) { t = el("div", { id: "toast", role: "status" }); document.body.append(t); }
+        t.textContent = text;
+        t.hidden = false;
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => { t.hidden = true; }, 1600);
+    }
+    function legacyCopy(text) {
+        const ta = el("textarea", { style: "position:fixed;top:0;left:0;opacity:0", readonly: "" });
+        ta.value = text;
+        document.body.append(ta);
+        ta.select();
+        const ok = document.execCommand("copy");
+        ta.remove();
+        if (!ok) throw new Error("copy refused");
+    }
+    function copyText(text) {
+        const done = () => toast(`Copied ${text}`);
+        const fail = () => toast(`Copy failed: ${text}`);
+        if (navigator.clipboard && window.isSecureContext) {
+            navigator.clipboard.writeText(text).then(done, () => { try { legacyCopy(text); done(); } catch { fail(); } });
+        } else {
+            try { legacyCopy(text); done(); } catch { fail(); }
+        }
+    }
+    const COPY_ICON = '<svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><rect x="3.5" y="3.5" width="7" height="7" rx="1" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M8.5 2V1.5H1.5v7H2" fill="none" stroke="currentColor" stroke-width="1.2"/></svg>';
+    function copyBtn(text) {
+        const b = el("button", { type: "button", class: "copy", title: `Copy ${text}`, "aria-label": `Copy ${text}`,
+            onclick: (ev) => { ev.stopPropagation(); copyText(text); } });
+        b.innerHTML = COPY_ICON;
+        return b;
+    }
+
     // ---------- panels ----------
     const PANEL_CLASS = { tree: "no-tree", insp: "no-insp" };
     const store = {
@@ -94,10 +130,25 @@
         for (const c of children) if (addr >= c.start && addr + blockSize - 1 <= c.end && (!best || c.len > best.len)) best = c;
         return best;
     };
+    // Prefixes that take space from a range: the outermost non-container ones inside it. Child containers are
+    // transparent, so the free space inside them counts as free.
     const childrenOf = (range) => {
-        const inside = nested.filter((n) => n.start >= range.start && n.end <= range.end && n.len > range.len);
+        const inside = nested.filter((n) => n.start >= range.start && n.end <= range.end && n.len > range.len
+            && n.p.status !== "container");
         return inside.filter((n) => !inside.some((m) => m.len < n.len && n.start >= m.start && n.end <= m.end));
     };
+
+    // Network and broadcast addresses of a subnet are not usable, as in NetBox: not for containers, pools,
+    // /31 and /32. On layered maps a cell is a whole block, so the rule does not apply.
+    const hasEdges = (range, status, isPool) => !layer && range.len <= 30 && status !== "container" && !isPool;
+    const rangeHasEdges = (range) => (range.p ? hasEdges(range, range.p.status, range.p.is_pool)
+        : hasEdges(range, data.status ?? cfg.details.status, data.is_pool ?? cfg.details.is_pool));
+    // "network" / "broadcast" when the address is an edge of the innermost prefix around it
+    function edgeKind(a) {
+        const range = containing(a).at(-1) || net;
+        if (!rangeHasEdges(range)) return null;
+        return a === range.start ? "network" : a === range.end ? "broadcast" : null;
+    }
 
     // Largest aligned blocks with no IP record and no child prefix
     const freeCache = new Map();
@@ -105,11 +156,13 @@
         const key = `${range.start}/${range.len}`;
         if (freeCache.has(key)) return freeCache.get(key);
         const blocks = [];
+        const edges = rangeHasEdges(range) ? [range.start, range.end] : [];
         (function walk(start, len, kids) {
             const size = 2 ** (32 - len), end = start + size - 1;
             const overlap = kids.filter((k) => k.start <= end && k.end >= start);
             if (overlap.some((k) => k.start <= start && k.end >= end)) return;
-            if (!overlap.length && countIps(start, end) === 0) { blocks.push({ start, len, size }); return; }
+            const edge = edges.some((e) => e >= start && e <= end);
+            if (!overlap.length && !edge && countIps(start, end) === 0) { blocks.push({ start, len, size }); return; }
             if (len >= blockLen) return;
             walk(start, len + 1, overlap);
             walk(start + size / 2, len + 1, overlap);
@@ -119,6 +172,20 @@
         freeCache.set(key, res);
         return res;
     }
+
+    // First free aligned blocks of one size, lowest address first (as NetBox "first available")
+    function freeOfSize(range, len, limit) {
+        const blocks = [];
+        let count = 0;
+        for (const b of [...freeBlocks(range).blocks].sort((x, y) => x.start - y.start)) {
+            if (b.len > len) continue;
+            const size = 2 ** (32 - len), n = b.size / size;
+            for (let i = 0; i < n && blocks.length < limit; i++) blocks.push({ start: b.start + i * size, len, size });
+            count += n;
+        }
+        return { blocks, count };
+    }
+    let freeSize = Number(store.get("prefix-map.free-size")) || null;
 
     function indexData(loaded) {
         data = loaded;
@@ -276,9 +343,18 @@
     }
     function update() { drawOverlays(); renderInspector(); emitFocus(); }
     function setHover(a) { if (a === hover) return; hover = a; drawOverlays(); if (pinned === null) renderInspector(); emitFocus(); }
+    // The pinned address or outlined prefix goes to ?focus=, so the URL is a permalink to it
+    function syncUrl() {
+        const url = new URL(window.location.href);
+        const focus = pinned !== null ? intToIp(pinned) : selected ? `${intToIp(selected.start)}/${selected.len}` : null;
+        if (focus) url.searchParams.set("focus", focus);
+        else url.searchParams.delete("focus");
+        if (url.href !== window.location.href) history.replaceState(history.state, "", url);
+    }
     function pin(a, scroll) {
         pinned = a;
         update();
+        syncUrl();
         if (scroll && a !== null) scrollToBounds(cellBounds(a));
     }
 
@@ -302,29 +378,66 @@
         el("dt", { text: key }),
         v === null || v === undefined || v === "" ? el("dd", { class: "none", text: "—" }) : el("dd", null, v),
     ]));
-    const ipColor = (ip) => (ip.role ? "#ff0000" : ip.status === "reserved" ? "rgba(0,0,0,.25)" : "#000");
+    // Mirrors IP_STATUS_STYLES in app/plot_map.py
+    const IP_KINDS = {
+        role: { color: "#ff0000", svg: ["#ff0000", 1], label: "With role" },
+        active: { color: "#000", svg: ["#000", 1], label: "In use" },
+        dhcp: { color: "rgba(0,0,0,.55)", svg: ["#000", 0.55], label: "DHCP" },
+        reserved: { color: "rgba(0,0,0,.25)", svg: ["#000", 0.25], label: "Reserved, deprecated" },
+        inactive: { color: "rgba(0,0,0,.1)", svg: ["#000", 0.1], label: "Inactive" },
+    };
+    const STATUS_KIND = { dhcp: "dhcp", slaac: "dhcp", reserved: "reserved", deprecated: "reserved", inactive: "inactive" };
+    const ipKind = (ip) => (ip.role ? "role" : STATUS_KIND[ip.status] || "active");
+    const ipColor = (ip) => IP_KINDS[ipKind(ip)].color;
+    const STATUS_LABEL = { dhcp: "DHCP", slaac: "SLAAC" };
+    const statusLabel = (s) => STATUS_LABEL[s] || capital(s);
     const swatchStyle = (c) => `background:linear-gradient(${c},${c}),#fff`;
     const tenantNode = (id) => (id ? el("span", null,
         el("span", { class: "tswatch", style: `background:${tenantColors.get(String(id)) || "transparent"}` }),
         nbLink(`/tenancy/tenants/${id}/`, tenantName(id))) : null);
 
+    function freeSizeSelect(range) {
+        const maxLen = layer ? blockLen : 32;
+        const select = el("select", { "aria-label": "Free block size", title: "Size of the free blocks to list" },
+            el("option", { value: "", text: "largest" }),
+            Array.from({ length: Math.max(0, maxLen - range.len) }, (_, i) => range.len + 1 + i)
+                .map((len) => el("option", { value: String(len), text: `/${len}` })));
+        select.value = freeSize && freeSize > range.len && freeSize <= maxLen ? String(freeSize) : "";
+        select.addEventListener("change", () => {
+            freeSize = Number(select.value) || null;
+            store.set("prefix-map.free-size", freeSize ? String(freeSize) : "");
+            if ((pinned ?? hover) !== null) renderInspector();
+            renderSummary();
+        });
+        return select;
+    }
+
     function freeSection(range, label) {
+        const title = el("span", null, "Free blocks in ", el("span", { class: "mono", text: label }));
         if (range.len >= blockLen) {
-            return sec(el("span", null, "Free blocks in ", el("span", { class: "mono", text: label })), null,
+            return sec(title, null,
                 el("div", { class: "empty", text: `Smaller than a cell of this map; see the map of ${label}.` }));
         }
         const fb = freeBlocks(range);
-        const shown = fb.blocks.slice(0, 8);
+        const bySize = freeSize && freeSize > range.len && freeSize <= (layer ? blockLen : 32);
+        const list = bySize ? freeOfSize(range, freeSize, 8) : { blocks: fb.blocks.slice(0, 8), count: fb.blocks.length };
+        const shown = list.blocks;
         const body = shown.length
-            ? el("table", { class: "free" }, el("tbody", null, shown.map((b) => el("tr", {
-                onmouseenter: () => { freeHi = b; drawOverlays(); },
-                onmouseleave: () => { freeHi = null; drawOverlays(); },
-                onclick: img ? () => scrollToBounds(rangeBounds(b.start, b.start + b.size - 1)) : null,
-            }, el("td", { text: `${intToIp(b.start)}/${b.len}` }),
-                el("td", { class: "n", text: b.size === 1 ? "1 address" : `${fmt(b.size)} addr` })))))
-            : el("div", { class: "empty", text: "No free addresses." });
-        const more = fb.blocks.length > shown.length ? el("div", { class: "hint", text: `${fmt(fb.blocks.length - shown.length)} smaller blocks not shown` }) : null;
-        return sec(el("span", null, "Free blocks in ", el("span", { class: "mono", text: label })), `${fmt(fb.total)} free`, body, more);
+            ? el("table", { class: "free" }, el("tbody", null, shown.map((b) => {
+                const prefix = `${intToIp(b.start)}/${b.len}`;
+                return el("tr", {
+                    onmouseenter: () => { freeHi = b; drawOverlays(); },
+                    onmouseleave: () => { freeHi = null; drawOverlays(); },
+                    onclick: img ? () => scrollToBounds(rangeBounds(b.start, b.start + b.size - 1)) : null,
+                }, el("td", { text: prefix }),
+                    el("td", { class: "n", text: b.size === 1 ? "1 address" : `${fmt(b.size)} addr` }),
+                    el("td", { class: "c" }, copyBtn(prefix)));
+            })))
+            : el("div", { class: "empty", text: bySize ? `No free /${freeSize}.` : "No free addresses." });
+        const rest = list.count - shown.length;
+        const more = rest > 0 ? el("div", { class: "hint", text: bySize ? `${fmt(rest)} more free /${freeSize}` : `${fmt(rest)} smaller blocks not shown` }) : null;
+        const right = bySize ? `${fmt(list.count)} × /${freeSize}` : `${fmt(fb.total)} free`;
+        return sec(title, right, el("div", { class: "fsize" }, el("label", null, "Size ", freeSizeSelect(range))), body, more);
     }
 
     function chainSection(chainNodes) {
@@ -340,7 +453,7 @@
                 el("span", { class: "p", text: c.prefix }),
                 el("span", { class: "l" },
                     c.here ? el("span", { text: "this map" }) : el("a", { href: mapUrl(c.vrf, c.prefix), text: "map" }),
-                    c.id ? nbLink(`/ipam/prefixes/${c.id}/`, "NetBox") : null),
+                    c.id ? nbLink(`/ipam/prefixes/${c.id}/`, "NetBox") : null, copyBtn(c.prefix)),
                 desc ? el("span", { class: "d", text: desc, title: desc }) : null);
         })));
     }
@@ -353,7 +466,7 @@
         const smaller = inside(a);
         const action = openAction(a);
         const out = [el("section", { class: "sec" },
-            el("div", { class: "big" }, intToIp(a), el("span", { class: "mask", text: `/${blockLen}` })),
+            el("div", { class: "big" }, intToIp(a), el("span", { class: "mask", text: `/${blockLen}` }), copyBtn(`${intToIp(a)}/${blockLen}`)),
             el("div", { class: "sub" },
                 count === null ? el("span", { class: "pill", text: "IPs unknown" })
                     : count ? el("span", { class: "pill", text: `${fmt(count)} used` }) : el("span", { class: "pill free", text: "No IPs" }),
@@ -395,26 +508,31 @@
             : el("span", { class: "badge", text: "click to pin" }));
         if (layer) { renderBlock(a); return; }
         const ip = ipsByAddr.get(a);
+        const edge = ip ? null : edgeKind(a);
         const chainNodes = containing(a);
         const inner = chainNodes.at(-1);
         const mask = ip ? ip.address.split("/")[1] : inner ? inner.len : net.len;
         const action = openAction(a);
         const out = [];
         out.push(el("section", { class: "sec" },
-            el("div", { class: "big" }, intToIp(a), el("span", { class: "mask", text: `/${mask}` })),
+            el("div", { class: "big" }, intToIp(a), el("span", { class: "mask", text: `/${mask}` }), copyBtn(intToIp(a))),
             el("div", { class: "sub" },
-                ip ? el("span", { class: "pill" }, el("span", { class: "sw", style: swatchStyle(ipColor(ip)) }), capital(ip.status) || "IP")
-                    : el("span", { class: "pill free", text: "Free" }),
+                ip ? el("span", { class: "pill" }, el("span", { class: "sw", style: swatchStyle(ipColor(ip)) }), statusLabel(ip.status) || "IP")
+                    : edge ? el("span", { class: "pill", text: `${capital(edge)} address` })
+                        : el("span", { class: "pill free", text: "Free" }),
                 el("span", { class: "mono", text: `offset ${fmt(a - net.start)}` })),
             action ? el("div", { class: "hint", text: `Double-click to ${action.label}` }) : null));
         if (ip) {
             out.push(sec("IP address", ip.id ? nbLink(`/ipam/ip-addresses/${ip.id}/`, "NetBox") : null, kv([
-                ["Status", capital(ip.status)],
+                ["Status", statusLabel(ip.status)],
                 ["Role", capital(ip.role)],
                 ["DNS name", ip.dns_name ? el("span", { class: "mono", text: ip.dns_name }) : null],
                 ["Description", ip.description || null],
                 ["Tenant", tenantNode(ip.tenant)],
             ])));
+        } else if (edge) {
+            out.push(sec("IP address", null, el("div", { class: "empty",
+                text: `${capital(edge)} address of ${(inner ? inner.p.prefix : cfg.prefix)}: not usable for hosts.` })));
         } else {
             const vrfParam = cfg.vrf ? `&vrf=${encodeURIComponent(cfg.vrf.id)}` : "";
             out.push(sec("IP address", null, el("div", { class: "empty" }, "No IP record. ",
@@ -430,23 +548,27 @@
 
     function renderSummary() {
         const total = net.size;
-        const counts = { role: 0, active: hasIps ? 0 : used || 0, reserved: 0 };
-        for (const ip of hasIps ? data.ip_addresses || [] : []) {
-            if (ip.role) counts.role++;
-            else if (ip.status === "reserved") counts.reserved++;
-            else counts.active++;
-        }
+        const counts = { active: hasIps ? 0 : used || 0, role: 0, dhcp: 0, reserved: 0, inactive: 0 };
+        for (const ip of hasIps ? data.ip_addresses || [] : []) counts[ipKind(ip)]++;
         const seg = (n, color, label) => (n ? el("i", { style: `width:${(100 * n) / total}%;background:${color}`, title: `${label}: ${fmt(n)}` }) : null);
+        const barColor = { active: "var(--text)", role: "#ff0000", dhcp: "var(--muted)", reserved: "var(--faint)", inactive: "var(--line)" };
         $("sum-usage").replaceChildren(
-            el("div", { class: "bigbar" },
-                seg(counts.active, "var(--text)", "In use"), seg(counts.role, "#ff0000", "With role"), seg(counts.reserved, "var(--faint)", "Reserved")),
+            el("div", { class: "bigbar" }, Object.keys(counts).map((kind) => seg(counts[kind], barColor[kind], IP_KINDS[kind].label))),
             el("div", { class: "stats" },
                 el("div", { class: "stat" }, el("b", { text: used === null ? "—" : fmt(used) }),
                     el("span", { text: used === null ? "IPs" : `IPs · ${pct(used, total)}` })),
-                el("div", { class: "stat" }, el("b", { text: fmt((data.child_prefixes || []).length) }), el("span", { text: "child prefixes" })),
+                el("div", { class: "stat" }, el("b", { text: fmt((data.child_prefixes || []).length) }),
+                    el("span", { text: typeof data.allocated === "number" && data.child_prefixes?.length
+                        ? `child prefixes · ${pct(data.allocated, total)} assigned` : "child prefixes",
+                        title: typeof data.allocated === "number" ? `${fmt(data.allocated)} of ${fmt(total)} addresses in prefixes that are not containers` : null })),
                 el("div", { class: "stat" }, el("b", { text: fmt(total) }), el("span", { text: "addresses" }))));
         if (hasIps || countsKnown) $("sum-free").replaceChildren(freeSection(net, cfg.prefix));
+        const big = document.querySelector("#insp-summary .big");
+        if (big && !big.querySelector(".copy")) big.append(copyBtn(cfg.prefix));
     }
+
+    const usageText = () => (used === null ? `${fmt(net.size)} addresses`
+        : `${fmt(used)} / ${fmt(net.size)} used · ${((100 * used) / net.size).toFixed(used && used < net.size / 1000 ? 2 : 1)}%`);
 
     function renderLegend() {
         const sw = (c) => el("span", { class: "sw", style: swatchStyle(c) });
@@ -461,20 +583,20 @@
                 el("span", { class: "lg" }, sw("rgba(0,0,0,.575)"), "25%"),
                 el("span", { class: "lg" }, sw("rgba(0,0,0,.9)"), "all"),
                 el("span", { class: "lg" }, el("span", { class: "sw checker" }), "prefixes inside"))
-            : el("span", { class: "lg-group" },
-                el("span", { class: "lg" }, sw("#000"), "In use"),
-                el("span", { class: "lg" }, sw("rgba(0,0,0,.25)"), "Reserved"),
-                el("span", { class: "lg" }, sw("#ff0000"), "With role"));
-        $("legend").replaceChildren(
+            : el("span", { class: "lg-group" }, ["active", "dhcp", "reserved", "inactive", "role"]
+                .filter((kind) => !hasIps || kind === "active" || kind === "role" || (data.ip_addresses || []).some((ip) => ipKind(ip) === kind))
+                .map((kind) => el("span", { class: "lg" }, sw(IP_KINDS[kind].color), IP_KINDS[kind].label)));
+        // replaceChildren() would print null as text
+        $("legend").replaceChildren(...[
             keys,
             tenants.size ? el("span", { class: "vsep" }) : null,
             tenants.size ? el("span", { class: "lg-group tenants" }, el("span", { class: "lg-label", text: "Tenants" }),
                 [...tenants].sort((a, b) => tenantName(a[0]).localeCompare(tenantName(b[0])))
                     .map(([id, c]) => el("span", { class: "lg" }, sw(c), tenantName(id)))) : null,
             el("span", { class: "right", id: "usage-total" },
-                used === null ? `${fmt(net.size)} addresses`
-                    : `${fmt(used)} / ${fmt(net.size)} used · ${((100 * used) / net.size).toFixed(used && used < net.size / 1000 ? 2 : 1)}%`,
-                img ? el("span", { class: "cellnote", text: layer ? ` · 1 cell = /${blockLen}` : " · 1 cell = 1 address" }) : null));
+                usageText(),
+                img ? el("span", { class: "cellnote", text: layer ? ` · 1 cell = /${blockLen}` : " · 1 cell = 1 address" }) : null),
+        ].filter(Boolean));
     }
 
     // ---------- search within this map ----------
@@ -503,7 +625,8 @@
         if (len === null) {
             const ip = ipsByAddr.get(addr);
             pin(addr, true);
-            ui.say(`${intToIp(addr)} · ${ip ? capital(ip.status) + (ip.dns_name ? ` · ${ip.dns_name}` : "") : "free"} — pinned`);
+            const edge = ip ? null : edgeKind(addr);
+            ui.say(`${intToIp(addr)} · ${ip ? statusLabel(ip.status) + (ip.dns_name ? ` · ${ip.dns_name}` : "") : edge ? `${edge} address` : "free"} — pinned`);
             return true;
         }
         const start = addr - (addr % 2 ** (32 - len));
@@ -523,6 +646,7 @@
     function outline(range) {
         selected = range;
         drawOverlays();
+        syncUrl();
         scrollToBounds(rangeBounds(range.start, range.end));
     }
 
@@ -537,10 +661,11 @@
 
     // ---------- events ----------
     document.addEventListener("keydown", (ev) => {
-        if (ev.target instanceof HTMLInputElement || ev.ctrlKey || ev.metaKey || ev.altKey) return;
+        if (ev.target.closest?.("input, select, textarea") || ev.ctrlKey || ev.metaKey || ev.altKey) return;
+        if (img && img.naturalWidth && data && moveKey(ev)) return;
         if (ev.key === "Escape") {
             if (pinned !== null) pin(null);
-            else if (selected) { selected = null; drawOverlays(); }
+            else if (selected) { selected = null; drawOverlays(); syncUrl(); }
         } else if (ev.key === "[") setPanel("tree", !panelOpen("tree"));
         else if (ev.key === "]") setPanel("insp", !panelOpen("insp"));
         else if (!img || !img.naturalWidth) return;
@@ -548,6 +673,43 @@
         else if (ev.key === "-") setK(k - 1, true);
         else if (ev.key === "0") setK(fitK(), false);
     });
+    // Arrows move the pinned cell (Shift: 16 cells), Enter opens it, c copies it
+    const ARROWS = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
+    function ensureVisible([x1, y1, x2, y2]) {
+        const u = (cs * k) / dpr, m = 24;
+        const l = stage.offsetLeft + x1 * u, t = stage.offsetTop + y1 * u, r = stage.offsetLeft + (x2 + 1) * u, b = stage.offsetTop + (y2 + 1) * u;
+        if (l < viewport.scrollLeft + m) viewport.scrollLeft = l - m;
+        else if (r > viewport.scrollLeft + viewport.clientWidth - m) viewport.scrollLeft = r - viewport.clientWidth + m;
+        if (t < viewport.scrollTop + m) viewport.scrollTop = t - m;
+        else if (b > viewport.scrollTop + viewport.clientHeight - m) viewport.scrollTop = b - viewport.clientHeight + m;
+    }
+    function moveKey(ev) {
+        if (ARROWS[ev.key]) {
+            ev.preventDefault();
+            const from = pinned ?? hover ?? net.start;
+            const step = ev.shiftKey ? 16 : 1;
+            let [x, y] = cellOf(from);
+            x = Math.max(0, Math.min(GW - 1, x + ARROWS[ev.key][0] * step));
+            y = Math.max(0, Math.min(GH - 1, y + ARROWS[ev.key][1] * step));
+            pin(net.start + cellToOffset(x, y) * blockSize);
+            ensureVisible(cellBounds(pinned));
+            return true;
+        }
+        if (ev.key === "Enter" && pinned !== null && !ev.target.closest?.("a, button")) {
+            const action = openAction(pinned);
+            if (action) navigate(action.url, action.external, ev.shiftKey);
+            return true;
+        }
+        if (ev.key === "c") {
+            const a = pinned ?? hover;
+            if (a !== null) copyText(layer ? `${intToIp(a)}/${blockLen}` : intToIp(a));
+            else if (selected) copyText(`${intToIp(selected.start)}/${selected.len}`);
+            else copyText(cfg.prefix);
+            return true;
+        }
+        return false;
+    }
+
     document.addEventListener("prefixtree:hover", (ev) => {
         const p = ev.detail.prefix ? parsePrefix(ev.detail.prefix) : null;
         selected = p && p.start >= net.start && p.end <= net.end && p.len > net.len ? p : null;
@@ -583,6 +745,26 @@
         });
     }
 
+    // ---------- export and print (static/js/map_export.js) ----------
+    function initExport() {
+        const exp = window.PrefixMapExport;
+        if (!exp) return;
+        exp.init({
+            cfg, data, net, layer, blockLen, blockSize, blockCounts, GW, GH, nested, children,
+            cellOf, rangeBounds, intToIp, ipToInt, ipKind, IP_KINDS, tenantName, usageText,
+        });
+        const bw = el("input", { type: "checkbox", id: "export-bw" });
+        bw.checked = store.get("prefix-map.export-bw") === "1";
+        bw.addEventListener("change", () => store.set("prefix-map.export-bw", bw.checked ? "1" : "0"));
+        exp.setMono(bw.checked);
+        bw.addEventListener("change", () => exp.setMono(bw.checked));
+        const action = (text, fn) => el("button", { type: "button", class: "linkish", text, onclick: fn });
+        $("sum-export").replaceChildren(sec("Export", null, el("div", { class: "links" },
+            action("Print map with legend", () => exp.print(bw.checked)),
+            action("Download SVG", () => exp.download(bw.checked)),
+            el("label", { class: "check" }, bw, " Black and white (hatched tenants)"))));
+    }
+
     const imageReady = !img || img.complete ? Promise.resolve() : new Promise((resolve, reject) => {
         img.addEventListener("load", resolve);
         img.addEventListener("error", () => reject(new Error("image failed to load")));
@@ -603,6 +785,7 @@
             if (img) {
                 startMap();
                 applyFocus();
+                initExport();
             }
             document.body.dataset.ready = "1";
         })
@@ -611,5 +794,5 @@
             document.body.dataset.ready = "error";
         });
 
-    window.__prefixMap = { get k() { return k; }, get dpr() { return dpr; }, cellToOffset, offsetToCell, freeBlocks: (p) => freeBlocks(parsePrefix(p)) };
+    window.__prefixMap = { get k() { return k; }, get dpr() { return dpr; }, cellToOffset, offsetToCell, freeBlocks: (p) => freeBlocks(parsePrefix(p)), cellOf };
 })();

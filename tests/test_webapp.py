@@ -69,6 +69,12 @@ def test_image_served(client):
     assert r.mimetype == 'image/png'
 
 
+@pytest.mark.parametrize('name', ['prefix_tree.json', 'names.json', 'summary.json', 'vrf.json',
+                                  'data-1-10_20_0_0_17.json', 'address_map-1-10_20_0_0_17.png.tmp'])
+def test_images_route_serves_only_map_images(client, name):
+    assert client.get(f'{BASE}/images/{name}').status_code == 404
+
+
 def test_data_endpoint(client):
     r = client.get(f'{BASE}/data/1/10_20_0_0_17')
     assert r.status_code == 200
@@ -236,7 +242,7 @@ def test_vrf_page_lists_top_level_prefixes_with_usage(client):
     assert f'href="{BASE}/map/None/172_31_0_0_16"' in html
     assert f'href="{BASE}/map/None/192_168_0_0_24"' in html
     assert '172_31_4_0_24' not in html, "nested prefixes are reached through maps"
-    assert 'Management' in html and 'title="7 of 256 addresses"' in html
+    assert 'Management' in html and 'title="7 of 256 addresses with an IP record"' in html
 
 
 def test_vrf_page_without_summary_file(client, webapp, monkeypatch):
@@ -316,3 +322,8 @@ def test_search_ip_record_unknown_without_ip_list(client):
     _, body = search(client, '10.20.48.1/32')
     assert body['results'][0]['url'].endswith('?focus=10.20.48.1')
     assert body['results'][0]['ip']['dns_name'] == 'gw-48.example.test'
+
+
+def test_vrf_page_shows_container_usage_as_allocation(client):
+    html = client.get(f'{BASE}/map/1').get_data(as_text=True)
+    assert 'assigned to prefixes (not containers)' in html and 'assigned</div>' in html

@@ -48,18 +48,24 @@
         bar.className = "usage";
         const label = document.createElement("span");
         label.className = "pct";
-        if (!node.size || node.ip_count === undefined || node.ip_count === null) {
+        // Containers: addresses assigned to prefixes (not containers); other prefixes: IP addresses
+        const alloc = node.status === "container" && typeof node.allocated === "number";
+        const used = alloc ? node.allocated : node.ip_count;
+        if (!node.size || used === undefined || used === null) {
             bar.classList.add("na");
             bar.title = "No usage data";
             return [bar, label];
         }
-        const ratio = Math.min(1, node.ip_count / node.size);
+        const ratio = Math.min(1, used / node.size);
         if (ratio > 0.8) bar.classList.add("hot");
+        if (alloc) bar.classList.add("alloc");
         const fill = document.createElement("i");
         fill.style.width = `${Math.max(ratio > 0 ? 6 : 0, ratio * 100).toFixed(1)}%`;
         bar.append(fill);
-        bar.title = `${fmt(node.ip_count)} of ${fmt(node.size)} addresses`;
-        label.textContent = pct(node.ip_count, node.size);
+        bar.title = alloc
+            ? `${fmt(used)} of ${fmt(node.size)} addresses assigned to prefixes (not containers) · ${fmt(node.ip_count ?? 0)} IPs`
+            : `${fmt(used)} of ${fmt(node.size)} addresses with an IP record`;
+        label.textContent = pct(used, node.size);
         return [bar, label];
     }
 
