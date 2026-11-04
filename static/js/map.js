@@ -34,6 +34,42 @@
     const nbLink = (path, text) => el("a", { class: "ext", href: `${NB}${path}`, target: "_blank", rel: "noopener", text });
     const top = window.PrefixMapTop;
 
+    // ---------- clipboard: navigator.clipboard needs https or localhost; plain-http LAN hosts use the fallback ----------
+    let toastTimer;
+    function toast(text) {
+        let t = $("toast");
+        if (!t) { t = el("div", { id: "toast", role: "status" }); document.body.append(t); }
+        t.textContent = text;
+        t.hidden = false;
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => { t.hidden = true; }, 1600);
+    }
+    function legacyCopy(text) {
+        const ta = el("textarea", { style: "position:fixed;top:0;left:0;opacity:0", readonly: "" });
+        ta.value = text;
+        document.body.append(ta);
+        ta.select();
+        const ok = document.execCommand("copy");
+        ta.remove();
+        if (!ok) throw new Error("copy refused");
+    }
+    function copyText(text) {
+        const done = () => toast(`Copied ${text}`);
+        const fail = () => toast(`Copy failed: ${text}`);
+        if (navigator.clipboard && window.isSecureContext) {
+            navigator.clipboard.writeText(text).then(done, () => { try { legacyCopy(text); done(); } catch { fail(); } });
+        } else {
+            try { legacyCopy(text); done(); } catch { fail(); }
+        }
+    }
+    const COPY_ICON = '<svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><rect x="3.5" y="3.5" width="7" height="7" rx="1" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M8.5 2V1.5H1.5v7H2" fill="none" stroke="currentColor" stroke-width="1.2"/></svg>';
+    function copyBtn(text) {
+        const b = el("button", { type: "button", class: "copy", title: `Copy ${text}`, "aria-label": `Copy ${text}`,
+            onclick: (ev) => { ev.stopPropagation(); copyText(text); } });
+        b.innerHTML = COPY_ICON;
+        return b;
+    }
+
     // ---------- panels ----------
     const PANEL_CLASS = { tree: "no-tree", insp: "no-insp" };
     const store = {
@@ -133,6 +169,20 @@
         freeCache.set(key, res);
         return res;
     }
+
+    // First free aligned blocks of one size, lowest address first (as NetBox "first available")
+    function freeOfSize(range, len, limit) {
+        const blocks = [];
+        let count = 0;
+        for (const b of [...freeBlocks(range).blocks].sort((x, y) => x.start - y.start)) {
+            if (b.len > len) continue;
+            const size = 2 ** (32 - len), n = b.size / size;
+            for (let i = 0; i < n && blocks.length < limit; i++) blocks.push({ start: b.start + i * size, len, size });
+            count += n;
+        }
+        return { blocks, count };
+    }
+    let freeSize = Number(store.get("prefix-map.free-size")) || null;
 
     function indexData(loaded) {
         data = loaded;
@@ -290,9 +340,18 @@
     }
     function update() { drawOverlays(); renderInspector(); emitFocus(); }
     function setHover(a) { if (a === hover) return; hover = a; drawOverlays(); if (pinned === null) renderInspector(); emitFocus(); }
+    // The pinned address or outlined prefix goes to ?focus=, so the URL is a permalink to it
+    function syncUrl() {
+        const url = new URL(window.location.href);
+        const focus = pinned !== null ? intToIp(pinned) : selected ? `${intToIp(selected.start)}/${selected.len}` : null;
+        if (focus) url.searchParams.set("focus", focus);
+        else url.searchParams.delete("focus");
+        if (url.href !== window.location.href) history.replaceState(history.state, "", url);
+    }
     function pin(a, scroll) {
         pinned = a;
         update();
+        syncUrl();
         if (scroll && a !== null) scrollToBounds(cellBounds(a));
     }
 
@@ -334,23 +393,48 @@
         el("span", { class: "tswatch", style: `background:${tenantColors.get(String(id)) || "transparent"}` }),
         nbLink(`/tenancy/tenants/${id}/`, tenantName(id))) : null);
 
+    function freeSizeSelect(range) {
+        const maxLen = layer ? blockLen : 32;
+        const select = el("select", { "aria-label": "Free block size", title: "Size of the free blocks to list" },
+            el("option", { value: "", text: "largest" }),
+            Array.from({ length: Math.max(0, maxLen - range.len) }, (_, i) => range.len + 1 + i)
+                .map((len) => el("option", { value: String(len), text: `/${len}` })));
+        select.value = freeSize && freeSize > range.len && freeSize <= maxLen ? String(freeSize) : "";
+        select.addEventListener("change", () => {
+            freeSize = Number(select.value) || null;
+            store.set("prefix-map.free-size", freeSize ? String(freeSize) : "");
+            if ((pinned ?? hover) !== null) renderInspector();
+            renderSummary();
+        });
+        return select;
+    }
+
     function freeSection(range, label) {
+        const title = el("span", null, "Free blocks in ", el("span", { class: "mono", text: label }));
         if (range.len >= blockLen) {
-            return sec(el("span", null, "Free blocks in ", el("span", { class: "mono", text: label })), null,
+            return sec(title, null,
                 el("div", { class: "empty", text: `Smaller than a cell of this map; see the map of ${label}.` }));
         }
         const fb = freeBlocks(range);
-        const shown = fb.blocks.slice(0, 8);
+        const bySize = freeSize && freeSize > range.len && freeSize <= (layer ? blockLen : 32);
+        const list = bySize ? freeOfSize(range, freeSize, 8) : { blocks: fb.blocks.slice(0, 8), count: fb.blocks.length };
+        const shown = list.blocks;
         const body = shown.length
-            ? el("table", { class: "free" }, el("tbody", null, shown.map((b) => el("tr", {
-                onmouseenter: () => { freeHi = b; drawOverlays(); },
-                onmouseleave: () => { freeHi = null; drawOverlays(); },
-                onclick: img ? () => scrollToBounds(rangeBounds(b.start, b.start + b.size - 1)) : null,
-            }, el("td", { text: `${intToIp(b.start)}/${b.len}` }),
-                el("td", { class: "n", text: b.size === 1 ? "1 address" : `${fmt(b.size)} addr` })))))
-            : el("div", { class: "empty", text: "No free addresses." });
-        const more = fb.blocks.length > shown.length ? el("div", { class: "hint", text: `${fmt(fb.blocks.length - shown.length)} smaller blocks not shown` }) : null;
-        return sec(el("span", null, "Free blocks in ", el("span", { class: "mono", text: label })), `${fmt(fb.total)} free`, body, more);
+            ? el("table", { class: "free" }, el("tbody", null, shown.map((b) => {
+                const prefix = `${intToIp(b.start)}/${b.len}`;
+                return el("tr", {
+                    onmouseenter: () => { freeHi = b; drawOverlays(); },
+                    onmouseleave: () => { freeHi = null; drawOverlays(); },
+                    onclick: img ? () => scrollToBounds(rangeBounds(b.start, b.start + b.size - 1)) : null,
+                }, el("td", { text: prefix }),
+                    el("td", { class: "n", text: b.size === 1 ? "1 address" : `${fmt(b.size)} addr` }),
+                    el("td", { class: "c" }, copyBtn(prefix)));
+            })))
+            : el("div", { class: "empty", text: bySize ? `No free /${freeSize}.` : "No free addresses." });
+        const rest = list.count - shown.length;
+        const more = rest > 0 ? el("div", { class: "hint", text: bySize ? `${fmt(rest)} more free /${freeSize}` : `${fmt(rest)} smaller blocks not shown` }) : null;
+        const right = bySize ? `${fmt(list.count)} × /${freeSize}` : `${fmt(fb.total)} free`;
+        return sec(title, right, el("div", { class: "fsize" }, el("label", null, "Size ", freeSizeSelect(range))), body, more);
     }
 
     function chainSection(chainNodes) {
@@ -366,7 +450,7 @@
                 el("span", { class: "p", text: c.prefix }),
                 el("span", { class: "l" },
                     c.here ? el("span", { text: "this map" }) : el("a", { href: mapUrl(c.vrf, c.prefix), text: "map" }),
-                    c.id ? nbLink(`/ipam/prefixes/${c.id}/`, "NetBox") : null),
+                    c.id ? nbLink(`/ipam/prefixes/${c.id}/`, "NetBox") : null, copyBtn(c.prefix)),
                 desc ? el("span", { class: "d", text: desc, title: desc }) : null);
         })));
     }
@@ -379,7 +463,7 @@
         const smaller = inside(a);
         const action = openAction(a);
         const out = [el("section", { class: "sec" },
-            el("div", { class: "big" }, intToIp(a), el("span", { class: "mask", text: `/${blockLen}` })),
+            el("div", { class: "big" }, intToIp(a), el("span", { class: "mask", text: `/${blockLen}` }), copyBtn(`${intToIp(a)}/${blockLen}`)),
             el("div", { class: "sub" },
                 count === null ? el("span", { class: "pill", text: "IPs unknown" })
                     : count ? el("span", { class: "pill", text: `${fmt(count)} used` }) : el("span", { class: "pill free", text: "No IPs" }),
@@ -428,7 +512,7 @@
         const action = openAction(a);
         const out = [];
         out.push(el("section", { class: "sec" },
-            el("div", { class: "big" }, intToIp(a), el("span", { class: "mask", text: `/${mask}` })),
+            el("div", { class: "big" }, intToIp(a), el("span", { class: "mask", text: `/${mask}` }), copyBtn(intToIp(a))),
             el("div", { class: "sub" },
                 ip ? el("span", { class: "pill" }, el("span", { class: "sw", style: swatchStyle(ipColor(ip)) }), statusLabel(ip.status) || "IP")
                     : edge ? el("span", { class: "pill", text: `${capital(edge)} address` })
@@ -473,6 +557,8 @@
                 el("div", { class: "stat" }, el("b", { text: fmt((data.child_prefixes || []).length) }), el("span", { text: "child prefixes" })),
                 el("div", { class: "stat" }, el("b", { text: fmt(total) }), el("span", { text: "addresses" }))));
         if (hasIps || countsKnown) $("sum-free").replaceChildren(freeSection(net, cfg.prefix));
+        const big = document.querySelector("#insp-summary .big");
+        if (big && !big.querySelector(".copy")) big.append(copyBtn(cfg.prefix));
     }
 
     function renderLegend() {
@@ -552,6 +638,7 @@
     function outline(range) {
         selected = range;
         drawOverlays();
+        syncUrl();
         scrollToBounds(rangeBounds(range.start, range.end));
     }
 
@@ -566,10 +653,11 @@
 
     // ---------- events ----------
     document.addEventListener("keydown", (ev) => {
-        if (ev.target instanceof HTMLInputElement || ev.ctrlKey || ev.metaKey || ev.altKey) return;
+        if (ev.target.closest?.("input, select, textarea") || ev.ctrlKey || ev.metaKey || ev.altKey) return;
+        if (img && img.naturalWidth && data && moveKey(ev)) return;
         if (ev.key === "Escape") {
             if (pinned !== null) pin(null);
-            else if (selected) { selected = null; drawOverlays(); }
+            else if (selected) { selected = null; drawOverlays(); syncUrl(); }
         } else if (ev.key === "[") setPanel("tree", !panelOpen("tree"));
         else if (ev.key === "]") setPanel("insp", !panelOpen("insp"));
         else if (!img || !img.naturalWidth) return;
@@ -577,6 +665,43 @@
         else if (ev.key === "-") setK(k - 1, true);
         else if (ev.key === "0") setK(fitK(), false);
     });
+    // Arrows move the pinned cell (Shift: 16 cells), Enter opens it, c copies it
+    const ARROWS = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
+    function ensureVisible([x1, y1, x2, y2]) {
+        const u = (cs * k) / dpr, m = 24;
+        const l = stage.offsetLeft + x1 * u, t = stage.offsetTop + y1 * u, r = stage.offsetLeft + (x2 + 1) * u, b = stage.offsetTop + (y2 + 1) * u;
+        if (l < viewport.scrollLeft + m) viewport.scrollLeft = l - m;
+        else if (r > viewport.scrollLeft + viewport.clientWidth - m) viewport.scrollLeft = r - viewport.clientWidth + m;
+        if (t < viewport.scrollTop + m) viewport.scrollTop = t - m;
+        else if (b > viewport.scrollTop + viewport.clientHeight - m) viewport.scrollTop = b - viewport.clientHeight + m;
+    }
+    function moveKey(ev) {
+        if (ARROWS[ev.key]) {
+            ev.preventDefault();
+            const from = pinned ?? hover ?? net.start;
+            const step = ev.shiftKey ? 16 : 1;
+            let [x, y] = cellOf(from);
+            x = Math.max(0, Math.min(GW - 1, x + ARROWS[ev.key][0] * step));
+            y = Math.max(0, Math.min(GH - 1, y + ARROWS[ev.key][1] * step));
+            pin(net.start + cellToOffset(x, y) * blockSize);
+            ensureVisible(cellBounds(pinned));
+            return true;
+        }
+        if (ev.key === "Enter" && pinned !== null && !ev.target.closest?.("a, button")) {
+            const action = openAction(pinned);
+            if (action) navigate(action.url, action.external, ev.shiftKey);
+            return true;
+        }
+        if (ev.key === "c") {
+            const a = pinned ?? hover;
+            if (a !== null) copyText(layer ? `${intToIp(a)}/${blockLen}` : intToIp(a));
+            else if (selected) copyText(`${intToIp(selected.start)}/${selected.len}`);
+            else copyText(cfg.prefix);
+            return true;
+        }
+        return false;
+    }
+
     document.addEventListener("prefixtree:hover", (ev) => {
         const p = ev.detail.prefix ? parsePrefix(ev.detail.prefix) : null;
         selected = p && p.start >= net.start && p.end <= net.end && p.len > net.len ? p : null;
