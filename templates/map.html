@@ -8,6 +8,7 @@
     <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
     <script src="{{ url_for('static', filename='js/topbar.js') }}" defer></script>
     <script src="{{ url_for('static', filename='js/prefix_tree.js') }}" defer></script>
+    <script src="{{ url_for('static', filename='js/map_export.js') }}" defer></script>
     <script src="{{ url_for('static', filename='js/map.js') }}" defer></script>
 </head>
 <body class="map-page">
@@ -90,6 +91,7 @@
                 </dl>
             </section>
             <div id="sum-free"></div>
+            <div id="sum-export"></div>
             <section class="sec">
                 <h3>Links</h3>
                 <div class="links">

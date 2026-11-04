@@ -377,11 +377,11 @@
     ]));
     // Mirrors IP_STATUS_STYLES in app/plot_map.py
     const IP_KINDS = {
-        role: { color: "#ff0000", label: "With role" },
-        active: { color: "#000", label: "In use" },
-        dhcp: { color: "rgba(0,0,0,.55)", label: "DHCP" },
-        reserved: { color: "rgba(0,0,0,.25)", label: "Reserved, deprecated" },
-        inactive: { color: "rgba(0,0,0,.1)", label: "Inactive" },
+        role: { color: "#ff0000", svg: ["#ff0000", 1], label: "With role" },
+        active: { color: "#000", svg: ["#000", 1], label: "In use" },
+        dhcp: { color: "rgba(0,0,0,.55)", svg: ["#000", 0.55], label: "DHCP" },
+        reserved: { color: "rgba(0,0,0,.25)", svg: ["#000", 0.25], label: "Reserved, deprecated" },
+        inactive: { color: "rgba(0,0,0,.1)", svg: ["#000", 0.1], label: "Inactive" },
     };
     const STATUS_KIND = { dhcp: "dhcp", slaac: "dhcp", reserved: "reserved", deprecated: "reserved", inactive: "inactive" };
     const ipKind = (ip) => (ip.role ? "role" : STATUS_KIND[ip.status] || "active");
@@ -561,6 +561,9 @@
         if (big && !big.querySelector(".copy")) big.append(copyBtn(cfg.prefix));
     }
 
+    const usageText = () => (used === null ? `${fmt(net.size)} addresses`
+        : `${fmt(used)} / ${fmt(net.size)} used · ${((100 * used) / net.size).toFixed(used && used < net.size / 1000 ? 2 : 1)}%`);
+
     function renderLegend() {
         const sw = (c) => el("span", { class: "sw", style: swatchStyle(c) });
         const tenants = new Map();
@@ -585,8 +588,7 @@
                 [...tenants].sort((a, b) => tenantName(a[0]).localeCompare(tenantName(b[0])))
                     .map(([id, c]) => el("span", { class: "lg" }, sw(c), tenantName(id)))) : null,
             el("span", { class: "right", id: "usage-total" },
-                used === null ? `${fmt(net.size)} addresses`
-                    : `${fmt(used)} / ${fmt(net.size)} used · ${((100 * used) / net.size).toFixed(used && used < net.size / 1000 ? 2 : 1)}%`,
+                usageText(),
                 img ? el("span", { class: "cellnote", text: layer ? ` · 1 cell = /${blockLen}` : " · 1 cell = 1 address" }) : null),
         ].filter(Boolean));
     }
@@ -737,6 +739,26 @@
         });
     }
 
+    // ---------- export and print (static/js/map_export.js) ----------
+    function initExport() {
+        const exp = window.PrefixMapExport;
+        if (!exp) return;
+        exp.init({
+            cfg, data, net, layer, blockLen, blockSize, blockCounts, GW, GH, nested, children,
+            cellOf, rangeBounds, intToIp, ipToInt, ipKind, IP_KINDS, tenantName, usageText,
+        });
+        const bw = el("input", { type: "checkbox", id: "export-bw" });
+        bw.checked = store.get("prefix-map.export-bw") === "1";
+        bw.addEventListener("change", () => store.set("prefix-map.export-bw", bw.checked ? "1" : "0"));
+        exp.setMono(bw.checked);
+        bw.addEventListener("change", () => exp.setMono(bw.checked));
+        const action = (text, fn) => el("button", { type: "button", class: "linkish", text, onclick: fn });
+        $("sum-export").replaceChildren(sec("Export", null, el("div", { class: "links" },
+            action("Print map with legend", () => exp.print(bw.checked)),
+            action("Download SVG", () => exp.download(bw.checked)),
+            el("label", { class: "check" }, bw, " Black and white (hatched tenants)"))));
+    }
+
     const imageReady = !img || img.complete ? Promise.resolve() : new Promise((resolve, reject) => {
         img.addEventListener("load", resolve);
         img.addEventListener("error", () => reject(new Error("image failed to load")));
@@ -757,6 +779,7 @@
             if (img) {
                 startMap();
                 applyFocus();
+                initExport();
             }
             document.body.dataset.ready = "1";
         })
@@ -765,5 +788,5 @@
             document.body.dataset.ready = "error";
         });
 
-    window.__prefixMap = { get k() { return k; }, get dpr() { return dpr; }, cellToOffset, offsetToCell, freeBlocks: (p) => freeBlocks(parsePrefix(p)) };
+    window.__prefixMap = { get k() { return k; }, get dpr() { return dpr; }, cellToOffset, offsetToCell, freeBlocks: (p) => freeBlocks(parsePrefix(p)), cellOf };
 })();

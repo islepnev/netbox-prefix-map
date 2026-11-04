@@ -333,3 +333,22 @@ table.list .usage-cell { display: flex; align-items: center; gap: 8px; justify-c
   table.list .hide-narrow { display: none; }
   .usage.wide { width: 60px; }
 }
+
+/* Export section */
+button.linkish { font: inherit; color: var(--accent-text); background: none; border: 0; padding: 0; cursor: pointer; text-align: left; }
+button.linkish:hover { text-decoration: underline; }
+label.check { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; }
+
+/* Print: only the vector map with title and legend (static/js/map_export.js builds #print-sheet) */
+#print-sheet { display: none; }
+@media print {
+  body.map-page { display: block; height: auto; overflow: visible; background: #fff; }
+  body.map-page > :not(#print-sheet) { display: none !important; }
+  #print-sheet { display: block; }
+  #print-sheet svg { display: block; width: 100%; height: auto; max-height: calc(100vh - 2mm); }
+}
+@media print {
+  body.doc-page #top { display: none; }
+  body.doc-page { background: #fff; }
+  .card { box-shadow: none; }
+}
