@@ -693,3 +693,15 @@ def test_ip_range_in_inspector_and_free_blocks(open_page, dataset):
     assert 'IP range' in page.inner_text('#legend')
     svg = page.evaluate('PrefixMapExport.build({})')
     assert '<g fill="#555">' in svg and 'IP range' in svg
+
+
+def test_text_search_opens_the_address(open_page):
+    page = open_page(f'{BASE}/')
+    page.keyboard.press('/')
+    page.keyboard.type('gw-93.')
+    page.wait_for_selector('#search-msg li a')
+    assert page.inner_text('#search-msg li a') == '10.20.93.1'
+    with page.expect_navigation(url=f'**{BASE}/map/1/10_20_93_0_24?focus=10.20.93.1'):
+        page.press('#search', 'Enter')
+    wait_for_map(page)
+    assert page.inner_text('#insp-detail .big').startswith('10.20.93.1/')

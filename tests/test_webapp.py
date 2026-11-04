@@ -287,7 +287,7 @@ def test_search_global_and_misses(client):
     _, body = search(client, '192.168.0.5')
     assert [(r['vrf'], r['prefix']) for r in body['results']] == [('None', '192.168.0.0/24')]
     assert search(client, '8.8.8.8') == (200, {'query': '8.8.8.8', 'results': []})
-    for bad in ('', 'foo', '300.1.1.1', '10.0.0.0/33', '2001:db8::1', '010.0.0.1'):
+    for bad in ('', 'f', '300.1.1.1', '10.0.0.0/33', '2001:db8::1', '010.0.0.1', '10.20'):
         status, body = search(client, bad)
         assert status == 400 and 'error' in body, bad
 
@@ -330,3 +330,18 @@ def test_help_page_is_linked_from_every_page(client):
     for path in ('/', '/map/1', '/map/1/10_20_0_0_17', '/help'):
         assert f'href="{BASE}/help"' in client.get(BASE + path).get_data(as_text=True), path
     assert client.get(f'{BASE}/static/img/z-order.svg').status_code == 200
+
+
+def test_search_text_finds_ips_and_prefixes(client):
+    status, body = search(client, 'GW-50.example')
+    assert status == 200 and body['text']
+    ips = [r for r in body['results'] if r['kind'] == 'ip']
+    assert [(r['address'], r['prefix'], r['vrf']) for r in ips] == [('10.20.50.1', '10.20.50.0/25', '1')]
+    assert ips[0]['url'] == f'{BASE}/map/1/10_20_50_0_25?focus=10.20.50.1'
+    _, body = search(client, 'storage')
+    prefixes = [r['prefix'] for r in body['results'] if r['kind'] == 'prefix']
+    assert prefixes[0] == '10.20.48.0/20' and '10.20.50.0/24' in prefixes  # tenant name matches too
+    _, body = search(client, 'host-')
+    assert body['truncated'] and len(body['results']) == 50
+    assert search(client, 'no such name') == (200, {'query': 'no such name', 'results': [], 'text': True,
+                                                     'truncated': False})

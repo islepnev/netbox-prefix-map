@@ -101,6 +101,18 @@ def save_names(tenants, roles, output_dir):
     write_json_atomic(os.path.join(output_dir, 'names.json'), names)
 
 
+def save_search_index(ip_addresses, output_dir):
+    """IPv4 addresses with a DNS name or description, for text search: [address, vrf, dns_name, description, id]."""
+    rows = []
+    for ip in ip_addresses:
+        address = (ip.get('address') or '').split('/')[0]
+        dns_name, description = ip.get('dns_name') or '', ip.get('description') or ''
+        if ':' in address or not (dns_name or description):
+            continue
+        rows.append([address, ip.get('vrf'), dns_name, description, ip.get('id')])
+    write_json_atomic(os.path.join(output_dir, 'search_index.json'), {'ips': rows})
+
+
 def save_prefix_tree(prefixes, output_dir):
     prefix_tree = {}
     for prefix in prefixes:
@@ -389,6 +401,7 @@ def process_all_prefixes(prefixes, ip_addresses, cell_size, output_dir, ip_range
         logging.info(f"Skipped {skipped_ipv6} IPv6 prefixes (IPv6 maps are not supported)")
 
     save_prefix_tree(prefixes, output_dir)
+    save_search_index(ip_addresses, output_dir)
     save_summary(prefixes, prefix_tree_obj, ip_addresses, ip_counts, tenant_color_map, output_dir)
 
 
