@@ -218,20 +218,27 @@ def ip_display_rank(details):
     return {'inactive': 0, 'reserved': 1}.get(status, 2)
 
 
-def determine_ip_color(details, palette):
+# Fill of an IP cell by status: (color, alpha). Every IP record occupies its address, so each one is drawn;
+# fainter means "less in use". A role (anycast, VIP, ...) overrides the status.
+IP_ROLE_STYLE = ('#ff0000', 1.0)
+IP_STATUS_STYLES = {
+    'dhcp': ('black', 0.55),
+    'slaac': ('black', 0.55),
+    'reserved': ('black', 0.25),
+    'deprecated': ('black', 0.25),
+    'inactive': ('black', 0.1),
+}
+IP_DEFAULT_STYLE = ('black', 1.0)
+
+
+def determine_ip_color(details, palette=None):
     """
     Determine the color and opacity for an IP address based on its details.
     Returns a tuple of (color, alpha).
     """
-    status = choice_value(details.get('status'))
     if details.get('role'):
-        return (palette['tags']['Special'], 1.0)
-    elif status == 'reserved':
-        return ('black', 0.25)
-    elif status == 'inactive':
-        return ('none', 0)
-    else:
-        return ('black', 1)
+        return IP_ROLE_STYLE
+    return IP_STATUS_STYLES.get(choice_value(details.get('status')), IP_DEFAULT_STYLE)
 
 
 def get_prefix_label(prefix):
@@ -287,9 +294,10 @@ def draw_sparse_grid(ax, cell_size, grid_width, grid_height, palette):
     """
     Draw a sparse 16x16 grid with low-contrast dotted lines.
     """
-    for i in range(0, grid_height + 1, 16):
+    # Inner lines only: on the image edges a dotted line becomes a row of dashes when zoomed in
+    for i in range(16, grid_height, 16):
         ax.axhline(i * cell_size, color=palette['grid_lines'], linestyle=':', linewidth=1, zorder=Z_DEPTH_AXES, aa=False)
-    for i in range(0, grid_width + 1, 16):
+    for i in range(16, grid_width, 16):
         ax.axvline(i * cell_size, color=palette['grid_lines'], linestyle=':', linewidth=1, zorder=Z_DEPTH_AXES, aa=False)
 
 

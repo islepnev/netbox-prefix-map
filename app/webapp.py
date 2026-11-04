@@ -119,6 +119,7 @@ def prefix_details(prefix_entry):
     return {
         'description': prefix_entry.get('description'),
         'status': prefix_entry.get('status'),
+        'is_pool': bool(prefix_entry.get('is_pool')),
         'tenant_id': tenant_id,
         'tenant_name': tenants.get(str(tenant_id)) if tenant_id else None,
         'role_id': role_id,

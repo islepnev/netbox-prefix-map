@@ -99,17 +99,31 @@
         return inside.filter((n) => !inside.some((m) => m.len < n.len && n.start >= m.start && n.end <= m.end));
     };
 
+    // Network and broadcast addresses of a subnet are not usable, as in NetBox: not for containers, pools,
+    // /31 and /32. On layered maps a cell is a whole block, so the rule does not apply.
+    const hasEdges = (range, status, isPool) => !layer && range.len <= 30 && status !== "container" && !isPool;
+    const rangeHasEdges = (range) => (range.p ? hasEdges(range, range.p.status, range.p.is_pool)
+        : hasEdges(range, data.status ?? cfg.details.status, data.is_pool ?? cfg.details.is_pool));
+    // "network" / "broadcast" when the address is an edge of the innermost prefix around it
+    function edgeKind(a) {
+        const range = containing(a).at(-1) || net;
+        if (!rangeHasEdges(range)) return null;
+        return a === range.start ? "network" : a === range.end ? "broadcast" : null;
+    }
+
     // Largest aligned blocks with no IP record and no child prefix
     const freeCache = new Map();
     function freeBlocks(range) {
         const key = `${range.start}/${range.len}`;
         if (freeCache.has(key)) return freeCache.get(key);
         const blocks = [];
+        const edges = rangeHasEdges(range) ? [range.start, range.end] : [];
         (function walk(start, len, kids) {
             const size = 2 ** (32 - len), end = start + size - 1;
             const overlap = kids.filter((k) => k.start <= end && k.end >= start);
             if (overlap.some((k) => k.start <= start && k.end >= end)) return;
-            if (!overlap.length && countIps(start, end) === 0) { blocks.push({ start, len, size }); return; }
+            const edge = edges.some((e) => e >= start && e <= end);
+            if (!overlap.length && !edge && countIps(start, end) === 0) { blocks.push({ start, len, size }); return; }
             if (len >= blockLen) return;
             walk(start, len + 1, overlap);
             walk(start + size / 2, len + 1, overlap);
@@ -302,7 +316,19 @@
         el("dt", { text: key }),
         v === null || v === undefined || v === "" ? el("dd", { class: "none", text: "—" }) : el("dd", null, v),
     ]));
-    const ipColor = (ip) => (ip.role ? "#ff0000" : ip.status === "reserved" ? "rgba(0,0,0,.25)" : "#000");
+    // Mirrors IP_STATUS_STYLES in app/plot_map.py
+    const IP_KINDS = {
+        role: { color: "#ff0000", label: "With role" },
+        active: { color: "#000", label: "In use" },
+        dhcp: { color: "rgba(0,0,0,.55)", label: "DHCP" },
+        reserved: { color: "rgba(0,0,0,.25)", label: "Reserved, deprecated" },
+        inactive: { color: "rgba(0,0,0,.1)", label: "Inactive" },
+    };
+    const STATUS_KIND = { dhcp: "dhcp", slaac: "dhcp", reserved: "reserved", deprecated: "reserved", inactive: "inactive" };
+    const ipKind = (ip) => (ip.role ? "role" : STATUS_KIND[ip.status] || "active");
+    const ipColor = (ip) => IP_KINDS[ipKind(ip)].color;
+    const STATUS_LABEL = { dhcp: "DHCP", slaac: "SLAAC" };
+    const statusLabel = (s) => STATUS_LABEL[s] || capital(s);
     const swatchStyle = (c) => `background:linear-gradient(${c},${c}),#fff`;
     const tenantNode = (id) => (id ? el("span", null,
         el("span", { class: "tswatch", style: `background:${tenantColors.get(String(id)) || "transparent"}` }),
@@ -395,6 +421,7 @@
             : el("span", { class: "badge", text: "click to pin" }));
         if (layer) { renderBlock(a); return; }
         const ip = ipsByAddr.get(a);
+        const edge = ip ? null : edgeKind(a);
         const chainNodes = containing(a);
         const inner = chainNodes.at(-1);
         const mask = ip ? ip.address.split("/")[1] : inner ? inner.len : net.len;
@@ -403,18 +430,22 @@
         out.push(el("section", { class: "sec" },
             el("div", { class: "big" }, intToIp(a), el("span", { class: "mask", text: `/${mask}` })),
             el("div", { class: "sub" },
-                ip ? el("span", { class: "pill" }, el("span", { class: "sw", style: swatchStyle(ipColor(ip)) }), capital(ip.status) || "IP")
-                    : el("span", { class: "pill free", text: "Free" }),
+                ip ? el("span", { class: "pill" }, el("span", { class: "sw", style: swatchStyle(ipColor(ip)) }), statusLabel(ip.status) || "IP")
+                    : edge ? el("span", { class: "pill", text: `${capital(edge)} address` })
+                        : el("span", { class: "pill free", text: "Free" }),
                 el("span", { class: "mono", text: `offset ${fmt(a - net.start)}` })),
             action ? el("div", { class: "hint", text: `Double-click to ${action.label}` }) : null));
         if (ip) {
             out.push(sec("IP address", ip.id ? nbLink(`/ipam/ip-addresses/${ip.id}/`, "NetBox") : null, kv([
-                ["Status", capital(ip.status)],
+                ["Status", statusLabel(ip.status)],
                 ["Role", capital(ip.role)],
                 ["DNS name", ip.dns_name ? el("span", { class: "mono", text: ip.dns_name }) : null],
                 ["Description", ip.description || null],
                 ["Tenant", tenantNode(ip.tenant)],
             ])));
+        } else if (edge) {
+            out.push(sec("IP address", null, el("div", { class: "empty",
+                text: `${capital(edge)} address of ${(inner ? inner.p.prefix : cfg.prefix)}: not usable for hosts.` })));
         } else {
             const vrfParam = cfg.vrf ? `&vrf=${encodeURIComponent(cfg.vrf.id)}` : "";
             out.push(sec("IP address", null, el("div", { class: "empty" }, "No IP record. ",
@@ -430,16 +461,12 @@
 
     function renderSummary() {
         const total = net.size;
-        const counts = { role: 0, active: hasIps ? 0 : used || 0, reserved: 0 };
-        for (const ip of hasIps ? data.ip_addresses || [] : []) {
-            if (ip.role) counts.role++;
-            else if (ip.status === "reserved") counts.reserved++;
-            else counts.active++;
-        }
+        const counts = { active: hasIps ? 0 : used || 0, role: 0, dhcp: 0, reserved: 0, inactive: 0 };
+        for (const ip of hasIps ? data.ip_addresses || [] : []) counts[ipKind(ip)]++;
         const seg = (n, color, label) => (n ? el("i", { style: `width:${(100 * n) / total}%;background:${color}`, title: `${label}: ${fmt(n)}` }) : null);
+        const barColor = { active: "var(--text)", role: "#ff0000", dhcp: "var(--muted)", reserved: "var(--faint)", inactive: "var(--line)" };
         $("sum-usage").replaceChildren(
-            el("div", { class: "bigbar" },
-                seg(counts.active, "var(--text)", "In use"), seg(counts.role, "#ff0000", "With role"), seg(counts.reserved, "var(--faint)", "Reserved")),
+            el("div", { class: "bigbar" }, Object.keys(counts).map((kind) => seg(counts[kind], barColor[kind], IP_KINDS[kind].label))),
             el("div", { class: "stats" },
                 el("div", { class: "stat" }, el("b", { text: used === null ? "—" : fmt(used) }),
                     el("span", { text: used === null ? "IPs" : `IPs · ${pct(used, total)}` })),
@@ -461,11 +488,11 @@
                 el("span", { class: "lg" }, sw("rgba(0,0,0,.575)"), "25%"),
                 el("span", { class: "lg" }, sw("rgba(0,0,0,.9)"), "all"),
                 el("span", { class: "lg" }, el("span", { class: "sw checker" }), "prefixes inside"))
-            : el("span", { class: "lg-group" },
-                el("span", { class: "lg" }, sw("#000"), "In use"),
-                el("span", { class: "lg" }, sw("rgba(0,0,0,.25)"), "Reserved"),
-                el("span", { class: "lg" }, sw("#ff0000"), "With role"));
-        $("legend").replaceChildren(
+            : el("span", { class: "lg-group" }, ["active", "dhcp", "reserved", "inactive", "role"]
+                .filter((kind) => !hasIps || kind === "active" || kind === "role" || (data.ip_addresses || []).some((ip) => ipKind(ip) === kind))
+                .map((kind) => el("span", { class: "lg" }, sw(IP_KINDS[kind].color), IP_KINDS[kind].label)));
+        // replaceChildren() would print null as text
+        $("legend").replaceChildren(...[
             keys,
             tenants.size ? el("span", { class: "vsep" }) : null,
             tenants.size ? el("span", { class: "lg-group tenants" }, el("span", { class: "lg-label", text: "Tenants" }),
@@ -474,7 +501,8 @@
             el("span", { class: "right", id: "usage-total" },
                 used === null ? `${fmt(net.size)} addresses`
                     : `${fmt(used)} / ${fmt(net.size)} used · ${((100 * used) / net.size).toFixed(used && used < net.size / 1000 ? 2 : 1)}%`,
-                img ? el("span", { class: "cellnote", text: layer ? ` · 1 cell = /${blockLen}` : " · 1 cell = 1 address" }) : null));
+                img ? el("span", { class: "cellnote", text: layer ? ` · 1 cell = /${blockLen}` : " · 1 cell = 1 address" }) : null),
+        ].filter(Boolean));
     }
 
     // ---------- search within this map ----------
@@ -503,7 +531,8 @@
         if (len === null) {
             const ip = ipsByAddr.get(addr);
             pin(addr, true);
-            ui.say(`${intToIp(addr)} · ${ip ? capital(ip.status) + (ip.dns_name ? ` · ${ip.dns_name}` : "") : "free"} — pinned`);
+            const edge = ip ? null : edgeKind(addr);
+            ui.say(`${intToIp(addr)} · ${ip ? statusLabel(ip.status) + (ip.dns_name ? ` · ${ip.dns_name}` : "") : edge ? `${edge} address` : "free"} — pinned`);
             return true;
         }
         const start = addr - (addr % 2 ** (32 - len));
