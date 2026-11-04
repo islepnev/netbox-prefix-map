@@ -119,6 +119,7 @@ def prefix_details(prefix_entry):
     return {
         'description': prefix_entry.get('description'),
         'status': prefix_entry.get('status'),
+        'is_pool': bool(prefix_entry.get('is_pool')),
         'tenant_id': tenant_id,
         'tenant_name': tenants.get(str(tenant_id)) if tenant_id else None,
         'role_id': role_id,
@@ -334,8 +335,15 @@ def vrf_summary(vrf_key, summary=None):
             'top_prefixes': [dict(entry, prefix=str(network), ip_count=None, size=network.num_addresses)
                              for network, entry in top_level_prefixes(entries)],
         }
-    result['top_prefixes'] = [dict(p, sanitized=sanitize_name(p['prefix'])) for p in result['top_prefixes']]
+    result['top_prefixes'] = [dict(p, sanitized=sanitize_name(p['prefix']), **usage_of(p)) for p in result['top_prefixes']]
     return result
+
+
+def usage_of(p):
+    """Usage shown for a prefix: containers by addresses in child prefixes, others by IP addresses."""
+    if p.get('status') == 'container' and p.get('allocated') is not None:
+        return {'used': p['allocated'], 'usage_kind': 'allocated'}
+    return {'used': p.get('ip_count'), 'usage_kind': 'ips'}
 
 
 @bp.route('/')
@@ -526,11 +534,16 @@ def serve_data(vrf, prefix):
     return jsonify(data), 200
 
 
+IMAGE_NAME = re.compile(r'^address_map-[\w]+-[\w]+\.png$')
+
+
 @bp.route('/images/<filename>', methods=['GET'])
 def serve_image(filename):
     """
-    Serve image files from the output directory.
+    Serve map images from the output directory; other generated files (prefix lists, names) are not served here.
     """
+    if not IMAGE_NAME.match(filename):
+        return jsonify({'error': 'Not found.'}), 404
     return send_from_directory(OUTPUT_DIR, filename)
 
 

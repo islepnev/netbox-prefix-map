@@ -136,7 +136,7 @@ a.crumb:hover { background: var(--hover-row); color: var(--text); text-decoratio
 body.map-page {
   height: 100vh; overflow: hidden; display: grid;
   grid-template-columns: var(--tree-w) minmax(0, 1fr) var(--insp-w);
-  grid-template-rows: 44px minmax(0, 1fr) 32px;
+  grid-template-rows: 44px minmax(0, 1fr) auto;
   grid-template-areas: "top top top" "tree map insp" "legend legend legend";
 }
 body.map-page.no-tree { --tree-w: 0px; }
@@ -170,6 +170,9 @@ body.no-tree #tree-panel, body.no-insp #insp-panel { display: none; }
 .usage { width: 38px; height: 4px; border-radius: 2px; background: var(--bar-bg); flex: none; overflow: hidden; }
 .usage i { display: block; height: 100%; background: var(--bar); border-radius: 2px; }
 .usage.hot i { background: var(--hot); }
+/* Containers: share allocated to child prefixes, striped to tell it from IP usage */
+.usage.alloc i { background: repeating-linear-gradient(90deg, var(--bar) 0 3px, color-mix(in srgb, var(--bar) 55%, transparent) 3px 4px); }
+.usage.alloc.hot i { background: repeating-linear-gradient(90deg, var(--hot) 0 3px, color-mix(in srgb, var(--hot) 55%, transparent) 3px 4px); }
 .usage.na { background: repeating-linear-gradient(90deg, var(--bar-bg) 0 3px, transparent 3px 5px); }
 .pct { width: 30px; text-align: right; color: var(--faint); font-size: 10.5px; flex: none; }
 
@@ -249,6 +252,19 @@ table.free tr:last-child td { border-bottom: 0; }
 table.free td:first-child { font-family: var(--mono); font-variant-numeric: tabular-nums; }
 table.free td.n { text-align: right; color: var(--muted); font-family: var(--mono); font-variant-numeric: tabular-nums; }
 table.free tr:hover td { background: var(--hover-row); }
+table.free td.c { width: 20px; padding: 0; text-align: right; }
+.copy {
+  display: inline-grid; place-items: center; width: 20px; height: 20px; padding: 0; margin-left: 4px; vertical-align: middle;
+  border: 0; border-radius: 4px; background: none; color: var(--faint); cursor: pointer;
+}
+.copy:hover, .copy:focus-visible { background: var(--hover-row); color: var(--text); }
+table.free tr:not(:hover) .copy:not(:focus-visible) { opacity: .45; }
+.fsize { margin: -2px 0 6px; font-size: 12px; color: var(--muted); }
+.fsize select { font: 12px var(--mono); color: var(--text); background: var(--panel-2); border: 1px solid var(--line); border-radius: 4px; padding: 1px 4px; }
+#toast {
+  position: fixed; left: 50%; bottom: 48px; transform: translateX(-50%); z-index: 50; padding: 6px 12px; border-radius: 6px;
+  background: var(--text); color: var(--panel); font: 12px var(--mono); box-shadow: var(--shadow); pointer-events: none;
+}
 .empty { color: var(--faint); font-size: 12px; }
 .links { display: flex; flex-direction: column; gap: 4px; }
 a.ext::after { content: " \2197"; color: var(--faint); }
@@ -262,16 +278,16 @@ kbd { font: 11px var(--mono); border: 1px solid var(--line); border-radius: 3px;
 
 /* Legend */
 #legend {
-  grid-area: legend; display: flex; align-items: center; gap: 16px; padding: 0 12px;
+  grid-area: legend; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; padding: 7px 12px;
+  min-height: 32px;
   background: var(--panel); border-top: 1px solid var(--line); font-size: 12px; color: var(--muted);
-  white-space: nowrap; overflow: hidden; min-width: 0;
+  white-space: nowrap; min-width: 0;
 }
 .lg { display: inline-flex; align-items: center; gap: 6px; flex: none; }
 .lg .sw { width: 10px; height: 10px; border-radius: 2px; box-shadow: 0 0 0 1px var(--line); }
 .lg .sw.checker { background: repeating-conic-gradient(#b0b0b0 0 25%, #fff 0 50%) 0 0 / 4px 4px; border-radius: 0; }
-.lg-group { display: flex; gap: 12px; align-items: center; min-width: 0; overflow: hidden; }
+.lg-group { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; min-width: 0; }
 .lg-group:first-child { flex: none; }
-.lg-group.tenants { mask-image: linear-gradient(90deg, #000 calc(100% - 24px), transparent); }
 .lg-label { font-size: 11px; color: var(--faint); text-transform: uppercase; letter-spacing: .04em; font-weight: 600; }
 #legend .right { flex: none; margin-left: auto; font-family: var(--mono); font-variant-numeric: tabular-nums; }
 
@@ -307,6 +323,7 @@ table.list tr:last-child td { border-bottom: 0; }
 table.list tbody tr:hover td { background: var(--hover-row); }
 table.list .num { text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
 table.list .name { font-weight: 600; }
+table.list .sub-num { font-size: 11px; color: var(--faint); }
 table.list .desc { color: var(--muted); }
 table.list .pfx-cell { display: flex; align-items: center; gap: 8px; font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
 table.list .usage-cell { display: flex; align-items: center; gap: 8px; justify-content: flex-end; }
@@ -319,4 +336,23 @@ table.list .usage-cell { display: flex; align-items: center; gap: 8px; justify-c
 @media (max-width: 700px) {
   table.list .hide-narrow { display: none; }
   .usage.wide { width: 60px; }
+}
+
+/* Export section */
+button.linkish { font: inherit; color: var(--accent-text); background: none; border: 0; padding: 0; cursor: pointer; text-align: left; }
+button.linkish:hover { text-decoration: underline; }
+label.check { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; }
+
+/* Print: only the vector map with title and legend (static/js/map_export.js builds #print-sheet) */
+#print-sheet { display: none; }
+@media print {
+  body.map-page { display: block; height: auto; overflow: visible; background: #fff; }
+  body.map-page > :not(#print-sheet) { display: none !important; }
+  #print-sheet { display: block; }
+  #print-sheet svg { display: block; width: 100%; height: auto; max-height: calc(100vh - 2mm); }
+}
+@media print {
+  body.doc-page #top { display: none; }
+  body.doc-page { background: #fff; }
+  .card { box-shadow: none; }
 }

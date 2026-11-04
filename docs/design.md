@@ -11,6 +11,7 @@
 | `app/updater_manager.py` | Background update scheduling |
 | `app/webapp.py` | Flask application: pages, data endpoint, webhook, health and metrics |
 | `static/js/map.js` | Map page: zoom, overlays, inspector, legend, search within the map |
+| `static/js/map_export.js` | SVG export and print sheet of the map |
 | `static/js/prefix_tree.js` | Prefix tree in the map page sidebar |
 | `static/js/topbar.js` | Top bar: freshness indicator, search box |
 
@@ -41,10 +42,13 @@ Each cell is `CELL_SIZE` pixels: a 1 px gap followed by the cell body. The axes 
 |---|---|
 | Nested prefix | Tenant color blended 50% with white, dotted border; longer prefixes on top |
 | IP with a role | Red |
-| Reserved IP | Black at 25% opacity |
-| Inactive IP | Not drawn |
+| DHCP or SLAAC IP | Black at 55% opacity |
+| Reserved or deprecated IP | Black at 25% opacity |
+| Inactive IP | Black at 10% opacity |
 | Other IP | Black |
-| Grid | Dotted lines every 16 cells |
+| Grid | Dotted lines every 16 cells, inner lines only |
+
+Prefix outlines and the grid are drawn with matplotlib; IP cells are painted into the pixel array afterwards (one matplotlib patch per IP made large maps slow: 50,000 IPs took 112 s, now 34 s).
 | Labels | Third octet of each /24 in a 3×5 pixel font, gray, on a free spot near the block center; none when the block has no room |
 
 ### Layered maps
@@ -62,7 +66,7 @@ Prefixes shorter than /16 would need a grid of 4096 × 4096 cells or more. They 
 
 The data file carries `layer` (`block_len`, `blocks`: block index and IP count) instead of the IP list. On the page a cell is a block: the inspector shows its IP count, the prefix chain, prefixes inside it and free blocks down to the block size; double-click opens the map of the child prefix covering the block, or of the first prefix inside it.
 
-Tenant colors are taken from a 16-color palette by tenant id, so a tenant keeps its color when others are added or removed.
+Tenant colors are taken from a 16-color palette by tenant id, so a tenant keeps its color when others are added or removed. The palette has no gray: a gray fill would read as a reserved IP.
 
 ## Updates
 
@@ -81,11 +85,15 @@ Because the updater lives in the web process, the server runs with a single guni
 Layout: top bar (VRF, prefix path, search, freshness), prefix tree on the left, map in the center, inspector on the right, legend and usage at the bottom. The side panels collapse (`[`, `]`); the state is kept in local storage. The page configuration (prefix, parents, names, URLs) is embedded as JSON; the browser loads the PNG and the prefix data file (`/data/<vrf>/<prefix>`, gzip-compressed when accepted). The data file carries the grid size, cell size, nested prefixes with their fill colors, IP addresses and parent prefixes, so the page resolves the cell under the pointer with the same layout as the renderer. Missing fields (data files from older versions) are derived or treated as empty.
 
 - Zoom steps are whole device pixels per image pixel; the image is never resampled. Fit picks the largest such step that fits the view. Overlays are placed on cell edges.
+- The pinned address (or outlined prefix) is written to `?focus=` with `history.replaceState`, so the URL is a permalink. Arrow keys move the pin by one cell (Shift: 16), Enter opens it, `c` copies the address. Copy buttons sit next to addresses, prefixes and free blocks; on plain-http hosts, where `navigator.clipboard` is unavailable, a hidden textarea and `execCommand('copy')` are used.
+- The free-block list has a size picker: "largest" lists the largest free blocks; `/N` lists the first free aligned /N blocks by address, as NetBox "first available prefix" would. The choice is kept in local storage.
 - Hovering shows the address, its IP record or "free", the prefix chain and the free blocks of the innermost prefix in the inspector; the cell and the prefix are outlined. Clicking pins the cell; clicking it again or Esc unpins.
 - Double-clicking opens the child prefix that contains the cell, otherwise the IP address in NetBox.
-- Free blocks are the largest aligned blocks with no IP record and no child prefix. Data files of prefixes without an image carry no IP list, so their free blocks are not shown.
+- Usage of a container is the share of its addresses assigned to nested prefixes that are not containers (`allocated` in the data files and `summary.json`; any depth, overlaps counted once); other prefixes show the share of addresses with an IP record. The tree and the VRF page draw container usage striped.
+- Free blocks are the largest aligned blocks with no IP record and no child prefix. Child containers are transparent: what is not assigned inside them is free. As in NetBox, the network and broadcast addresses of a prefix are not free unless it is a container, a pool, a /31 or a /32; the inspector labels them. Data files of prefixes without an image carry no IP list, so their free blocks are not shown.
 - The prefix tree shows the path from the outermost parent to the current prefix; other branches load on expand from `/data/...?nav=1`, which omits addresses and nested prefixes. Tree rows and the map highlight each other.
 - Search: an address or prefix inside the map is pinned or outlined in place; other queries go to `/search`, which returns, per VRF, the prefix itself or the innermost prefix containing the query, with the IP record if any. Result links carry `?focus=<query>`, which pins or outlines it when the map opens.
+- Export and print (`static/js/map_export.js`): an SVG is drawn in the browser from the data file, with the same layout as the PNG: one rect per IP (per block with its usage darkness on layered maps), nested prefixes with tenant fills and dotted outlines, the octet labels as text, a title and a legend. "Download SVG" saves it; on print (`beforeprint`, Ctrl+P included) it replaces the page through the print stylesheet, so the browser prints a vector map with legend and no UI, landscape for 2:1 maps. In black and white, tenants get hatch patterns instead of colors and IPs with a role become hollow black cells.
 - The freshness dot polls `/healthz` and turns amber when the last update failed, the updater stopped or the data is older than 24 h.
 - Colors of the page follow the system light or dark theme; the map keeps its white background.
 

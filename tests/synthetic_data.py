@@ -99,8 +99,9 @@ def build_dataset(seed: int = 20):
 
     prefixes = []
 
-    def add_prefix(prefix, vrf, tenant=None, status="active", description="", role=None):
+    def add_prefix(prefix, vrf, tenant=None, status="active", description="", role=None, is_pool=False):
         prefixes.append({
+            "is_pool": is_pool,
             "id": len(prefixes) + 1,
             "prefix": prefix,
             "vrf": vrf,
@@ -127,7 +128,8 @@ def build_dataset(seed: int = 20):
             if net.prefixlen < 24:
                 add_prefix(str(sub), LAN_VRF_ID, tenant)
     for prefix, tenant in NESTED:
-        add_prefix(prefix, LAN_VRF_ID, tenant)
+        # A pool: all its addresses are usable, network and broadcast included
+        add_prefix(prefix, LAN_VRF_ID, tenant, is_pool=prefix == "10.20.36.128/26")
 
     # IPv6 must be skipped cleanly
     add_prefix("192.168.0.0/24", None, status="active", description="Management", role=2)

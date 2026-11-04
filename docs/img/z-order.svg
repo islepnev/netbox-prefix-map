@@ -1,0 +1,73 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 392 292" width="392" height="292" font-family="sans-serif">
+<rect width="392" height="292" fill="#fff"/>
+<text x="20" y="26" font-size="15" font-weight="bold" fill="#111">10.0.0.0/27: 32 addresses, last octet shown</text>
+<rect x="22" y="48" width="84" height="84" fill="#c6dbef" stroke="#555" stroke-dasharray="4 3"/>
+<rect x="22" y="136" width="172" height="84" fill="#c7e9c0" stroke="#555" stroke-dasharray="4 3"/>
+<rect x="198" y="48" width="172" height="172" fill="#fdd0a2" stroke="#555" stroke-dasharray="4 3"/>
+<rect x="20.5" y="46.5" width="43" height="43" fill="none" stroke="#ddd"/>
+<rect x="64.5" y="46.5" width="43" height="43" fill="none" stroke="#ddd"/>
+<rect x="20.5" y="90.5" width="43" height="43" fill="none" stroke="#ddd"/>
+<rect x="64.5" y="90.5" width="43" height="43" fill="none" stroke="#ddd"/>
+<rect x="108.5" y="46.5" width="43" height="43" fill="none" stroke="#ddd"/>
+<rect x="152.5" y="46.5" width="43" height="43" fill="none" stroke="#ddd"/>
+<rect x="108.5" y="90.5" width="43" height="43" fill="none" stroke="#ddd"/>
+<rect x="152.5" y="90.5" width="43" height="43" fill="none" stroke="#ddd"/>
+<rect x="20.5" y="134.5" width="43" height="43" fill="none" stroke="#ddd"/>
+<rect x="64.5" y="134.5" width="43" height="43" fill="none" stroke="#ddd"/>
+<rect x="20.5" y="178.5" width="43" height="43" fill="none" stroke="#ddd"/>
+<rect x="64.5" y="178.5" width="43" height="43" fill="none" stroke="#ddd"/>
+<rect x="108.5" y="134.5" width="43" height="43" fill="none" stroke="#ddd"/>
+<rect x="152.5" y="134.5" width="43" height="43" fill="none" stroke="#ddd"/>
+<rect x="108.5" y="178.5" width="43" height="43" fill="none" stroke="#ddd"/>
+<rect x="152.5" y="178.5" width="43" height="43" fill="none" stroke="#ddd"/>
+<rect x="196.5" y="46.5" width="43" height="43" fill="none" stroke="#ddd"/>
+<rect x="240.5" y="46.5" width="43" height="43" fill="none" stroke="#ddd"/>
+<rect x="196.5" y="90.5" width="43" height="43" fill="none" stroke="#ddd"/>
+<rect x="240.5" y="90.5" width="43" height="43" fill="none" stroke="#ddd"/>
+<rect x="284.5" y="46.5" width="43" height="43" fill="none" stroke="#ddd"/>
+<rect x="328.5" y="46.5" width="43" height="43" fill="none" stroke="#ddd"/>
+<rect x="284.5" y="90.5" width="43" height="43" fill="none" stroke="#ddd"/>
+<rect x="328.5" y="90.5" width="43" height="43" fill="none" stroke="#ddd"/>
+<rect x="196.5" y="134.5" width="43" height="43" fill="none" stroke="#ddd"/>
+<rect x="240.5" y="134.5" width="43" height="43" fill="none" stroke="#ddd"/>
+<rect x="196.5" y="178.5" width="43" height="43" fill="none" stroke="#ddd"/>
+<rect x="240.5" y="178.5" width="43" height="43" fill="none" stroke="#ddd"/>
+<rect x="284.5" y="134.5" width="43" height="43" fill="none" stroke="#ddd"/>
+<rect x="328.5" y="134.5" width="43" height="43" fill="none" stroke="#ddd"/>
+<rect x="284.5" y="178.5" width="43" height="43" fill="none" stroke="#ddd"/>
+<rect x="328.5" y="178.5" width="43" height="43" fill="none" stroke="#ddd"/>
+<polyline points="42.0,68.0 86.0,68.0 42.0,112.0 86.0,112.0 130.0,68.0 174.0,68.0 130.0,112.0 174.0,112.0 42.0,156.0 86.0,156.0 42.0,200.0 86.0,200.0 130.0,156.0 174.0,156.0 130.0,200.0 174.0,200.0 218.0,68.0 262.0,68.0 218.0,112.0 262.0,112.0 306.0,68.0 350.0,68.0 306.0,112.0 350.0,112.0 218.0,156.0 262.0,156.0 218.0,200.0 262.0,200.0 306.0,156.0 350.0,156.0 306.0,200.0 350.0,200.0" fill="none" stroke="#d62728" stroke-width="1.5" stroke-opacity=".4"/>
+<text x="42.0" y="73.0" font-size="14" text-anchor="middle" fill="#111">0</text>
+<text x="86.0" y="73.0" font-size="14" text-anchor="middle" fill="#111">1</text>
+<text x="42.0" y="117.0" font-size="14" text-anchor="middle" fill="#111">2</text>
+<text x="86.0" y="117.0" font-size="14" text-anchor="middle" fill="#111">3</text>
+<text x="130.0" y="73.0" font-size="14" text-anchor="middle" fill="#111">4</text>
+<text x="174.0" y="73.0" font-size="14" text-anchor="middle" fill="#111">5</text>
+<text x="130.0" y="117.0" font-size="14" text-anchor="middle" fill="#111">6</text>
+<text x="174.0" y="117.0" font-size="14" text-anchor="middle" fill="#111">7</text>
+<text x="42.0" y="161.0" font-size="14" text-anchor="middle" fill="#111">8</text>
+<text x="86.0" y="161.0" font-size="14" text-anchor="middle" fill="#111">9</text>
+<text x="42.0" y="205.0" font-size="14" text-anchor="middle" fill="#111">10</text>
+<text x="86.0" y="205.0" font-size="14" text-anchor="middle" fill="#111">11</text>
+<text x="130.0" y="161.0" font-size="14" text-anchor="middle" fill="#111">12</text>
+<text x="174.0" y="161.0" font-size="14" text-anchor="middle" fill="#111">13</text>
+<text x="130.0" y="205.0" font-size="14" text-anchor="middle" fill="#111">14</text>
+<text x="174.0" y="205.0" font-size="14" text-anchor="middle" fill="#111">15</text>
+<text x="218.0" y="73.0" font-size="14" text-anchor="middle" fill="#111">16</text>
+<text x="262.0" y="73.0" font-size="14" text-anchor="middle" fill="#111">17</text>
+<text x="218.0" y="117.0" font-size="14" text-anchor="middle" fill="#111">18</text>
+<text x="262.0" y="117.0" font-size="14" text-anchor="middle" fill="#111">19</text>
+<text x="306.0" y="73.0" font-size="14" text-anchor="middle" fill="#111">20</text>
+<text x="350.0" y="73.0" font-size="14" text-anchor="middle" fill="#111">21</text>
+<text x="306.0" y="117.0" font-size="14" text-anchor="middle" fill="#111">22</text>
+<text x="350.0" y="117.0" font-size="14" text-anchor="middle" fill="#111">23</text>
+<text x="218.0" y="161.0" font-size="14" text-anchor="middle" fill="#111">24</text>
+<text x="262.0" y="161.0" font-size="14" text-anchor="middle" fill="#111">25</text>
+<text x="218.0" y="205.0" font-size="14" text-anchor="middle" fill="#111">26</text>
+<text x="262.0" y="205.0" font-size="14" text-anchor="middle" fill="#111">27</text>
+<text x="306.0" y="161.0" font-size="14" text-anchor="middle" fill="#111">28</text>
+<text x="350.0" y="161.0" font-size="14" text-anchor="middle" fill="#111">29</text>
+<text x="306.0" y="205.0" font-size="14" text-anchor="middle" fill="#111">30</text>
+<text x="350.0" y="205.0" font-size="14" text-anchor="middle" fill="#111">31</text>
+<g font-size="13" fill="#333"><rect x="20" y="239" width="14" height="14" fill="#c6dbef" stroke="#555"/><text x="40" y="250">10.0.0.0/30</text><rect x="150" y="239" width="14" height="14" fill="#c7e9c0" stroke="#555"/><text x="170" y="250">10.0.0.8/29</text><rect x="280" y="239" width="14" height="14" fill="#fdd0a2" stroke="#555"/><text x="300" y="250">10.0.0.16/28</text><text x="20" y="274">Red line: address order. Each aligned subnet is a rectangle.</text></g>
+</svg>

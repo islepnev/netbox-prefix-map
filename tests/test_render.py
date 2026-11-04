@@ -163,6 +163,44 @@ def test_reserved_ip_is_lighter_than_active(output_dir, dataset):
         assert rgb[y0:y1, x0:x1].mean() > 100, f"reserved {ip['address']} drawn as allocated"
 
 
+def test_ip_statuses_have_distinct_shades(output_dir, dataset):
+    """Darker means more in use: active < dhcp < reserved."""
+    prefix = "10.20.0.0/17"
+    rgb = load_rgb(image_path(output_dir, LAN, prefix))
+    nested = [ipaddress.ip_network(p['prefix']) for p in dataset['prefixes']
+              if p['vrf'] == LAN and ':' not in p['prefix'] and ipaddress.ip_network(p['prefix']).prefixlen > 17]
+
+    def shade(status):
+        values = []
+        for ip in ips_in(dataset, prefix, status=status):
+            address = ipaddress.ip_address(ip['address'].split('/')[0])
+            if any(address in n for n in nested):
+                continue  # tenant fills shift the shade; compare on white only
+            x0, y0, x1, y1 = cell_box(prefix, ip['address'])
+            values.append(rgb[y0:y1, x0:x1].mean())
+        return values
+
+    active, dhcp, reserved = (shade(s) for s in ('active', 'dhcp', 'reserved'))
+    assert active and dhcp
+    assert max(active) < min(dhcp) < 255
+    if reserved:
+        assert max(dhcp) < min(reserved) < 255
+
+
+def test_inactive_ip_is_drawn_faintly():
+    from app.plot_map import determine_ip_color
+    color, alpha = determine_ip_color({'status': 'inactive'})
+    assert color != 'none' and 0 < alpha < determine_ip_color({'status': 'reserved'})[1]
+
+
+def test_tenant_palette_has_no_grays():
+    """A gray tenant fill would read as a reserved IP."""
+    from app.color_design import TABLEAU10_PALETTE
+    for color in TABLEAU10_PALETTE:
+        r, g, b = (int(color[i:i + 2], 16) for i in (1, 3, 5))
+        assert max(r, g, b) - min(r, g, b) > 30, color
+
+
 def test_role_ip_is_red(output_dir, dataset):
     prefix = "10.20.0.0/17"
     rgb = load_rgb(image_path(output_dir, LAN, prefix))
@@ -400,3 +438,19 @@ def test_tenant_prefix_wins_over_tenantless_in_block(tmp_path):
     plot_layered_grid('10.0.0.0/8', 24, {}, nested, [], out, 4, colors)
     expected = [int(prefix_fill_color(5, colors)[i:i + 2], 16) for i in (1, 3, 5)]
     assert list(load_rgb(out)[1, 1]) == expected
+
+
+def test_allocated_counts_assigned_space_once(output_dir, dataset):
+    def load(prefix):
+        with open(data_path(output_dir, LAN, prefix)) as f:
+            return json.load(f)
+
+    data = load("10.20.0.0/17")
+    assigned = [ipaddress.ip_network(p['prefix']) for p in dataset['prefixes']
+                if p['vrf'] == LAN and ':' not in p['prefix'] and p['status'] != 'container'
+                and ipaddress.ip_network(p['prefix']).subnet_of(ipaddress.ip_network("10.20.0.0/17"))
+                and p['prefix'] != "10.20.0.0/17"]
+    assert data['allocated'] == sum(n.num_addresses for n in ipaddress.collapse_addresses(assigned))
+    assert 0 < data['allocated'] < data['size']
+    # Child containers are not used space: the /16 is only as assigned as what is inside its /17 containers
+    assert load("10.20.0.0/16")['allocated'] == data['allocated'] + load("10.20.128.0/17")['allocated']
