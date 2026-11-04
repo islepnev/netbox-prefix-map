@@ -274,13 +274,24 @@
     // ---------- zoom ----------
     const PAD = 16, MAX_SCALE = 16;
     const maxC = () => cs * MAX_SCALE;
+    // Below 1x the cell size halves down to 1 device pixel (2, 1 with the default cell size); the gaps cannot be kept
+    // there, so the image is scaled smoothly instead of nearest-neighbour.
+    function lowSteps() {
+        const steps = [];
+        for (let v = cs; v > 1;) { v = Math.max(1, Math.floor(v / 2)); steps.push(v); }
+        return steps;
+    }
+    const minC = () => lowSteps().at(-1) ?? cs;
     function fitC() {
         const w = (viewport.clientWidth - 2 * PAD) * dpr, h = (viewport.clientHeight - 2 * PAD) * dpr;
-        return Math.max(cs, Math.min(maxC(), Math.floor(w / GW), Math.floor(h / GH)));
+        const f = Math.min(maxC(), Math.floor(w / GW), Math.floor(h / GH));
+        return f >= cs ? f : lowSteps().find((v) => v <= f) ?? minC();
     }
     // Zoom steps grow by about a quarter: 4, 5, 6, 7, 8, 10, 12, 14, 16, 20, ...
     const stepOf = (v) => Math.max(1, 2 ** (Math.floor(Math.log2(v)) - 2));
     function zoomStep(v, dir) {
+        if (dir > 0 && v < cs) return lowSteps().reverse().find((s) => s > v) ?? cs;
+        if (dir < 0 && v <= cs) return lowSteps().find((s) => s < v) ?? minC();
         if (dir > 0) return Math.min(maxC(), Math.floor(v / stepOf(v)) * stepOf(v) + stepOf(v));
         const down = v - stepOf(v - 1);
         return Math.max(cs, Math.ceil(down / stepOf(down)) * stepOf(down));
@@ -309,13 +320,14 @@
         stage.classList.add("laid-out");
         $("zoom-level").textContent = scaleText(c);
         $("zoom-level").title = `1 ${layer ? "cell" : "address"} = ${c} device px`;
-        $("zoom-out").disabled = c <= cs;
+        img.classList.toggle("smooth", c < cs);
+        $("zoom-out").disabled = c <= minC();
         $("zoom-in").disabled = c >= maxC();
         $("zoom-fit").classList.toggle("active", fitMode);
         drawOverlays();
     }
     function setC(v, byUser) {
-        c = Math.max(cs, Math.min(maxC(), v));
+        c = Math.max(minC(), Math.min(maxC(), v));
         fitMode = !byUser;
         layout(true);
     }
