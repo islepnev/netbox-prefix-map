@@ -210,6 +210,49 @@ def test_free_blocks_are_free_and_aligned(open_page, dataset):
     assert sizes == sorted(sizes, reverse=True)
 
 
+def free_block_rows(page, where='#sum-free'):
+    return [ipaddress.ip_network(r) for r in
+            page.eval_on_selector_all(f'{where} table.free td:first-child', 'els => els.map(e => e.textContent)')]
+
+
+def test_network_and_broadcast_are_not_free(open_page, dataset):
+    page = open_page(f'{BASE}/map/1/10_20_50_0_24')
+    wait_for_map(page)
+    edges = [ipaddress.ip_address('10.20.50.0'), ipaddress.ip_address('10.20.50.255')]
+    rows = free_block_rows(page)
+    assert rows and not any(e in block for block in rows for e in edges)
+    used = {ip['address'].split('/')[0] for ip in dataset['ip_addresses']}
+    assert '10.20.50.255' not in used
+    page.mouse.move(*cell_center(page, *cell_of('10.20.50.0/24', '10.20.50.255')))
+    assert page.inner_text('#insp-detail .pill') == 'Broadcast address'
+    assert page.locator('#insp-detail a[href*="/ip-addresses/add/"]').count() == 0
+
+
+def test_pool_edges_are_usable(open_page, dataset):
+    """NetBox pools have no network or broadcast address."""
+    page = open_page(f'{BASE}/map/1/10_20_36_128_26')
+    wait_for_map(page)
+    used = {ip['address'].split('/')[0] for ip in dataset['ip_addresses']}
+    rows = free_block_rows(page)
+    for edge in ('10.20.36.128', '10.20.36.191'):
+        if edge not in used:
+            assert any(ipaddress.ip_address(edge) in block for block in rows), edge
+
+
+def test_legend_without_tenants_has_no_stray_text(open_page):
+    page = open_page(f'{BASE}/map/None/172_31_4_0_24')
+    wait_for_map(page)
+    assert 'null' not in page.inner_text('#legend')
+
+
+def test_legend_lists_ip_statuses_of_the_map(open_page):
+    page = open_page(f'{BASE}/map/1/10_20_0_0_17')
+    wait_for_map(page)
+    legend = page.inner_text('#legend')
+    for label in ('In use', 'DHCP', 'Reserved, deprecated', 'With role'):
+        assert label in legend
+
+
 def test_tree_shows_path_and_expands_lazily(open_page, server):
     page = open_page(f'{BASE}/map/1/10_20_48_0_20')
     page.wait_for_selector('#tree .row.current')

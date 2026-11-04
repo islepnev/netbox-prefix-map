@@ -26,7 +26,7 @@ MAX_PREFIX_LEN = 32
 # Shorter prefixes (e.g. a sparse /8) would need a 4096x4096+ grid; they get a layered map of blocks instead.
 MIN_RENDER_PREFIX_LEN = 16
 # Bump when drawing code changes, to redraw unchanged prefixes
-RENDER_VERSION = 3
+RENDER_VERSION = 4
 
 # Override via the CELL_SIZE environment variable or the --cell-size CLI flag.
 DEFAULT_CELL_SIZE = 4
@@ -114,6 +114,7 @@ def save_prefix_tree(prefixes, output_dir):
             'tenant': prefix.get('tenant'),
             'status': choice_value(prefix.get('status')),
             'role': prefix.get('role'),
+            'is_pool': bool(prefix.get('is_pool')),
             'description': prefix.get('description') or '',
             'vrf': vrf_id,
             'sanitized': sanitized_prefix,
@@ -219,7 +220,7 @@ def process_prefix(prefix_entry, prefix_subtree, descendants, ip_addresses, cell
     json_filename = f"data-{sanitized_vrf}-{sanitized_prefix}.json"
     json_filepath = os.path.join(output_dir, json_filename)
 
-    prefix_keys = {"id", "prefix", "vrf", "tenant", "status", "description"}
+    prefix_keys = {"id", "prefix", "vrf", "tenant", "status", "description", "is_pool"}
     ip_counts = ip_counts or {}
     child_prefixes = [
         dict(child, has_children=bool(node.get("children")),
@@ -247,6 +248,8 @@ def process_prefix(prefix_entry, prefix_subtree, descendants, ip_addresses, cell
         'id': prefix_entry.get("id"),
         'vrf': vrf,
         'tenant': prefix_entry.get('tenant'),
+        'status': choice_value(prefix_entry.get('status')),
+        'is_pool': bool(prefix_entry.get('is_pool')),
         'color': prefix_fill_color(prefix_entry.get('tenant'), tenant_color_map),
         'ip_count': ip_counts.get((vrf, prefix), len(ip_addresses)),
         'size': ipaddress.ip_network(prefix).num_addresses,
@@ -296,7 +299,8 @@ def process_all_prefixes(prefixes, ip_addresses, cell_size, output_dir):
             'tenant': prefix_entry.get('tenant'),
             'status': choice_value(prefix_entry.get('status')),
             'description': prefix_entry.get('description') or '',
-            'prefix': prefix_entry['prefix']
+            'prefix': prefix_entry['prefix'],
+            'is_pool': bool(prefix_entry.get('is_pool')),
         }
         prefix_tree_obj.add_prefix(prefix_data)
 

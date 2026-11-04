@@ -41,10 +41,11 @@ Each cell is `CELL_SIZE` pixels: a 1 px gap followed by the cell body. The axes 
 |---|---|
 | Nested prefix | Tenant color blended 50% with white, dotted border; longer prefixes on top |
 | IP with a role | Red |
-| Reserved IP | Black at 25% opacity |
-| Inactive IP | Not drawn |
+| DHCP or SLAAC IP | Black at 55% opacity |
+| Reserved or deprecated IP | Black at 25% opacity |
+| Inactive IP | Black at 10% opacity |
 | Other IP | Black |
-| Grid | Dotted lines every 16 cells |
+| Grid | Dotted lines every 16 cells, inner lines only |
 | Labels | Third octet of each /24 in a 3×5 pixel font, gray, on a free spot near the block center; none when the block has no room |
 
 ### Layered maps
@@ -62,7 +63,7 @@ Prefixes shorter than /16 would need a grid of 4096 × 4096 cells or more. They 
 
 The data file carries `layer` (`block_len`, `blocks`: block index and IP count) instead of the IP list. On the page a cell is a block: the inspector shows its IP count, the prefix chain, prefixes inside it and free blocks down to the block size; double-click opens the map of the child prefix covering the block, or of the first prefix inside it.
 
-Tenant colors are taken from a 16-color palette by tenant id, so a tenant keeps its color when others are added or removed.
+Tenant colors are taken from a 16-color palette by tenant id, so a tenant keeps its color when others are added or removed. The palette has no gray: a gray fill would read as a reserved IP.
 
 ## Updates
 
@@ -83,7 +84,7 @@ Layout: top bar (VRF, prefix path, search, freshness), prefix tree on the left, 
 - Zoom steps are whole device pixels per image pixel; the image is never resampled. Fit picks the largest such step that fits the view. Overlays are placed on cell edges.
 - Hovering shows the address, its IP record or "free", the prefix chain and the free blocks of the innermost prefix in the inspector; the cell and the prefix are outlined. Clicking pins the cell; clicking it again or Esc unpins.
 - Double-clicking opens the child prefix that contains the cell, otherwise the IP address in NetBox.
-- Free blocks are the largest aligned blocks with no IP record and no child prefix. Data files of prefixes without an image carry no IP list, so their free blocks are not shown.
+- Free blocks are the largest aligned blocks with no IP record and no child prefix. As in NetBox, the network and broadcast addresses of a prefix are not free unless it is a container, a pool, a /31 or a /32; the inspector labels them. Data files of prefixes without an image carry no IP list, so their free blocks are not shown.
 - The prefix tree shows the path from the outermost parent to the current prefix; other branches load on expand from `/data/...?nav=1`, which omits addresses and nested prefixes. Tree rows and the map highlight each other.
 - Search: an address or prefix inside the map is pinned or outlined in place; other queries go to `/search`, which returns, per VRF, the prefix itself or the innermost prefix containing the query, with the IP record if any. Result links carry `?focus=<query>`, which pins or outlines it when the map opens.
 - The freshness dot polls `/healthz` and turns amber when the last update failed, the updater stopped or the data is older than 24 h.
