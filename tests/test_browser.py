@@ -773,6 +773,22 @@ def test_svg_export_black_and_white_has_16_distinct_hatches(open_page, output_di
     assert len(same) == 2, same
 
 
+def test_reserved_prefix_in_legend_chain_and_svg(open_page):
+    page = open_page(f'{BASE}/map/1/10_20_0_0_17')
+    wait_for_map(page)
+    assert page.locator('#legend .lg:has(.sw.striped)').inner_text() == 'Reserved, deprecated prefix'
+    page.mouse.move(*cell_center(page, *cell_of('10.20.0.0/17', '10.20.5.200')))
+    assert page.inner_text('#insp-detail .chain li.inner .d').startswith('reserved · ')
+    for mono in (False, True):
+        svg, root = export_svg(page, mono=mono)
+        assert len(root.findall(f'.//{SVG_NS}path[@class="striped"]')) == 1
+        assert 'Reserved, deprecated prefix' in svg
+    page = open_page(f'{BASE}/map/1/10_20_48_0_24')
+    wait_for_map(page)
+    assert page.locator('#legend .sw.striped').count() == 0
+    assert page.errors == []
+
+
 def test_svg_export_of_layered_map(open_page):
     page = open_page(f'{BASE}/map/1/10_0_0_0_8')
     wait_for_map(page)

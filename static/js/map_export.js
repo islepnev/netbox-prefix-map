@@ -14,6 +14,7 @@ window.PrefixMapExport = (() => {
         ["d1/2"], ["d2/2"], ["h/2"], ["v/2"], ["bigdots"], ["rings"], ["d1", "h"], ["d2", "v"],
     ];
     const r2 = (v) => Math.round(v * 100) / 100;
+    const STRIPED = new Set(["reserved", "deprecated"]);  // prefix statuses drawn with stripes
     // Path data of one line family or dot lattice inside the rectangle (x0, y0)-(x1, y1); the lattice is anchored at 0,
     // so neighbouring rectangles of one tenant continue each other
     function hatchPart(kind, x0, y0, x1, y1, P) {
@@ -143,6 +144,8 @@ window.PrefixMapExport = (() => {
             const hatched = mono && fill !== null;
             body.push(`<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="${hatched ? "#fff" : fill || "none"}" stroke="#000" stroke-width="${U / 16}" stroke-dasharray="${U / 5} ${U / 5}"><title>${esc(n.p.prefix)}</title></rect>`);
             if (hatched) body.push(hatchSvg(fill, x, y, w, h, P));
+            // Reserved and deprecated prefixes: diagonal stripes every two cells, as on the PNG
+            if (STRIPED.has(n.p.status)) body.push(`<path class="striped" d="${hatchPart("d2", x, y, x + w, y + h, 2 * U)}" fill="none" stroke="#000" stroke-opacity=".5" stroke-width="${U / 10}"/>`);
         }
 
         // Labels: the octet that tells the 16 x 16-cell groups apart; mirrors block_labels() in app/plot_map.py
@@ -226,6 +229,7 @@ window.PrefixMapExport = (() => {
             }
             if ((ctx.ranges || []).length) items.push({ fill: "#fff", opacity: 1, dot: true, label: "IP range" });
         }
+        if (ctx.nested.some((n) => STRIPED.has(n.p.status) && !(layer && n.len > blockLen))) items.push({ fill: "#fff", opacity: 1, striped: true, label: "Reserved, deprecated prefix" });
         const sameAs = (key) => {
             const same = tenantOrder.filter((o) => o !== key && tenantLook.get(o) === tenantLook.get(key)).map(ctx.tenantName);
             return same.length ? ` (same ${mono ? "pattern" : "colour"} as ${same.join(", ")})` : "";
@@ -252,6 +256,7 @@ window.PrefixMapExport = (() => {
                 ? `<rect x="${it.x}" y="${y}" width="${sw}" height="${sw}" fill="#fff" stroke="#999" stroke-width="${fs / 12}"/><path d="${checkerPath(it.x, y, it.x + sw, y + sw, sw / 8)}" fill="#999"/>`
                 : `<rect x="${it.x}" y="${y}" width="${sw}" height="${sw}" fill="${it.fill}" fill-opacity="${it.opacity}" stroke="#999" stroke-width="${fs / 12}"/>`
                     + (it.hatch !== undefined ? hatchSvg(it.hatch, it.x, y, sw, sw, P) : "")
+                    + (it.striped ? `<path d="${hatchPart("d2", it.x, y, it.x + sw, y + sw, sw / 3)}" fill="none" stroke="#000" stroke-opacity=".5" stroke-width="${fs / 12}"/>` : "")
                     + (it.hollow ? `<rect x="${it.x + sw / 3}" y="${y + sw / 3}" width="${sw / 3}" height="${sw / 3}" fill="#fff"/>` : "")
                     + (it.dot ? `<rect x="${it.x + sw / 3}" y="${y + sw / 3}" width="${sw / 3}" height="${sw / 3}" fill="#555"/>` : "");
             return swatch + text;

@@ -526,6 +526,7 @@
         reserved: { color: "rgba(0,0,0,.25)", svg: ["#000", 0.25], label: "Reserved, deprecated" },
         inactive: { color: "rgba(0,0,0,.1)", svg: ["#000", 0.1], label: "Inactive" },
     };
+    const STRIPED_STATUS = new Set(["reserved", "deprecated"]);  // prefix statuses drawn with stripes
     const STATUS_KIND = { dhcp: "dhcp", slaac: "dhcp", reserved: "reserved", deprecated: "reserved", inactive: "inactive" };
     const ipKind = (ip) => (ip.role ? "role" : STATUS_KIND[ip.status] || "active");
     const ipColor = (ip) => IP_KINDS[ipKind(ip)].color;
@@ -609,14 +610,14 @@
 
     function chainSection(chainNodes) {
         const chain = [
-            ...cfg.parents.map((p) => ({ prefix: p.prefix, id: p.id, vrf: cfg.vrfKey, desc: p.description, tenant: p.tenant, pool: p.is_pool, vlan: p.vlan })),
+            ...cfg.parents.map((p) => ({ prefix: p.prefix, id: p.id, vrf: cfg.vrfKey, desc: p.description, tenant: p.tenant, pool: p.is_pool, vlan: p.vlan, status: p.status })),
             { prefix: cfg.prefix, id: cfg.prefixId, vrf: cfg.vrfKey, desc: cfg.details.description, tenant: cfg.details.tenant_id, here: true,
-                pool: data.is_pool ?? cfg.details.is_pool, vlan: cfg.details.vlan_id },
-            ...chainNodes.map((n) => ({ prefix: n.p.prefix, id: n.p.id, vrf: n.p.vrf ?? data.vrf, desc: n.p.description, tenant: n.p.tenant, pool: n.p.is_pool, vlan: n.p.vlan })),
+                pool: data.is_pool ?? cfg.details.is_pool, vlan: cfg.details.vlan_id, status: data.status ?? cfg.details.status },
+            ...chainNodes.map((n) => ({ prefix: n.p.prefix, id: n.p.id, vrf: n.p.vrf ?? data.vrf, desc: n.p.description, tenant: n.p.tenant, pool: n.p.is_pool, vlan: n.p.vlan, status: n.p.status })),
         ];
         const innerPrefix = chain.at(-1).prefix;
         return sec("Prefix chain", `${chain.length} levels`, el("ol", { class: "chain" }, chain.map((c) => {
-            const desc = [c.pool ? "pool" : null, c.desc, tenantName(c.tenant), vlanName(c.vlan)].filter(Boolean).join(" · ");
+            const desc = [STRIPED_STATUS.has(c.status) ? c.status : null, c.pool ? "pool" : null, c.desc, tenantName(c.tenant), vlanName(c.vlan)].filter(Boolean).join(" · ");
             return el("li", { class: [c.here ? "here" : "", c.prefix === innerPrefix ? "inner" : ""].join(" ").trim() || null },
                 el("span", { class: "p", text: c.prefix }),
                 el("span", { class: "l" },
@@ -772,6 +773,9 @@
                 .filter((kind) => !hasIps || kind === "active" || kind === "role" || (data.ip_addresses || []).some((ip) => ipKind(ip) === kind))
                 .map((kind) => el("span", { class: "lg" }, sw(IP_KINDS[kind].color), IP_KINDS[kind].label)),
                 ranges.length ? el("span", { class: "lg" }, el("span", { class: "sw range" }), "IP range") : null);
+        const striped = nested.some((n) => STRIPED_STATUS.has(n.p.status) && !(layer && n.len > blockLen))
+            ? el("span", { class: "lg" }, el("span", { class: "sw striped" }), "Reserved, deprecated prefix") : null;
+        if (striped) keys.append(striped);
         // replaceChildren() would print null as text
         $("legend").replaceChildren(...[
             keys,
