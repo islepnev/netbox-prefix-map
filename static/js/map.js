@@ -268,108 +268,136 @@
     // pixels, nearest-neighbour scaling repeats the same pixel pattern in every cell, so cells stay identical.
     let c = 0, fitMode = true, dpr = window.devicePixelRatio || 1;
     let hover = null, pinned = null, selected = null, freeHi = null;
-    const viewport = $("viewport"), stage = $("stage"), wrap = $("stage-wrap");
+    const viewport = $("viewport"), stage = $("stage");
     const ov = img && { hover: $("ov-hover"), pin: $("ov-pin"), prefix: $("ov-prefix"), select: $("ov-select"), free: $("ov-free") };
 
-    // ---------- zoom ----------
+    // ---------- camera: continuous zoom and the map position, as in a map app ----------
+    // c: device pixels per cell, any value. At whole multiples of the image cell size cs every cell gets the same pixel
+    // pattern (nearest-neighbour); in between, cells differ by a device pixel; below 1x the image is scaled smoothly.
+    // ox, oy: CSS pixels of the map's top-left corner in the viewport. The wheel and pinch zoom about the pointer,
+    // dragging pans; + and - step through the crisp levels.
     const PAD = 16, MAX_SCALE = 16;
+    let ox = 0, oy = 0;
     const maxC = () => cs * MAX_SCALE;
-    // Below 1x the cell size halves down to 1 device pixel (2, 1 with the default cell size); the gaps cannot be kept
-    // there, so the image is scaled smoothly instead of nearest-neighbour.
-    function lowSteps() {
-        const steps = [];
-        for (let v = cs; v > 1;) { v = Math.max(1, Math.floor(v / 2)); steps.push(v); }
-        return steps;
-    }
-    const minC = () => lowSteps().at(-1) ?? cs;
     function fitC() {
         const w = (viewport.clientWidth - 2 * PAD) * dpr, h = (viewport.clientHeight - 2 * PAD) * dpr;
-        const f = Math.min(maxC(), Math.floor(w / GW), Math.floor(h / GH));
-        return f >= cs ? f : lowSteps().find((v) => v <= f) ?? minC();
+        return Math.max(0.05, Math.min(maxC(), w / GW, h / GH));
     }
-    // Zoom steps grow by about a quarter: 4, 5, 6, 7, 8, 10, 12, 14, 16, 20, ...
+    const minC = () => Math.min(1, fitC()) / 2;
+    // Crisp levels: 1, 2 below cs (halving), then cs, cs + 1, ... growing by about a quarter: 4, 5, 6, 7, 8, 10, 12, ...
     const stepOf = (v) => Math.max(1, 2 ** (Math.floor(Math.log2(v)) - 2));
+    function crispLevels() {
+        const levels = new Set();
+        for (let v = cs; v > 1;) { v = Math.max(1, Math.floor(v / 2)); levels.add(v); }
+        for (let v = cs; v <= maxC(); v += stepOf(v)) levels.add(v);
+        return [...levels].sort((a, b) => a - b);
+    }
     function zoomStep(v, dir) {
-        if (dir > 0 && v < cs) return lowSteps().reverse().find((s) => s > v) ?? cs;
-        if (dir < 0 && v <= cs) return lowSteps().find((s) => s < v) ?? minC();
-        if (dir > 0) return Math.min(maxC(), Math.floor(v / stepOf(v)) * stepOf(v) + stepOf(v));
-        const down = v - stepOf(v - 1);
-        return Math.max(cs, Math.ceil(down / stepOf(down)) * stepOf(down));
+        const levels = crispLevels();
+        if (dir > 0) return levels.find((l) => l > v + 1e-6) ?? maxC();
+        return [...levels].reverse().find((l) => l < v - 1e-6) ?? minC();
     }
     const scaleText = (v) => `${Number((v / cs).toFixed(2))}×`;
-    // keep: keep the map point under the view centre in place, or under anchor ([x, y] in viewport pixels) when given
-    function layout(keep, anchor) {
+    const mapW = () => (GW * c) / dpr, mapH = () => (GH * c) / dpr;
+    function centre() {
+        ox = (viewport.clientWidth - mapW()) / 2;
+        oy = (viewport.clientHeight - mapH()) / 2;
+    }
+    function layout() {
         if (!img || !img.naturalWidth) return;
-        const vw = viewport.clientWidth, vh = viewport.clientHeight;
-        const [ax, ay] = anchor || [vw / 2, vh / 2];
-        const oldW = stage.offsetWidth || 1, oldH = stage.offsetHeight || 1;
-        const cx = (viewport.scrollLeft + ax - stage.offsetLeft) / oldW;
-        const cy = (viewport.scrollTop + ay - stage.offsetTop) / oldH;
-        const w = (GW * c) / dpr, h = (GH * c) / dpr;
+        const vw = viewport.clientWidth, vh = viewport.clientHeight, w = mapW(), h = mapH();
+        // The map may move until its edge reaches the middle of the view, so it can never be lost
+        ox = Math.min(vw / 2, Math.max(vw / 2 - w, ox));
+        oy = Math.min(vh / 2, Math.max(vh / 2 - h, oy));
+        const snap = (v) => Math.round(v * dpr) / dpr;
         img.style.width = `${w}px`;
         img.style.height = `${h}px`;
-        const snap = (v) => Math.floor(v * dpr) / dpr;
-        const left = snap(Math.max(PAD, (vw - w) / 2)), topPx = snap(Math.max(PAD, (vh - h) / 2));
-        stage.style.left = `${left}px`;
-        stage.style.top = `${topPx}px`;
-        wrap.style.width = `${left + w + PAD}px`;
-        wrap.style.height = `${topPx + h + PAD}px`;
-        if (keep) {
-            viewport.scrollLeft = cx * w + left - ax;
-            viewport.scrollTop = cy * h + topPx - ay;
-        }
+        stage.style.left = `${snap(ox)}px`;
+        stage.style.top = `${snap(oy)}px`;
         document.documentElement.style.setProperty("--hair", `${1 / dpr}px`);
         stage.classList.add("laid-out");
         $("zoom-level").textContent = scaleText(c);
-        $("zoom-level").title = `1 ${layer ? "cell" : "address"} = ${c} device px`;
+        $("zoom-level").title = `1 ${layer ? "cell" : "address"} = ${Number(c.toFixed(2))} device px`;
         img.classList.toggle("smooth", c < cs);
-        $("zoom-out").disabled = c <= minC();
-        $("zoom-in").disabled = c >= maxC();
+        $("zoom-out").disabled = c <= minC() + 1e-6;
+        $("zoom-in").disabled = c >= maxC() - 1e-6;
         $("zoom-fit").classList.toggle("active", fitMode);
         drawOverlays();
     }
-    function setC(v, byUser, anchor) {
+    // Zoom to v keeping the map point under anchor ([x, y] in viewport CSS pixels; default the view centre) in place
+    function zoomAt(v, anchor) {
+        const [ax, ay] = anchor || [viewport.clientWidth / 2, viewport.clientHeight / 2];
+        const u0 = c / dpr, mx = (ax - ox) / u0, my = (ay - oy) / u0;
         c = Math.max(minC(), Math.min(maxC(), v));
-        fitMode = !byUser;
-        layout(true, anchor);
+        ox = ax - (mx * c) / dpr;
+        oy = ay - (my * c) / dpr;
+        fitMode = false;
+        layout();
     }
+    function setC(v, byUser, anchor) {
+        if (byUser) { zoomAt(v, anchor); return; }
+        c = v;
+        fitMode = true;
+        centre();
+        layout();
+    }
+    function panBy(dx, dy) {
+        ox += dx;
+        oy += dy;
+        layout();
+    }
+    const pointIn = (ev) => { const r = viewport.getBoundingClientRect(); return [ev.clientX - r.left, ev.clientY - r.top]; };
 
-    // Ctrl/Cmd + wheel and touchpad pinch (a wheel event with ctrlKey) zoom about the pointer, one step per notch;
-    // the plain wheel scrolls. Dragging with the primary button pans; a drag does not pin.
-    function enableWheelAndDrag() {
-        let wheelSum = 0;
+    function enableGestures() {
+        // Wheel: zoom about the pointer. Touchpad pinch arrives as a wheel event with ctrlKey and small deltas.
         viewport.addEventListener("wheel", (ev) => {
-            if (!ev.ctrlKey && !ev.metaKey) return;
             ev.preventDefault();
-            wheelSum += ev.deltaMode === 1 ? ev.deltaY * 40 : ev.deltaY;
-            if (Math.abs(wheelSum) < 40) return;
-            const dir = wheelSum < 0 ? 1 : -1;
-            wheelSum = 0;
-            const r = viewport.getBoundingClientRect();
-            const next = zoomStep(c, dir);
-            if (next !== c) setC(next, true, [ev.clientX - r.left, ev.clientY - r.top]);
+            const delta = ev.deltaY * (ev.deltaMode === 1 ? 40 : ev.deltaMode === 2 ? 800 : 1);
+            zoomAt(c * Math.exp(-delta / (ev.ctrlKey ? 100 : 450)), pointIn(ev));
         }, { passive: false });
-        let drag = null, dragged = false;
+        // Safari pinch: gesture events with a scale since the gesture began
+        let gesture = null;
+        viewport.addEventListener("gesturestart", (ev) => { ev.preventDefault(); gesture = { c, at: pointIn(ev) }; });
+        viewport.addEventListener("gesturechange", (ev) => { ev.preventDefault(); if (gesture) zoomAt(gesture.c * ev.scale, gesture.at); });
+        viewport.addEventListener("gestureend", (ev) => { ev.preventDefault(); gesture = null; });
+        // Pointers: one drags (mouse or finger), two pinch. A move of 4 px or more is a drag; its click does not pin.
+        const pointers = new Map();
+        let pinch = null, dragged = false;
+        const mid = () => { const [a, b] = [...pointers.values()]; return [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]; };
+        const dist = () => { const [a, b] = [...pointers.values()]; return Math.hypot(a[0] - b[0], a[1] - b[1]); };
         viewport.addEventListener("pointerdown", (ev) => {
-            if (ev.button !== 0 || ev.pointerType !== "mouse") return;
-            drag = { x: ev.clientX, y: ev.clientY, left: viewport.scrollLeft, top: viewport.scrollTop, id: ev.pointerId };
-            dragged = false;
+            if (ev.pointerType === "mouse" && ev.button !== 0) return;
+            pointers.set(ev.pointerId, pointIn(ev));
+            if (pointers.size === 1) { dragged = false; pointers.get(ev.pointerId).start = pointIn(ev); }
+            if (pointers.size === 2) pinch = { d: dist(), c, m: mid() };
         });
         viewport.addEventListener("pointermove", (ev) => {
-            if (!drag || ev.pointerId !== drag.id) return;
-            const dx = ev.clientX - drag.x, dy = ev.clientY - drag.y;
-            if (!dragged && Math.hypot(dx, dy) < 4) return;
+            const p = pointers.get(ev.pointerId);
+            if (!p) return;
+            const now = pointIn(ev);
+            if (pointers.size === 2 && pinch) {
+                pointers.set(ev.pointerId, now);
+                const m = mid();
+                zoomAt(pinch.c * (dist() / pinch.d), m);
+                panBy(m[0] - pinch.m[0], m[1] - pinch.m[1]);
+                pinch.m = m;
+                dragged = true;
+                return;
+            }
+            if (!dragged && Math.hypot(now[0] - p.start[0], now[1] - p.start[1]) < 4) return;
             if (!dragged) { dragged = true; viewport.setPointerCapture(ev.pointerId); viewport.classList.add("dragging"); }
-            viewport.scrollLeft = drag.left - dx;
-            viewport.scrollTop = drag.top - dy;
+            const start = p.start;
+            pointers.set(ev.pointerId, Object.assign(now, { start }));
+            panBy(now[0] - p[0], now[1] - p[1]);
         });
-        const end = () => {
-            drag = null;
-            viewport.classList.remove("dragging");
+        const end = (ev) => {
+            pointers.delete(ev.pointerId);
+            if (pointers.size < 2) pinch = null;
+            if (pointers.size === 1) { const [p] = pointers.values(); p.start = [p[0], p[1]]; }
+            if (!pointers.size) viewport.classList.remove("dragging");
         };
         viewport.addEventListener("pointerup", end);
         viewport.addEventListener("pointercancel", end);
-        // The click that ends a drag is not a pin
         viewport.addEventListener("click", (ev) => { if (dragged) { dragged = false; ev.stopPropagation(); } }, true);
     }
 
@@ -521,10 +549,12 @@
             img ? el("label", { class: "check" }, toggle, " Show on the map") : null,
             earlier);
     }
+    // Move the map so that the cells x1..x2, y1..y2 are in the middle of the view
     function scrollToBounds([x1, y1, x2, y2]) {
         const u = c / dpr;
-        const cx = stage.offsetLeft + ((x1 + x2 + 1) / 2) * u, cy = stage.offsetTop + ((y1 + y2 + 1) / 2) * u;
-        viewport.scrollTo({ left: cx - viewport.clientWidth / 2, top: cy - viewport.clientHeight / 2 });
+        ox = viewport.clientWidth / 2 - ((x1 + x2 + 1) / 2) * u;
+        oy = viewport.clientHeight / 2 - ((y1 + y2 + 1) / 2) * u;
+        layout();
     }
 
     function hitTest(ev) {
@@ -935,12 +965,10 @@
     // Arrows move the pinned cell (Shift: 16 cells), Enter opens it, c copies it
     const ARROWS = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
     function ensureVisible([x1, y1, x2, y2]) {
-        const u = c / dpr, m = 24;
-        const l = stage.offsetLeft + x1 * u, t = stage.offsetTop + y1 * u, r = stage.offsetLeft + (x2 + 1) * u, b = stage.offsetTop + (y2 + 1) * u;
-        if (l < viewport.scrollLeft + m) viewport.scrollLeft = l - m;
-        else if (r > viewport.scrollLeft + viewport.clientWidth - m) viewport.scrollLeft = r - viewport.clientWidth + m;
-        if (t < viewport.scrollTop + m) viewport.scrollTop = t - m;
-        else if (b > viewport.scrollTop + viewport.clientHeight - m) viewport.scrollTop = b - viewport.clientHeight + m;
+        const u = c / dpr, m = 24, vw = viewport.clientWidth, vh = viewport.clientHeight;
+        const l = ox + x1 * u, t = oy + y1 * u, r = ox + (x2 + 1) * u, b = oy + (y2 + 1) * u;
+        const dx = l < m ? m - l : r > vw - m ? vw - m - r : 0, dy = t < m ? m - t : b > vh - m ? vh - m - b : 0;
+        if (dx || dy) panBy(dx, dy);
     }
     function moveKey(ev) {
         if (ARROWS[ev.key]) {
@@ -977,16 +1005,23 @@
 
     function startMap() {
         c = fitC();
-        layout(false);
+        centre();
+        layout();
         $("zoom-in").addEventListener("click", () => setC(zoomStep(c, 1), true));
         $("zoom-out").addEventListener("click", () => setC(zoomStep(c, -1), true));
         $("zoom-fit").addEventListener("click", () => setC(fitC(), false));
-        new ResizeObserver(() => { if (fitMode) c = fitC(); layout(!fitMode); }).observe(viewport);
-        enableWheelAndDrag();
+        let size = [viewport.clientWidth, viewport.clientHeight];
+        new ResizeObserver(() => {
+            // Fit follows the view; otherwise the map point in the middle of the view stays there
+            if (fitMode) { c = fitC(); centre(); } else { ox += (viewport.clientWidth - size[0]) / 2; oy += (viewport.clientHeight - size[1]) / 2; }
+            size = [viewport.clientWidth, viewport.clientHeight];
+            layout();
+        }).observe(viewport);
+        enableGestures();
         const watchDpr = () => matchMedia(`(resolution: ${dpr}dppx)`).addEventListener("change", () => {
             dpr = window.devicePixelRatio || 1;
-            if (fitMode) c = fitC();
-            layout(false);
+            if (fitMode) { c = fitC(); centre(); }
+            layout();
             watchDpr();
         }, { once: true });
         watchDpr();
@@ -1058,5 +1093,6 @@
             document.body.dataset.ready = "error";
         });
 
-    window.__prefixMap = { get k() { return c / cs; }, get c() { return c; }, get dpr() { return dpr; }, cellToOffset, offsetToCell, freeBlocks: (p) => freeBlocks(parsePrefix(p)), cellOf };
+    window.__prefixMap = { get k() { return c / cs; }, get c() { return c; }, get dpr() { return dpr; },
+        get camera() { return [ox, oy]; }, centreCell: (x, y) => scrollToBounds([x, y, x, y]), cellToOffset, offsetToCell, freeBlocks: (p) => freeBlocks(parsePrefix(p)), cellOf };
 })();
