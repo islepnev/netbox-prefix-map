@@ -2,27 +2,27 @@
 <html lang="{{ lang }}">
 <head>
 {% include '_head.html' %}
-    <title>VRFs · Prefix Map</title>
+    <title>{{ t('index.title') }} · {{ t('app.name') }}</title>
 </head>
 <body class="doc-page">
 {% include '_topbar.html' %}
-{% from '_usage.html' import count %}
+{% from '_usage.html' import count with context %}
 <main class="page-main">
     <div class="page-head">
         <div>
-            <h1>VRFs</h1>
-            <div class="sub">IPv4 prefixes and IP addresses by VRF</div>
+            <h1>{{ t('index.title') }}</h1>
+            <div class="sub">{{ t('index.subtitle') }}</div>
         </div>
     </div>
     <div class="card">
         <table class="list" id="vrf-list">
             <thead>
-                <tr><th>VRF</th><th class="hide-narrow">Description</th><th class="hide-narrow">RD</th><th class="num">Prefixes</th><th class="num">Addresses</th><th class="num">NetBox</th></tr>
+                <tr><th>VRF</th><th class="hide-narrow">{{ t('col.description') }}</th><th class="hide-narrow">RD</th><th class="num">{{ t('col.prefixes') }}</th><th class="num">{{ t('col.addresses') }}</th><th class="num">NetBox</th></tr>
             </thead>
             <tbody>
                 {% for row in rows %}
                 <tr>
-                    <td class="name"><a href="{{ url_for('app.vrf_view', vrf=row.key) }}">{{ row.name }}</a></td>
+                    <td class="name"><a href="{{ url_for('app.vrf_view', vrf=row.key) }}">{{ row.name if row.id is not none else t('vrf.global') }}</a></td>
                     <td class="desc hide-narrow">{{ row.description or '' }}</td>
                     <td class="mono hide-narrow">{{ row.rd or '' }}</td>
                     <td class="num">{{ count(row.prefix_count) }}</td>
