@@ -151,3 +151,11 @@ make test
 ```
 
 Tests run offline against a synthetic dataset (`tests/synthetic_data.py`). Design notes: [docs/design.md](docs/design.md).
+
+## Contributing
+
+Issues and pull requests are welcome. Run `make test` before sending a change; tests run offline against the synthetic dataset. Contributions are accepted under the Apache License 2.0, as the rest of the project.
+
+## License
+
+Apache License 2.0, see [LICENSE](LICENSE). Free to use, modify and redistribute, commercially too. Redistributions and derivative works must keep the copyright and [NOTICE](NOTICE) with the author's name, Ilia Slepnev.
