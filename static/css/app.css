@@ -189,6 +189,10 @@ body.no-tree #tree-panel, body.no-insp #insp-panel { display: none; }
 #ov-free { box-shadow: inset 0 0 0 var(--hair) #0a8f4f; background: rgba(10, 143, 79, .12); }
 #ov-hover { box-shadow: inset 0 0 0 var(--hair) #111, 0 0 0 var(--hair) #fff; }
 #ov-changes { position: absolute; inset: 0; pointer-events: none; }
+#ov-tenant { position: absolute; inset: 0; pointer-events: none; }
+.ov-tenant { position: absolute; box-shadow: inset 0 0 0 calc(var(--hair) * 2) var(--accent), 0 0 0 calc(var(--hair) * 2) #fff; }
+.lg.tenant-toggle { cursor: pointer; border-radius: 3px; padding: 0 3px; margin: 0 -3px; }
+.lg.tenant-toggle:hover, .lg.tenant-toggle[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent-text); }
 .ov-change { position: absolute; box-shadow: inset 0 0 0 calc(var(--hair) * 2) var(--c); background: color-mix(in srgb, var(--c) 18%, transparent); }
 .ov-change.added { --c: #16a34a; }
 .ov-change.removed { --c: #dc2626; }
