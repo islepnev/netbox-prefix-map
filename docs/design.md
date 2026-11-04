@@ -24,7 +24,7 @@
 
 `<vrf>` is the VRF id or `None`; in `<prefix>`, `.` and `/` are replaced with `_`. All files are written to a temporary name and renamed, so readers never see partial files.
 
-Each data file keeps `changes`: what the last update that changed the prefix added, removed or changed, compared with the previous data file: IP records (address and VRF; status, role, DNS name) and nested prefixes, at most 1,000 of each with full counts, and the time (`at`, `since`). An update without changes keeps the previous record; the first update has none.
+Each data file keeps `changes`: what the last update that changed the prefix added, removed or changed, compared with the previous data file: IP records (address and VRF; status, role, DNS name) and nested prefixes, at most 1,000 of each with full counts, and the time (`at`, `since`). An update without changes keeps the previous record; the first update has none. `changes_history` keeps the last 10 such records, newest first, with at most 100 entries per list (full counts); a data file of an older version seeds it with its `changes`. The prefix summary lists the history; picking a record shows it above and on the map.
 
 An image is redrawn only when its inputs change. The inputs are hashed (`render_hash` in the data file): address, status and role of each IP, nested prefixes with their tenant colors and statuses, cell size and `RENDER_VERSION`. Bump `RENDER_VERSION` when drawing code changes.
 

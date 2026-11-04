@@ -450,9 +450,25 @@
             el("button", { type: "button", class: "linkish", text: "Clear outline", onclick: () => toggleTenant(null) }));
     }
 
+    // Change shown in the summary and on the map: the last one, or an earlier one picked from the history
+    let changeIndex = 0;
+    const changeHistory = () => (data.changes_history && data.changes_history.length ? data.changes_history : data.changes ? [data.changes] : []);
+    // The newest history record has shorter lists than data.changes, the same change in full
+    const currentChange = () => (changeIndex === 0 && data.changes) || changeHistory()[changeIndex] || null;
+    function changeSummary(ch) {
+        const n = (key) => ch[`${key}_count`] ?? (ch[key] || []).length;
+        return [
+            n("added") ? `${fmt(n("added"))} IP added` : null,
+            n("removed") ? `${fmt(n("removed"))} removed` : null,
+            n("changed") ? `${fmt(n("changed"))} changed` : null,
+            n("prefixes_added") ? `${fmt(n("prefixes_added"))} prefix${n("prefixes_added") > 1 ? "es" : ""} added` : null,
+            n("prefixes_removed") ? `${fmt(n("prefixes_removed"))} prefix${n("prefixes_removed") > 1 ? "es" : ""} removed` : null,
+        ].filter(Boolean).join(" · ");
+    }
+
     function drawChanges() {
         const box = $("ov-changes");
-        const ch = data && data.changes;
+        const ch = data && currentChange();
         if (!box || !ch || !showChanges || !img) { if (box) box.hidden = true; return; }
         const u = c / dpr;
         const cells = [];
@@ -477,16 +493,9 @@
         box.hidden = false;
     }
     function changesSection() {
-        const ch = data.changes;
+        const ch = currentChange();
         if (!ch) return null;
-        const n = (key) => ch[`${key}_count`] ?? (ch[key] || []).length;
-        const parts = [
-            n("added") ? `${fmt(n("added"))} IP added` : null,
-            n("removed") ? `${fmt(n("removed"))} removed` : null,
-            n("changed") ? `${fmt(n("changed"))} changed` : null,
-            n("prefixes_added") ? `${fmt(n("prefixes_added"))} prefix${n("prefixes_added") > 1 ? "es" : ""} added` : null,
-            n("prefixes_removed") ? `${fmt(n("prefixes_removed"))} prefix${n("prefixes_removed") > 1 ? "es" : ""} removed` : null,
-        ].filter(Boolean);
+        const history = changeHistory();
         const rows = [];
         for (const [key, cls] of CHANGE_KINDS) for (const a of ch[key] || []) rows.push([a, cls]);
         for (const p of ch.prefixes_added || []) rows.push([p, "added"]);
@@ -498,15 +507,23 @@
             store.set("prefix-map.show-changes", showChanges ? "1" : "0");
             drawChanges();
         });
-        return sec("Last change", new Date(ch.at * 1000).toLocaleString(),
-            el("div", { class: "sub" }, parts.join(" · ")),
+        const pick = (i) => { changeIndex = i; renderSummary(); drawChanges(); };
+        const earlier = history.length > 1 ? el("div", { class: "history" },
+            el("div", { class: "hint", text: "History" }),
+            el("table", { class: "free changes history" }, el("tbody", null, history.map((h, i) => el("tr", {
+                class: i === changeIndex ? "current" : null, onclick: () => pick(i),
+                title: i === changeIndex ? "Shown above" : "Show this change",
+            }, el("td", { text: new Date(h.at * 1000).toLocaleString() }), el("td", { class: "n", text: changeSummary(h) })))))) : null;
+        return sec(changeIndex ? "Earlier change" : "Last change", new Date(ch.at * 1000).toLocaleString(),
+            el("div", { class: "sub" }, changeSummary(ch)),
             el("table", { class: "free changes" }, el("tbody", null, rows.slice(0, 8).map(([text, cls]) => {
                 const isPrefix = text.includes("/");
                 return el("tr", { onclick: img ? () => (isPrefix ? outline(parsePrefix(text)) : pin(blockStart(ipToInt(text)), true)) : null },
                     el("td", { text }), el("td", { class: `n ${cls}`, text: cls }));
             }))),
             rows.length > 8 ? el("div", { class: "hint", text: `${fmt(rows.length - 8)} more` }) : null,
-            img ? el("label", { class: "check" }, toggle, " Show on the map") : null);
+            img ? el("label", { class: "check" }, toggle, " Show on the map") : null,
+            earlier);
     }
     function scrollToBounds([x1, y1, x2, y2]) {
         const u = c / dpr;
