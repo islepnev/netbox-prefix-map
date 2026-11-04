@@ -5,6 +5,7 @@ import os
 import zlib
 import matplotlib
 matplotlib.use("Agg")  # renders off the main thread, without a display
+from matplotlib.colors import to_rgb  # noqa: E402
 from matplotlib.patches import Rectangle  # noqa: E402
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
@@ -13,7 +14,6 @@ from app.color_design import TABLEAU10_PALETTE, blend_colors, design_color_palet
 from app.utils import choice_value, expand_ip_entry, extract_ip_details  # noqa: E402
 
 
-Z_DEPTH_IP_CELLS = 110  # on top
 Z_DEPTH_PREFIX_LABEL = 100
 Z_DEPTH_PREFIX_PATCH = 20  # add 0 to 31
 Z_DEPTH_AXES = 10  # on bottom
@@ -301,24 +301,19 @@ def draw_sparse_grid(ax, cell_size, grid_width, grid_height, palette):
         ax.axvline(i * cell_size, color=palette['grid_lines'], linestyle=':', linewidth=1, zorder=Z_DEPTH_AXES, aa=False)
 
 
-def plot_allocated_ips(ax, ip_details, cell_size, palette):
+def paint_allocated_ips(image, ip_details, cell_size):
     """
-    Plot allocated IP addresses on the grid.
+    Paint IP cells into an (h, w, 3) float image in place: the cell body, without the 1 px gap before it.
+    Painting into the array instead of adding one matplotlib patch per IP keeps large maps fast.
     """
+    body = cell_size - 1
     for (x, y), details in ip_details.items():
-        color, alpha = determine_ip_color(details, palette)
-        if color != 'none':  # Only plot if not transparent
-            rect = Rectangle(
-                (x * cell_size + 1, y * cell_size + 1),  # Adjust for spacing
-                cell_size - 1,
-                cell_size - 1,
-                facecolor=color,
-                edgecolor='none',
-                alpha=alpha,
-                aa=False,
-                zorder=Z_DEPTH_IP_CELLS  # on top
-            )
-            ax.add_patch(rect)
+        color, alpha = determine_ip_color(details)
+        if color == 'none' or not alpha:
+            continue
+        region = image[y * cell_size + 1:y * cell_size + 1 + body, x * cell_size + 1:x * cell_size + 1 + body]
+        region *= 1 - alpha
+        region += np.asarray(to_rgb(color)) * alpha
 
 
 def annotate_axes(ax, image_width, image_height, cell_size, grid_width, grid_height):
@@ -378,17 +373,16 @@ def plot_allocation_grid(top_level_prefix_entry, child_prefixes, relevant_ips, o
 
     draw_prefix_rectangles(ax, rectangles, cell_size, tenant_color_map)
 
-    plot_allocated_ips(ax, ip_details, cell_size, palette)
-
     finalize_plot(ax, image_width, image_height, top_level_prefix_entry)
 
     fig.canvas.draw()
     image = np.asarray(fig.canvas.buffer_rgba())[..., :3] / 255
     plt.close(fig)
+    image = image.copy()
+    paint_allocated_ips(image, ip_details, cell_size)
     occupied = np.zeros((grid_height, grid_width), dtype=bool)
     for (x, y), details in ip_details.items():
         occupied[y, x] = determine_ip_color(details, palette)[0] != 'none'
-    image = image.copy()
     paint_labels(image, block_labels(ipaddress.ip_network(top_level_prefix), 32, occupied, cell_size))
     save_png(image, output_file)
     logging.debug(f"Prefix map {top_level_prefix} saved to {output_file}")
