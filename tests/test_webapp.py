@@ -344,8 +344,8 @@ def test_search_text_finds_ips_and_prefixes(client):
     assert prefixes[0] == '10.20.48.0/20' and '10.20.50.0/24' in prefixes  # tenant name matches too
     _, body = search(client, 'host-')
     assert body['truncated'] and len(body['results']) == 50
-    assert search(client, 'no such name') == (200, {'query': 'no such name', 'results': [], 'text': True,
-                                                     'truncated': False})
+    assert search(client, 'no such name') == (
+        200, {'query': 'no such name', 'results': [], 'text': True, 'truncated': False})
 
 
 def test_map_page_shows_vlan_and_scope(client):
