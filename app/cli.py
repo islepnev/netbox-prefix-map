@@ -16,6 +16,7 @@ from app.plot_map import (
     plot_layered_grid, prefix_fill_color,
 )
 from app.prefix_tree import PrefixTree
+from app.problems import duplicate_prefixes, ip_problems, problems_in
 from app.utils import (
     IpIndex, choice_value, filter_keys_from_dicts, load_json, resolve_output_dir, sanitize_name,
     write_json_atomic,
@@ -155,8 +156,11 @@ def save_prefix_tree(prefixes, output_dir):
     logging.info(f"Saved prefix tree data to {prefix_tree_filepath}")
 
 
-def save_summary(prefixes, prefix_tree_obj, ip_addresses, ip_counts, tenant_color_map, output_dir):
-    """Per VRF: IPv4 prefix and address counts, top-level prefixes with usage."""
+def save_summary(prefixes, prefix_tree_obj, ip_addresses, ip_counts, tenant_color_map, output_dir,
+                 problem_counts=None):
+    """Per VRF: IPv4 prefix and address counts, top-level prefixes with usage and data problem counts."""
+    problem_counts = problem_counts or {}
+
     def vrf_key(vrf):
         return 'None' if vrf is None else str(vrf)
 
@@ -177,6 +181,7 @@ def save_summary(prefixes, prefix_tree_obj, ip_addresses, ip_counts, tenant_colo
                 'description': entry.get('description') or '',
                 'color': prefix_fill_color(entry.get('tenant'), tenant_color_map),
                 'ip_count': ip_counts.get((vrf, prefix), 0),
+                'problem_count': problem_counts.get((vrf, prefix), 0),
                 'size': ipaddress.ip_network(prefix).num_addresses,
                 'has_children': bool(tree.children(prefix)),
             })
@@ -312,7 +317,7 @@ def prefix_changes(previous, ip_addresses, nested_prefixes, now):
 
 
 def process_prefix(prefix_entry, prefix_subtree, descendants, ip_addresses, cell_size, tenant_color_map, output_dir,
-                   render=True, ancestors=(), ip_counts=None, layer=None, ip_ranges=()):
+                   render=True, ancestors=(), ip_counts=None, layer=None, ip_ranges=(), problems=None):
     """
     :param prefix_subtree: tree node of this prefix; its direct children go to the data file (navigation).
     :param descendants: all nested prefixes at any depth; drawn on the map.
@@ -387,6 +392,7 @@ def process_prefix(prefix_entry, prefix_subtree, descendants, ip_addresses, cell
         'ip_ranges': list(ip_ranges),
         'changes': changes,
         'changes_history': history,
+        'problems': problems,
     }
     if render:
         data_to_save['cell_size'] = cell_size
@@ -435,6 +441,12 @@ def process_all_prefixes(prefixes, ip_addresses, cell_size, output_dir, ip_range
     tenant_color_map = build_tenant_color_map(prefixes)
     ranges = normalize_ip_ranges(ip_ranges)
     ip_index = IpIndex(ip_addresses)
+    by_ip = ip_problems(ip_addresses, prefix_tree_obj)
+    duplicates = duplicate_prefixes(prefixes)
+    if duplicates:
+        logging.warning(f"{len(duplicates)} prefixes are recorded more than once in their VRF; "
+                        f"the maps show one record of each")
+    problem_counts = {}
     ip_counts = {}
     for prefix_entry in prefixes:
         try:
@@ -457,14 +469,15 @@ def process_all_prefixes(prefixes, ip_addresses, cell_size, output_dir, ip_range
             prefix_subtree = prefix_tree_obj.get_subtree(prefix, vrf)
             render = prefix_length >= MIN_RENDER_PREFIX_LEN
 
-            filtered_ip_addresses = ip_index.lookup(prefix_entry) if render else []
+            prefix_ips = ip_index.lookup(prefix_entry)
+            filtered_ip_addresses = prefix_ips if render else []
             layer = None
             if not render:
                 block_len = layer_block_len(prefix_length)
-                layer = {'block_len': block_len,
-                         'counts': block_counts(prefix, ip_index.lookup(prefix_entry), block_len)}
+                layer = {'block_len': block_len, 'counts': block_counts(prefix, prefix_ips, block_len)}
 
             global_container = vrf is None and choice_value(prefix_entry.get('status')) == 'container'
+            problems = problems_in(prefix, vrf, prefix_ips, by_ip, duplicates, all_vrfs=global_container)
             if global_container:
                 # NetBox semantics: a Global container spans all VRFs
                 descendants = prefix_tree_obj.get_descendants_all_vrfs(prefix)
@@ -473,7 +486,9 @@ def process_all_prefixes(prefixes, ip_addresses, cell_size, output_dir, ip_range
             process_prefix(prefix_entry, prefix_subtree, descendants, filtered_ip_addresses, cell_size,
                            tenant_color_map, output_dir, render=render,
                            ancestors=prefix_tree_obj.get_ancestors(prefix, vrf), ip_counts=ip_counts, layer=layer,
-                           ip_ranges=ranges_in(prefix, vrf, ranges, all_vrfs=global_container))
+                           ip_ranges=ranges_in(prefix, vrf, ranges, all_vrfs=global_container), problems=problems)
+            if problems:
+                problem_counts[(vrf, prefix)] = sum(problems['counts'].values())
         except Exception as e:
             logging.error(f"Error processing prefix '{prefix}': {e}")
             continue
@@ -483,7 +498,8 @@ def process_all_prefixes(prefixes, ip_addresses, cell_size, output_dir, ip_range
 
     save_prefix_tree(prefixes, output_dir)
     save_search_index(ip_addresses, output_dir)
-    save_summary(prefixes, prefix_tree_obj, ip_addresses, ip_counts, tenant_color_map, output_dir)
+    save_summary(prefixes, prefix_tree_obj, ip_addresses, ip_counts, tenant_color_map, output_dir,
+                 problem_counts=problem_counts)
     save_free_space(prefix_tree_obj, ip_index, ranges, output_dir)
 
 

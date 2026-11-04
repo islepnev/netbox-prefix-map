@@ -111,6 +111,9 @@
     // NetBox IP ranges overlapping this prefix (DHCP scopes and the like)
     let ranges = [];
     const rangesAt = (a, size = 1) => ranges.filter((r) => r.start <= a + size - 1 && r.end >= a);
+    // Data problems found by the update run (app/problems.py): of IP records, by address, and duplicate prefixes
+    let problems = [];
+    let problemsByAddr = new Map();
     const tenantColors = new Map();
 
     const lowerBound = (v) => {
@@ -210,6 +213,14 @@
         nested = list.map((p) => ({ ...parsePrefix(p.prefix), p })).sort((a, b) => a.start - b.start || a.len - b.len);
         children = (data.child_prefixes || []).map((p) => ({ ...parsePrefix(p.prefix), p }));
         ranges = (data.ip_ranges || []).map((r) => ({ start: ipToInt(r.start), end: ipToInt(r.end), r }));
+        problems = (data.problems && data.problems.items) || [];
+        problemsByAddr = new Map();
+        for (const p of problems) {
+            if (!p.address) continue;
+            const a = ipToInt(p.address);
+            if (!problemsByAddr.has(a)) problemsByAddr.set(a, []);
+            problemsByAddr.get(a).push(p);
+        }
         for (const p of [data, ...(data.child_prefixes || []), ...(data.nested_prefixes || [])]) {
             if (p.tenant && p.color && !tenantColors.has(String(p.tenant))) tenantColors.set(String(p.tenant), p.color);
         }
@@ -426,7 +437,95 @@
             ? rangeBounds(selected.start, selected.end) : null);
         place(ov.free, freeHi ? rangeBounds(freeHi.start, freeHi.start + freeHi.size - 1) : null);
         drawChanges();
+        drawProblems();
         drawTenant();
+    }
+
+    // ---------- data problems ----------
+    const PROBLEM_KINDS = ["duplicate_prefix", "in_container", "mask", "edge"];
+    let showProblems = store.get("prefix-map.show-problems") === "1";
+    // Problems of the cell at a (a block on layered maps), and duplicates among the prefixes around it
+    function problemsAt(a) {
+        const own = layer ? problems.filter((p) => p.address && ipToInt(p.address) >= a && ipToInt(p.address) <= a + blockSize - 1)
+            : problemsByAddr.get(a) || [];
+        const around = new Set([cfg.prefix, ...containing(a).map((n) => n.p.prefix), ...(layer ? inside(a).map((n) => n.p.prefix) : [])]);
+        return [...problems.filter((p) => p.kind === "duplicate_prefix" && around.has(p.prefix)), ...own];
+    }
+    function problemText(p) {
+        if (p.kind === "mask") return t("problems.mask_of", { mask: p.mask, prefix: p.prefix });
+        if (p.kind === "edge") return t(`problems.${p.edge}_of`, { prefix: p.prefix });
+        if (p.kind === "in_container") return t("problems.in_container_of", { prefix: p.prefix });
+        return t("problems.duplicate_of", { prefix: p.prefix, n: p.ids.length });
+    }
+    function problemLabel(p) {
+        if (p.kind === "mask") return t("problems.kind.mask", { mask: p.mask, len: p.prefix.split("/")[1] });
+        if (p.kind === "edge") return t(`problems.kind.${p.edge}`);
+        if (p.kind === "in_container") return t("problems.kind.in_container");
+        return t("problems.kind.duplicate_prefix", { n: p.ids.length });
+    }
+    const problemLinks = (p) => (p.kind === "duplicate_prefix"
+        ? p.ids.map((id) => nbLink(`/ipam/prefixes/${id}/`, `#${id}`))
+        : p.ip_id ? [nbLink(`/ipam/ip-addresses/${p.ip_id}/`, "NetBox")] : []);
+    function problemSection(list) {
+        const shown = list.slice(0, 6);
+        return sec(t("problems.title"), list.length > 1 ? `${fmt(list.length)}` : null,
+            el("ul", { class: "problems" }, shown.map((p) => el("li", null,
+                layer && p.address ? el("span", { class: "mono", text: `${p.address} ` }) : null,
+                problemText(p), " ", ...problemLinks(p).flatMap((a) => [a, " "])))),
+            list.length > shown.length ? el("div", { class: "hint", text: t("common.more", { n: list.length - shown.length }) }) : null);
+    }
+    function drawProblems() {
+        const box = $("ov-problems");
+        if (!box || !problems.length || !showProblems || !img) { if (box) box.hidden = true; return; }
+        const u = c / dpr;
+        // Cells smaller than MARK css pixels get a marker of that size around them, so that they show at any zoom
+        const MARK = 7;
+        const box1 = (b, cls) => {
+            const [x1, y1, x2, y2] = b;
+            let [l, tp, w, h] = [x1 * u, y1 * u, (x2 - x1 + 1) * u, (y2 - y1 + 1) * u];
+            if (w < MARK) { l -= (MARK - w) / 2; w = MARK; }
+            if (h < MARK) { tp -= (MARK - h) / 2; h = MARK; }
+            return el("div", { class: cls, style: `left:${l}px;top:${tp}px;width:${w}px;height:${h}px` });
+        };
+        const cells = new Set();
+        const out = [];
+        for (const p of problems) {
+            if (p.address) {
+                const a = blockStart(ipToInt(p.address));
+                if (a < net.start || a > net.end || cells.has(a)) continue;
+                cells.add(a);
+                out.push(box1(cellBounds(a), "ov-problem"));
+            } else {
+                const r = parsePrefix(p.prefix);
+                if (r.start >= net.start && r.end <= net.end) out.push(box1(rangeBounds(r.start, r.end), "ov-problem prefix"));
+            }
+        }
+        box.replaceChildren(...out);
+        box.hidden = false;
+    }
+    // Inspector summary: counts by kind, the first problems, and the switch for the overlay
+    function problemsSection() {
+        if (!problems.length) return null;
+        const counts = data.problems.counts || {};
+        const total = PROBLEM_KINDS.reduce((s, k) => s + (counts[k] || 0), 0);
+        const shown = problems.slice(0, 6);
+        const toggle = el("input", { type: "checkbox", id: "show-problems" });
+        toggle.checked = showProblems;
+        toggle.addEventListener("change", () => {
+            showProblems = toggle.checked;
+            store.set("prefix-map.show-problems", showProblems ? "1" : "0");
+            drawProblems();
+        });
+        return sec(t("problems.title"), fmt(total),
+            el("div", { class: "sub" }, PROBLEM_KINDS.filter((k) => counts[k]).map((k) => t(`problems.count.${k}`, { n: counts[k] })).join(" · ")),
+            el("table", { class: "free problems" }, el("tbody", null, shown.map((p) => el("tr", {
+                onclick: img ? () => (p.address ? pin(blockStart(ipToInt(p.address)), true) : outline(parsePrefix(p.prefix))) : null,
+                title: problemText(p),
+            }, el("td", { text: p.address || p.prefix }), el("td", { class: "n warn", text: problemLabel(p) }))))),
+            total > shown.length ? el("div", { class: "hint", text: t("common.more", { n: total - shown.length }) }) : null,
+            el("div", { class: "links" },
+                img ? el("label", { class: "check" }, toggle, ` ${t("changes.show_on_map")}`) : null,
+                el("a", { href: `${cfg.basePath}/help#problems`, text: t("problems.what") })));
     }
 
     // ---------- changes of the last update that changed this prefix ----------
@@ -731,14 +830,17 @@
         const inner = chainNodes.at(-1);
         const smaller = inside(a);
         const action = openAction(a);
+        const blockProblems = problemsAt(a);
         const out = [el("section", { class: "sec" },
             el("div", { class: "big" }, intToIp(a), el("span", { class: "mask", text: `/${blockLen}` }), copyBtn(`${intToIp(a)}/${blockLen}`)),
             el("div", { class: "sub" },
                 count === null ? el("span", { class: "pill", text: t("block.ips_unknown") })
                     : count ? el("span", { class: "pill", text: t("block.used", { n: count }) }) : el("span", { class: "pill free", text: t("block.no_ips") }),
+                blockProblems.length ? el("span", { class: "pill warn", text: t("problems.pill", { n: blockProblems.length }) }) : null,
                 el("span", { class: "mono", text: count === null ? t("count.addresses", { n: blockSize }) : t("block.pct_of", { pct: pct(count, blockSize), total: fmt(blockSize) }) })),
             action ? el("div", { class: "hint", text: t("insp.dblclick", { action: action.label }) })
                 : el("div", { class: "hint", text: t("block.no_prefix") }))];
+        if (blockProblems.length) out.push(problemSection(blockProblems));
         const blockRanges = rangesAt(a, blockSize);
         if (blockRanges.length) out.push(rangeSection(blockRanges));
         out.push(chainSection(chainNodes));
@@ -783,6 +885,7 @@
         const pool = (inner ? inner.p.is_pool : data.is_pool ?? cfg.details.is_pool) ? (inner ? inner.p.prefix : cfg.prefix) : null;
         const mask = ip ? ip.address.split("/")[1] : inner ? inner.len : net.len;
         const action = openAction(a);
+        const cellProblems = problemsAt(a);
         const out = [];
         out.push(el("section", { class: "sec" },
             el("div", { class: "big" }, intToIp(a), el("span", { class: "mask", text: `/${mask}` }), copyBtn(intToIp(a))),
@@ -792,6 +895,7 @@
                         : inRange.length ? el("span", { class: "pill" }, el("span", { class: "sw range" }), t("insp.ip_range"))
                             : el("span", { class: "pill free", text: t("insp.free") }),
                 dupes.has(a) ? el("span", { class: "pill warn", text: t("insp.records", { n: dupes.get(a).length }) }) : null,
+                cellProblems.length ? el("span", { class: "pill warn", text: t("problems.pill", { n: cellProblems.length }) }) : null,
                 pool ? el("span", { class: "pill", text: t("insp.pool"), title: t("insp.pool_title", { prefix: pool }) }) : null,
                 el("span", { class: "mono", text: t("insp.offset", { n: a - net.start }) })),
             action ? el("div", { class: "hint", text: t("insp.dblclick", { action: action.label }) }) : null));
@@ -811,6 +915,7 @@
             out.push(sec(t("insp.ip_address"), null, el("div", { class: "empty" }, `${t("insp.no_record")} `,
                 nbLink(`/ipam/ip-addresses/add/?address=${intToIp(a)}/${mask}${vrfParam}`, t("insp.add_in_netbox")))));
         }
+        if (cellProblems.length) out.push(problemSection(cellProblems));
         if (dupes.has(a)) out.push(dupeSection(dupes.get(a)));
         if (inRange.length) out.push(rangeSection(inRange));
         out.push(chainSection(chainNodes));
@@ -836,6 +941,7 @@
                     el("span", { text: t("summary.child_prefixes", { n: (data.child_prefixes || []).length }) })),
                 el("div", { class: "stat" }, el("b", { text: fmt(total) }), el("span", { text: t("summary.addresses", { n: total }) }))));
         const sections = [tenantSection()];
+        sections.push(problemsSection());
         if (hasIps || countsKnown) sections.push(freeSection(net, cfg.prefix));
         sections.push(changesSection());
         if (dupes.size) {

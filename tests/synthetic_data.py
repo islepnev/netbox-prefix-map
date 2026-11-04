@@ -136,6 +136,21 @@ def build_dataset(seed: int = 20):
     for prefix, tenant in NESTED:
         # A pool: all its addresses are usable, network and broadcast included
         add_prefix(prefix, LAN_VRF_ID, tenant, is_pool=prefix == "10.20.36.128/26")
+    # /24s in use outside the tenant blocks get a subnet of their own
+    covered = {int(str(n.network_address).split(".")[2]) for n in
+               (ipaddress.ip_network(p["prefix"]) for p in prefixes) if n.prefixlen == 24}
+    for octet in sorted(set(DENSITY) - covered):
+        add_prefix(f"10.20.{octet}.0/24", LAN_VRF_ID)
+    # A data problem: the same prefix twice in one VRF
+    add_prefix("10.20.93.128/25", LAN_VRF_ID, 1, description="Duplicate record")
+    # Hosts get the mask of the innermost LAN prefix around them
+    lan = sorted((ipaddress.ip_network(p["prefix"]) for p in prefixes
+                  if p["vrf"] == LAN_VRF_ID and p["status"] != "container" and ":" not in p["prefix"]),
+                 key=lambda n: -n.prefixlen)
+
+    def mask_of(host):
+        address = ipaddress.ip_address(host)
+        return next((n.prefixlen for n in lan if address in n), 24)
 
     # IPv6 must be skipped cleanly
     add_prefix("192.168.0.0/24", None, status="active", description="Management", role=2)
@@ -163,7 +178,9 @@ def build_dataset(seed: int = 20):
         used = set()
         if tenant is not None:
             used.add(1)
-            add_ip(f"10.20.{octet}.1/24", LAN_VRF_ID, tenant, role="anycast", dns_name=f"gw-{octet}.example.test")
+            gateway = f"10.20.{octet}.1"
+            add_ip(f"{gateway}/{mask_of(gateway)}", LAN_VRF_ID, tenant, role="anycast",
+                   dns_name=f"gw-{octet}.example.test")
         target = int(density * 254)
         while len(used) < target:
             start = rng.randint(2, 254)
@@ -173,8 +190,24 @@ def build_dataset(seed: int = 20):
                     continue
                 used.add(host)
                 status = _choice(rng, [("active", 0.9), ("reserved", 0.05), ("dhcp", 0.03), ("deprecated", 0.02)])
-                add_ip(f"10.20.{octet}.{host}/24", LAN_VRF_ID, tenant, status=status,
+                address = f"10.20.{octet}.{host}"
+                add_ip(f"{address}/{mask_of(address)}", LAN_VRF_ID, tenant, status=status,
                        dns_name=f"host-{octet}-{host}.example.test")
+
+    # Deliberate data problems (app/problems.py), away from the blocks the tests count
+    # Mask mismatch: two hosts of 10.20.9.0/24 recorded as /32, one of 10.20.12.0/24 as /16; a /32 loopback is fine
+    hosts = {octet: [ip for ip in ip_addresses if ip["address"].startswith(f"10.20.{octet}.") and not ip["role"]]
+             for octet in (9, 10, 12)}
+    hosts[9][0]["address"] = hosts[9][0]["address"].replace("/24", "/32")
+    hosts[9][1]["address"] = hosts[9][1]["address"].replace("/24", "/32")
+    hosts[12][0]["address"] = hosts[12][0]["address"].replace("/24", "/16")
+    hosts[10][0].update(address=hosts[10][0]["address"].replace("/24", "/32"), role="loopback")
+    # Addresses directly in the 10.20.0.0/17 container, in no subnet
+    add_ip("10.20.3.10/17", LAN_VRF_ID, dns_name="stray-1.example.test")
+    add_ip("10.20.3.11/24", LAN_VRF_ID, dns_name="stray-2.example.test")
+    # Network and broadcast addresses of a subnet
+    add_ip("10.20.10.0/24", LAN_VRF_ID, 2, dns_name="net-10.example.test")
+    add_ip("10.20.12.255/24", LAN_VRF_ID, 2, dns_name="bcast-12.example.test")
 
     for host in (1, 2, 3, 10, 11, 12, 100):
         add_ip(f"192.168.0.{host}/24", None, status="active", role="vip" if host == 1 else None)

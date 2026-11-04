@@ -25,6 +25,7 @@ The same space at three levels, as printed:
 - **Search.** Addresses and prefixes, and text in DNS names, descriptions, tenant and role names, across all VRFs. `free /26` lists free /26 blocks in all VRFs, `free /26 in 10.20.0.0/16` within a prefix.
 - **Links.** The URL keeps the pinned address and the outlined tenant. `?lang=ru` opens a page in Russian; otherwise the browser language decides.
 - **Print.** Ctrl+P prints the map alone as vector graphics with title and legend; in black and white, tenants are hatched.
+- **Data problems.** Each update flags records that NetBox accepts but that are most likely wrong: an IP mask that differs from its subnet, IPs in a container outside its subnets, network and broadcast addresses recorded as IPs, prefixes recorded twice in a VRF. The prefix summary lists them, the map outlines them, the VRF page counts them.
 
 ## Requirements
 

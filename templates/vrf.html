@@ -31,7 +31,7 @@
             <tbody>
                 {% for p in summary.top_prefixes %}
                 <tr>
-                    <td><span class="pfx-cell"><span class="tdot{{ '' if p.color else ' none' }}"{% if p.color %} style="background:{{ p.color }}"{% endif %}></span><a href="{{ url_for('app.serve_map', vrf=vrf_key, prefix=p.sanitized) }}">{{ p.prefix }}</a></span></td>
+                    <td><span class="pfx-cell"><span class="tdot{{ '' if p.color else ' none' }}"{% if p.color %} style="background:{{ p.color }}"{% endif %}></span><a href="{{ url_for('app.serve_map', vrf=vrf_key, prefix=p.sanitized) }}">{{ p.prefix }}</a>{% if p.problem_count %} <a class="pill warn" href="{{ url_for('app.serve_map', vrf=vrf_key, prefix=p.sanitized) }}">{{ t('vrf.problems', n=p.problem_count) }}</a>{% endif %}</span></td>
                     <td class="desc hide-narrow">{{ p.description or '' }}</td>
                     <td class="hide-narrow">{% if p.tenant %}{{ tenants.get(p.tenant | string) or p.tenant }}{% endif %}</td>
                     <td class="hide-narrow">{% if p.status %}<span class="pill">{{ status_label(p.status) }}</span>{% endif %}</td>

@@ -201,6 +201,11 @@ body.no-tree #tree-panel, body.no-insp #insp-panel { display: none; }
 .ov-change.removed { --c: #dc2626; }
 .ov-change.changed { --c: #d48a0b; }
 .ov-change.prefix { background: none; outline: calc(var(--hair) * 2) dashed var(--c); outline-offset: calc(var(--hair) * -2); box-shadow: none; }
+#ov-problems { position: absolute; inset: 0; pointer-events: none; }
+.ov-problem { position: absolute; box-shadow: inset 0 0 0 calc(var(--hair) * 2) #c026d3, 0 0 0 var(--hair) #fff; background: rgba(192, 38, 211, .22); }
+.ov-problem.prefix { background: none; outline: calc(var(--hair) * 2) dashed #c026d3; outline-offset: calc(var(--hair) * -2); box-shadow: none; }
+table.free.problems td.n { color: var(--warn); font-family: inherit; }
+ul.problems { margin: 0; padding-left: 16px; display: flex; flex-direction: column; gap: 4px; }
 table.changes td.added { color: #16a34a; }
 table.changes td.removed { color: #dc2626; }
 table.changes td.changed { color: var(--warn); }
@@ -327,6 +332,7 @@ table.changes.history tr.current td { font-weight: 600; }
 /* Document pages: VRF list, VRF, errors */
 body.doc-page { min-height: 100vh; display: flex; flex-direction: column; }
 body.doc-page #top { position: sticky; top: 0; z-index: 10; }
+.prose [id] { scroll-margin-top: 64px; }
 .help-link {
   display: grid; place-items: center; width: 22px; height: 22px; flex: none; margin-left: 10px; border-radius: 50%;
   border: 1px solid var(--line); color: var(--muted); font-size: 12px; font-weight: 600; text-decoration: none;
@@ -366,6 +372,7 @@ table.list .num { text-align: right; font-family: var(--mono); font-variant-nume
 table.list .name { font-weight: 600; }
 table.list .desc { color: var(--muted); }
 table.list .pfx-cell { display: flex; align-items: center; gap: 8px; font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+table.list .pfx-cell .pill { font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; text-decoration: none; }
 table.list .usage-cell { display: flex; align-items: center; gap: 8px; justify-content: flex-end; }
 .usage.wide { width: 120px; height: 6px; border-radius: 3px; }
 .usage.wide i { border-radius: 3px; }

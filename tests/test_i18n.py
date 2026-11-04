@@ -195,6 +195,8 @@ def test_keys_built_at_run_time_exist():
     """Keys the code puts together (t(`edge.${edge}`) and the like), which test_every_used_key_exists cannot see."""
     keys = [f'edge.{e}{s}' for e in ('network', 'broadcast') for s in ('', '_of')] \
         + [f'changes.kind.{k}' for k in ('added', 'removed', 'changed')] \
+        + [f'problems.{e}' for e in ('network_of', 'broadcast_of', 'kind.network', 'kind.broadcast')] \
+        + [f'problems.count.{k}' for k in ('duplicate_prefix', 'in_container', 'mask', 'edge')] \
         + [f'search.error.{c}' for c in ('bad_prefix', 'free_not_ready', 'bad_query')] \
         + [f'status.{s}' for s in ('active', 'container', 'reserved', 'deprecated', 'dhcp', 'slaac', 'inactive')]
     assert [k for k in keys if k not in i18n.CATALOGUES['en']] == []

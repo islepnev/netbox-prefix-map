@@ -167,8 +167,10 @@ def test_ip_statuses_have_distinct_shades(output_dir, dataset):
     """Darker means more in use: active < dhcp < reserved."""
     prefix = "10.20.0.0/17"
     rgb = load_rgb(image_path(output_dir, LAN, prefix))
+    # Prefixes without a tenant and not striped are drawn white
     nested = [ipaddress.ip_network(p['prefix']) for p in dataset['prefixes']
-              if p['vrf'] == LAN and ':' not in p['prefix'] and ipaddress.ip_network(p['prefix']).prefixlen > 17]
+              if p['vrf'] == LAN and ':' not in p['prefix'] and ipaddress.ip_network(p['prefix']).prefixlen > 17
+              and (p['tenant'] or p['status'] in ('reserved', 'deprecated'))]
 
     def shade(status):
         values = []

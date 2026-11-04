@@ -195,6 +195,51 @@
     "map.alt": "Карта адресов {prefix}",
     "map.data_unavailable": "Данные карты недоступны: {error}",
     "map.no_image": "Карты {prefix} пока нет: она появится после следующего обновления. Выберите дочерний префикс в дереве.",
+    "problems.broadcast_of": "Широковещательный адрес {prefix} записан как IP-адрес.",
+    "problems.count.duplicate_prefix": {
+        "one": "{n} повторный префикс",
+        "few": "{n} повторных префикса",
+        "many": "{n} повторных префиксов"
+    },
+    "problems.count.edge": {
+        "one": "{n} служебный адрес",
+        "few": "{n} служебных адреса",
+        "many": "{n} служебных адресов"
+    },
+    "problems.count.in_container": {
+        "one": "{n} вне подсетей",
+        "few": "{n} вне подсетей",
+        "many": "{n} вне подсетей"
+    },
+    "problems.count.mask": {
+        "one": "{n} несовпадение маски",
+        "few": "{n} несовпадения маски",
+        "many": "{n} несовпадений маски"
+    },
+    "problems.duplicate_of": {
+        "one": "{prefix} записан в этом VRF {n} раз; на карте показана одна запись.",
+        "few": "{prefix} записан в этом VRF {n} раза; на карте показана одна запись.",
+        "many": "{prefix} записан в этом VRF {n} раз; на карте показана одна запись."
+    },
+    "problems.in_container_of": "В контейнере {prefix}, вне его подсетей.",
+    "problems.kind.broadcast": "широковещательный",
+    "problems.kind.duplicate_prefix": {
+        "one": "{n} запись",
+        "few": "{n} записи",
+        "many": "{n} записей"
+    },
+    "problems.kind.in_container": "вне подсетей",
+    "problems.kind.mask": "/{mask} в /{len}",
+    "problems.kind.network": "адрес сети",
+    "problems.mask_of": "Маска /{mask} не совпадает с {prefix}.",
+    "problems.network_of": "Адрес сети {prefix} записан как IP-адрес.",
+    "problems.pill": {
+        "one": "{n} ошибка в данных",
+        "few": "{n} ошибки в данных",
+        "many": "{n} ошибок в данных"
+    },
+    "problems.title": "Ошибки в данных",
+    "problems.what": "Что проверяется",
     "search.block_ips": {
         "one": "{n} IP",
         "few": "{n} IP",
@@ -264,6 +309,11 @@
     "usage.used_of": "занято {used} из {total} · {pct}%",
     "vrf.empty": "В этом VRF нет префиксов IPv4.",
     "vrf.global": "Глобальный",
+    "vrf.problems": {
+        "one": "{n} ошибка в данных",
+        "few": "{n} ошибки в данных",
+        "many": "{n} ошибок в данных"
+    },
     "vrf.stat_addresses": {
         "one": "IP-адрес",
         "few": "IP-адреса",

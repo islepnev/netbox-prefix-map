@@ -7,6 +7,7 @@
 | `app/netbox_integration.py` | Fetches prefixes, IP addresses, VRFs, tenants and prefix roles through pynetbox |
 | `app/prefix_tree.py` | Per-VRF prefix trees (pytricia) |
 | `app/cli.py` | Update run: fetch, build trees, write data files and images |
+| `app/problems.py` | Data problems: checks of IP records and prefixes during the update run |
 | `app/plot_map.py` | Image rendering (matplotlib, Agg backend) |
 | `app/updater_manager.py` | Background update scheduling |
 | `app/webapp.py` | Flask application: pages, data endpoint, webhook, health and metrics |
@@ -27,6 +28,8 @@
 `<vrf>` is the VRF id or `None`; in `<prefix>`, `.` and `/` are replaced with `_`. All files are written to a temporary name and renamed, so readers never see partial files.
 
 Each data file keeps `changes`: what the last update that changed the prefix added, removed or changed, compared with the previous data file: IP records (address and VRF; status, role, DNS name) and nested prefixes, at most 1,000 of each with full counts, and the time (`at`, `since`). An update without changes keeps the previous record; the first update has none. `changes_history` keeps the last 10 such records, newest first, with at most 100 entries per list (full counts); a data file of an older version seeds it with its `changes`. The prefix summary lists the history; picking a record shows it above and on the map.
+
+Each data file keeps `problems` (null when there are none): the data problems of the IP records on the map and of the duplicate prefixes inside it, as `counts` by kind and `items`, at most 1,000, by address. The top-level prefixes in `summary.json` carry `problem_count`. See "Data problems".
 
 An image is redrawn only when its inputs change. The inputs are hashed (`render_hash` in the data file): address, status and role of each IP, nested prefixes with their tenant colors and statuses, cell size and `RENDER_VERSION`. Bump `RENDER_VERSION` when drawing code changes.
 
@@ -74,6 +77,19 @@ Prefixes shorter than /16 would need a grid of 4096 × 4096 cells or more. They 
 The data file carries `layer` (`block_len`, `blocks`: block index and IP count) instead of the IP list. On the page a cell is a block: the inspector shows its IP count, the prefix chain, prefixes inside it and free blocks down to the block size; double-click opens the map of the child prefix covering the block, or of the first prefix inside it.
 
 Tenant colors are taken from a 16-color palette by tenant id, so a tenant keeps its color when others are added or removed. The palette has no gray: a gray fill would read as a reserved IP. Tenant ids 16 apart share a color; the inspector names the tenant of every prefix.
+
+## Data problems
+
+`app/problems.py` checks records that NetBox accepts but that are most likely wrong. An IP record is compared with the innermost prefix of its own VRF that contains it; unlike the map membership, a Global container does not take in addresses of other VRFs. IPs in no prefix of their VRF are not checked: they are on no map.
+
+| Kind | Rule |
+|---|---|
+| `mask` | The IP mask differs from the prefix length. A /32 is accepted for the roles loopback, anycast and vip, and in a pool; other roles (vrrp, hsrp, ...) carry the subnet mask in NetBox. |
+| `in_container` | The innermost prefix is a container with child prefixes. A container without children is not flagged: it is used as a subnet. |
+| `edge` | The IP is the network or broadcast address of the innermost prefix, by the rule of the free-block list (none in containers, pools, /31 and /32). |
+| `duplicate_prefix` | The same prefix more than once in one VRF. The prefix tree keeps one record per prefix, the last one read, so the other records are on no map; the update logs a warning. |
+
+The map page lists the problems in the prefix summary and in the inspector of an address or block. The overlay `#ov-problems` outlines the cells (blocks on layered maps) and the duplicate prefixes; a cell smaller than 7 CSS pixels gets a marker of that size. The overlay switch is kept in local storage, off by default. A data file of an older version has no `problems` and shows none.
 
 ## Updates
 

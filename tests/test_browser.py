@@ -364,8 +364,10 @@ def test_free_blocks_are_free_and_aligned(open_page, dataset):
 
 
 def free_block_rows(page, where='#sum-free'):
+    """Rows of the free-block section (the one with the size picker), not of other tables in the panel."""
     return [ipaddress.ip_network(r) for r in
-            page.eval_on_selector_all(f'{where} table.free td:first-child', 'els => els.map(e => e.textContent)')]
+            page.eval_on_selector_all(f'{where} section:has(.fsize) table.free td:first-child',
+                                      'els => els.map(e => e.textContent)')]
 
 
 def test_network_and_broadcast_are_not_free(open_page, dataset):
@@ -493,7 +495,7 @@ def test_layered_map_hover_and_drill_down(open_page):
     page = open_page(f'{BASE}/map/1/10_0_0_0_8')
     wait_for_map(page)
     assert page.inner_text('#tree .row.current .pfx') == '10.0.0.0/8'
-    assert '6,111 / 16,777,216 used' in page.inner_text('#legend') and '1 cell = /24' in page.inner_text('#legend')
+    assert '6,115 / 16,777,216 used' in page.inner_text('#legend') and '1 cell = /24' in page.inner_text('#legend')
     page.mouse.move(*cell_center(page, *layer_cell('10.0.0.0/8', 24, '10.20.0.0')))
     detail = page.inner_text('#insp-detail')
     assert '10.20.0.0/24' in detail and '134 used' in detail
@@ -735,7 +737,7 @@ def test_free_blocks_of_one_size(open_page, dataset):
                 and ipaddress.ip_network(p['prefix']).subnet_of(ipaddress.ip_network('10.20.0.0/17'))]
     for r in rows:
         assert not any(a in r for a in used) and not any(r.overlaps(c) for c in children), r
-    assert '× /26' in page.inner_text('#sum-free h3')
+    assert '× /26' in page.inner_text('#sum-free section:has(.fsize) h3')
     page.reload()
     wait_for_map(page)
     assert page.input_value('#sum-free select') == '26'
@@ -1225,3 +1227,48 @@ def test_current_prefix_stays_whole_in_the_top_bar(open_page, width):
             const s = document.getElementById("search"), c = document.createElement("canvas").getContext("2d");
             c.font = getComputedStyle(s, "::placeholder").font;
             return c.measureText(s.placeholder).width <= s.clientWidth - 58; }''')
+
+
+def test_data_problems_section_overlay_and_inspector(open_page):
+    page = open_page(f'{BASE}/map/1/10_20_0_0_17')
+    wait_for_map(page)
+    section = page.locator('#sum-free section:has-text("Data problems")')
+    text = section.inner_text()
+    assert '2 in no subnet' in text and '3 duplicate prefixes' in text and '3 mask mismatches' in text
+    assert page.is_hidden('#ov-problems')
+    page.check('#show-problems')
+    # One marker per address with problems, one outline per duplicate prefix
+    assert page.locator('#ov-problems .ov-problem:not(.prefix)').count() == 11
+    assert page.locator('#ov-problems .ov-problem.prefix').count() == 3
+    section.locator('tr', has_text='10.20.3.10').click()
+    assert page.inner_text('#insp-detail .big').startswith('10.20.3.10/17')
+    assert '1 data problem' in page.inner_text('#insp-detail .sub')
+    assert 'In container 10.20.0.0/17, outside its subnets.' in page.inner_text('#insp-detail')
+    assert not page.errors
+
+
+def test_data_problems_on_a_layered_block(open_page):
+    page = open_page(f'{BASE}/map/1/10_0_0_0_8?focus=10.20.93.0')
+    wait_for_map(page)
+    detail = page.inner_text('#insp-detail')
+    assert '2 data problems' in detail
+    assert '10.20.93.128/25 is recorded 2 times in this VRF' in detail
+    assert 'Network address of 10.20.93.128/25 recorded as an IP.' in detail
+
+
+def test_data_file_without_problems(open_page):
+    """Data files of older versions have no problems field."""
+    def strip(route):
+        data = route.fetch().json()
+        data.pop('problems', None)
+        route.fulfill(json=data)
+
+    page = open_page(f'{BASE}/map/1/10_20_0_0_17', route=(f'**{BASE}/data/**', strip))
+    wait_for_map(page)
+    assert page.locator('#sum-free section:has-text("Data problems")').count() == 0
+    assert not page.errors
+
+
+def test_vrf_page_counts_data_problems(open_page):
+    page = open_page(f'{BASE}/map/1')
+    assert page.inner_text('#prefix-list .pill.warn') == '14 data problems'

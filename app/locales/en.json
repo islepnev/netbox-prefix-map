@@ -182,6 +182,44 @@
     "map.alt": "Address map of {prefix}",
     "map.data_unavailable": "Map data unavailable: {error}",
     "map.no_image": "No map image for {prefix} yet: it is drawn on the next update. Choose a child prefix in the tree.",
+    "problems.broadcast_of": "Broadcast address of {prefix} recorded as an IP.",
+    "problems.count.duplicate_prefix": {
+        "one": "{n} duplicate prefix",
+        "other": "{n} duplicate prefixes"
+    },
+    "problems.count.edge": {
+        "one": "{n} network or broadcast address",
+        "other": "{n} network or broadcast addresses"
+    },
+    "problems.count.in_container": {
+        "one": "{n} in no subnet",
+        "other": "{n} in no subnet"
+    },
+    "problems.count.mask": {
+        "one": "{n} mask mismatch",
+        "other": "{n} mask mismatches"
+    },
+    "problems.duplicate_of": {
+        "one": "{prefix} is recorded {n} time in this VRF; the map shows one.",
+        "other": "{prefix} is recorded {n} times in this VRF; the map shows one."
+    },
+    "problems.in_container_of": "In container {prefix}, outside its subnets.",
+    "problems.kind.broadcast": "broadcast address",
+    "problems.kind.duplicate_prefix": {
+        "one": "{n} record",
+        "other": "{n} records"
+    },
+    "problems.kind.in_container": "in no subnet",
+    "problems.kind.mask": "/{mask} in a /{len}",
+    "problems.kind.network": "network address",
+    "problems.mask_of": "Mask /{mask} differs from {prefix}.",
+    "problems.network_of": "Network address of {prefix} recorded as an IP.",
+    "problems.pill": {
+        "one": "{n} data problem",
+        "other": "{n} data problems"
+    },
+    "problems.title": "Data problems",
+    "problems.what": "What is checked",
     "search.block_ips": {
         "one": "{n} IP",
         "other": "{n} IPs"
@@ -247,6 +285,10 @@
     "usage.used_of": "{used} / {total} used · {pct}%",
     "vrf.empty": "No IPv4 prefixes in this VRF.",
     "vrf.global": "Global",
+    "vrf.problems": {
+        "one": "{n} data problem",
+        "other": "{n} data problems"
+    },
     "vrf.stat_addresses": {
         "one": "IP address",
         "other": "IP addresses"

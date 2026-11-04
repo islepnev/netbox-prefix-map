@@ -27,6 +27,15 @@
         <li>Free blocks are aligned: the inspector lists the largest ones, or the first ones of a chosen size by address.</li>
     </ul>
 
+    <h2 id="problems">Data problems</h2>
+    <p>Each update checks the NetBox records that NetBox accepts but that are most likely mistakes. The prefix summary lists them; "Show on the map" outlines them. An address is compared with the innermost prefix of its own VRF.</p>
+    <ul>
+        <li>Mask mismatch: the mask of an IP differs from the length of its subnet, e.g. 10.1.2.5/32 in a /24. A /32 is accepted for the roles loopback, anycast and VIP, and in pools.</li>
+        <li>In no subnet: an IP inside a container that has child prefixes, but in none of them.</li>
+        <li>Network or broadcast address of a subnet recorded as an IP. Pools, containers, /31 and /32 have none.</li>
+        <li>Duplicate prefix: the same prefix more than once in one VRF. The map shows one of the records.</li>
+    </ul>
+
     <h2>Data</h2>
     <ul>
         <li>Maps are drawn from NetBox and redrawn when NetBox reports a change through its webhook, and periodically when the server is set up so. The dot in the top bar turns amber when the last update failed or the data is older than 24 hours.</li>
