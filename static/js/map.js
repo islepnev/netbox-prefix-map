@@ -330,6 +330,69 @@
         place(ov.select, selected && !(inner && inner.start === selected.start && inner.len === selected.len)
             ? rangeBounds(selected.start, selected.end) : null);
         place(ov.free, freeHi ? rangeBounds(freeHi.start, freeHi.start + freeHi.size - 1) : null);
+        drawChanges();
+    }
+
+    // ---------- changes of the last update that changed this prefix ----------
+    const CHANGE_KINDS = [["added", "added"], ["removed", "removed"], ["changed", "changed"]];
+    let showChanges = store.get("prefix-map.show-changes") === "1";
+    function drawChanges() {
+        const box = $("ov-changes");
+        const ch = data && data.changes;
+        if (!box || !ch || !showChanges || !img) { if (box) box.hidden = true; return; }
+        const u = (cs * k) / dpr;
+        const cells = [];
+        const add = (b, cls) => {
+            const [x1, y1, x2, y2] = b;
+            cells.push(el("div", { class: `ov-change ${cls}`,
+                style: `left:${x1 * u}px;top:${y1 * u}px;width:${(x2 - x1 + 1) * u}px;height:${(y2 - y1 + 1) * u}px` }));
+        };
+        for (const [key, cls] of CHANGE_KINDS) {
+            for (const a of ch[key] || []) {
+                const n = ipToInt(a);
+                if (n >= net.start && n <= net.end) add(cellBounds(blockStart(n)), cls);
+            }
+        }
+        for (const [key, cls] of [["prefixes_added", "added prefix"], ["prefixes_removed", "removed prefix"]]) {
+            for (const p of ch[key] || []) {
+                const r = parsePrefix(p);
+                if (r.start >= net.start && r.end <= net.end) add(rangeBounds(r.start, r.end), cls);
+            }
+        }
+        box.replaceChildren(...cells);
+        box.hidden = false;
+    }
+    function changesSection() {
+        const ch = data.changes;
+        if (!ch) return null;
+        const n = (key) => ch[`${key}_count`] ?? (ch[key] || []).length;
+        const parts = [
+            n("added") ? `${fmt(n("added"))} IP added` : null,
+            n("removed") ? `${fmt(n("removed"))} removed` : null,
+            n("changed") ? `${fmt(n("changed"))} changed` : null,
+            n("prefixes_added") ? `${fmt(n("prefixes_added"))} prefix${n("prefixes_added") > 1 ? "es" : ""} added` : null,
+            n("prefixes_removed") ? `${fmt(n("prefixes_removed"))} prefix${n("prefixes_removed") > 1 ? "es" : ""} removed` : null,
+        ].filter(Boolean);
+        const rows = [];
+        for (const [key, cls] of CHANGE_KINDS) for (const a of ch[key] || []) rows.push([a, cls]);
+        for (const p of ch.prefixes_added || []) rows.push([p, "added"]);
+        for (const p of ch.prefixes_removed || []) rows.push([p, "removed"]);
+        const toggle = el("input", { type: "checkbox", id: "show-changes" });
+        toggle.checked = showChanges;
+        toggle.addEventListener("change", () => {
+            showChanges = toggle.checked;
+            store.set("prefix-map.show-changes", showChanges ? "1" : "0");
+            drawChanges();
+        });
+        return sec("Last change", new Date(ch.at * 1000).toLocaleString(),
+            el("div", { class: "sub" }, parts.join(" · ")),
+            el("table", { class: "free changes" }, el("tbody", null, rows.slice(0, 8).map(([text, cls]) => {
+                const isPrefix = text.includes("/");
+                return el("tr", { onclick: img ? () => (isPrefix ? outline(parsePrefix(text)) : pin(blockStart(ipToInt(text)), true)) : null },
+                    el("td", { text }), el("td", { class: `n ${cls}`, text: cls }));
+            }))),
+            rows.length > 8 ? el("div", { class: "hint", text: `${fmt(rows.length - 8)} more` }) : null,
+            img ? el("label", { class: "check" }, toggle, " Show on the map") : null);
     }
     function scrollToBounds([x1, y1, x2, y2]) {
         const u = (cs * k) / dpr;
@@ -609,15 +672,18 @@
                     el("span", { text: used === null ? "IPs" : `IPs · ${pct(used, total)}` })),
                 el("div", { class: "stat" }, el("b", { text: fmt((data.child_prefixes || []).length) }), el("span", { text: "child prefixes" })),
                 el("div", { class: "stat" }, el("b", { text: fmt(total) }), el("span", { text: "addresses" }))));
-        if (hasIps || countsKnown) $("sum-free").replaceChildren(freeSection(net, cfg.prefix));
+        const sections = [];
+        if (hasIps || countsKnown) sections.push(freeSection(net, cfg.prefix));
+        sections.push(changesSection());
         if (dupes.size) {
             const shown = [...dupes.keys()].sort((x, y) => x - y).slice(0, 8);
-            $("sum-free").append(sec("Addresses with several records", `${fmt(dupes.size)}`, el("table", { class: "free" }, el("tbody", null,
+            sections.push(sec("Addresses with several records", `${fmt(dupes.size)}`, el("table", { class: "free" }, el("tbody", null,
                 shown.map((a) => el("tr", { onclick: () => pin(a, true) },
                     el("td", { text: intToIp(a) }),
                     el("td", { class: "n", text: dupes.get(a).map((ip) => vrfLabel(ip.vrf)).join(", ") }))))),
                 dupes.size > shown.length ? el("div", { class: "hint", text: `${fmt(dupes.size - shown.length)} more` }) : null));
         }
+        $("sum-free").replaceChildren(...sections.filter(Boolean));
         const big = document.querySelector("#insp-summary .big");
         if (big && !big.querySelector(".copy")) big.append(copyBtn(cfg.prefix));
     }

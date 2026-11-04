@@ -722,3 +722,25 @@ def test_addresses_with_several_records(open_page):
     assert '2 records' in page.inner_text('#insp-detail .sub')
     detail = page.inner_text('#insp-detail')
     assert 'all records of this address' in detail.lower() and 'Global' in detail and 'LAN' in detail
+
+
+def test_last_change_section_and_overlay(open_page):
+    def inject(route):
+        data = route.fetch().json()
+        if data.get('prefix') == '10.20.48.0/24':
+            data['changes'] = {'at': 1767225600, 'since': 1767139200, 'added': ['10.20.48.1'], 'removed': ['10.20.48.200'],
+                               'changed': [], 'prefixes_added': [], 'prefixes_removed': [],
+                               'added_count': 1, 'removed_count': 1, 'changed_count': 0,
+                               'prefixes_added_count': 0, 'prefixes_removed_count': 0}
+        route.fulfill(json=data)
+
+    page = open_page(f'{BASE}/map/1/10_20_48_0_24', route=(f'**{BASE}/data/**', inject))
+    wait_for_map(page)
+    section = page.locator('#sum-free section:has-text("Last change")')
+    assert '1 IP added · 1 removed' in section.inner_text()
+    assert page.is_hidden('#ov-changes')
+    page.check('#show-changes')
+    assert page.locator('#ov-changes .ov-change.added').count() == 1
+    assert page.locator('#ov-changes .ov-change.removed').count() == 1
+    section.locator('tr >> nth=1').click()
+    assert page.inner_text('#insp-detail .big').startswith('10.20.48.200/')
