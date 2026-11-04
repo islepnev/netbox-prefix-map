@@ -86,6 +86,10 @@
                     {% if details.status %}<dd>{{ details.status | capitalize }}</dd>{% else %}<dd class="none">—</dd>{% endif %}
                     <dt>Tenant</dt>
                     {% if details.tenant_id %}<dd><a class="ext" href="{{ netbox_url }}/tenancy/tenants/{{ details.tenant_id }}/" target="_blank" rel="noopener">{{ details.tenant_name or details.tenant_id }}</a></dd>{% else %}<dd class="none">—</dd>{% endif %}
+                    <dt>VLAN</dt>
+                    {% if details.vlan_id %}<dd><a class="ext" href="{{ netbox_url }}/ipam/vlans/{{ details.vlan_id }}/" target="_blank" rel="noopener">{{ details.vlan_label }}</a></dd>{% else %}<dd class="none">—</dd>{% endif %}
+                    <dt>Scope</dt>
+                    {% if details.scope_name %}<dd>{% if details.scope_path %}<a class="ext" href="{{ netbox_url }}{{ details.scope_path }}" target="_blank" rel="noopener">{{ details.scope_name }}</a>{% else %}{{ details.scope_name }}{% endif %}</dd>{% else %}<dd class="none">—</dd>{% endif %}
                     <dt>Role</dt>
                     {% if details.role_id %}<dd><a class="ext" href="{{ netbox_url }}/ipam/roles/{{ details.role_id }}/" target="_blank" rel="noopener">{{ details.role_name or details.role_id }}</a></dd>{% else %}<dd class="none">—</dd>{% endif %}
                 </dl>

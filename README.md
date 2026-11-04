@@ -30,7 +30,7 @@ The screenshots use the synthetic test dataset (`tests/synthetic_data.py`); no r
 
 ## Requirements
 
-- NetBox 4.x and an API token with read access to IPAM (prefixes, IP addresses, VRFs; roles and IP ranges optional) and Tenancy (tenants)
+- NetBox 4.x and an API token with read access to IPAM (prefixes, IP addresses, VRFs; roles, IP ranges and VLANs optional), Tenancy (tenants) and optionally DCIM (sites, locations, regions, site groups)
 - Docker with Compose, or Python 3.13
 
 ## Configuration
@@ -73,7 +73,7 @@ python -m app.webapp    # development server
 ### Webhook
 
 1. Operations › Integrations › Webhooks › Add: URL `http://<host>:5000/prefix-map/webhook`, method `POST`, content type `application/json`, secret as in `WEBHOOK_SECRET`.
-2. Operations › Integrations › Event Rules › Add: object types IPAM › Prefix, IPAM › IP Address, IPAM › IP Range, IPAM › VRF, Tenancy › Tenant; events created, updated, deleted; action: the webhook above.
+2. Operations › Integrations › Event Rules › Add: object types IPAM › Prefix, IPAM › IP Address, IPAM › IP Range, IPAM › VRF, Tenancy › Tenant; optionally IPAM › Role, IPAM › VLAN, DCIM › Site, Location, Region, Site Group, so that renames show up; events created, updated, deleted; action: the webhook above.
 
 Events for other object types are ignored. A burst of events triggers one update immediately and at most one follow-up after `UPDATE_DEBOUNCE_SECONDS`.
 

@@ -345,3 +345,26 @@ def test_search_text_finds_ips_and_prefixes(client):
     assert body['truncated'] and len(body['results']) == 50
     assert search(client, 'no such name') == (200, {'query': 'no such name', 'results': [], 'text': True,
                                                      'truncated': False})
+
+
+def test_map_page_shows_vlan_and_scope(client):
+    html = client.get(f'{BASE}/map/1/10_20_50_0_24').get_data(as_text=True)
+    assert 'VLAN 2050 (lan-50)' in html and '/ipam/vlans/150/' in html
+    html = client.get(f'{BASE}/map/1/10_20_48_0_20').get_data(as_text=True)
+    assert 'Building Storage' in html and '/dcim/locations/4/' in html
+    html = client.get(f'{BASE}/map/1/10_20_32_0_20').get_data(as_text=True)
+    assert 'Lab site' in html and '/dcim/sites/1/' in html
+
+
+def test_prefix_scope_of_older_netbox():
+    from app.cli import prefix_scope
+    assert prefix_scope({'site': 33}) == 'dcim.site:33'
+    assert prefix_scope({'scope_type': 'dcim.location', 'scope_id': 5, 'site': 33}) == 'dcim.location:5'
+    assert prefix_scope({}) is None
+
+
+def test_search_text_matches_vlan_and_scope(client):
+    _, body = search(client, 'vlan 2050')
+    assert [r['prefix'] for r in body['results']] == ['10.20.50.0/24']
+    _, body = search(client, 'building storage')
+    assert body['results'][0]['prefix'] == '10.20.48.0/20'
