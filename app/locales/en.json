@@ -207,7 +207,7 @@
     "search.no_prefix": "{q}: no prefix contains it.",
     "search.no_text": "{q}: no names or descriptions match.",
     "search.not_a_prefix": "{prefix} is not a NetBox prefix.",
-    "search.placeholder": "Find IP, prefix or name",
+    "search.placeholder": "IP, prefix or name",
     "search.prefix_found": "{prefix}. Enter opens its map.",
     "search.this_map": "This map.",
     "search.truncated": "First {n} matches; Enter opens the first:",

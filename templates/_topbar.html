@@ -9,7 +9,7 @@
         <a class="chip" href="{{ url_for('app.vrf_view', vrf=vrf_key) }}" title="{{ t('topbar.vrf_prefixes', vrf=vrf.name if vrf else t('vrf.global')) }}">VRF <span>{{ vrf.name if vrf else t('vrf.global') }}</span>{% if vrf and vrf.description %} <small>{{ vrf.description }}</small>{% endif %}</a>
         {% if prefix is defined %}
         {% for parent in parents %}
-        <a class="crumb" href="{{ url_for('app.serve_map', vrf=vrf_key, prefix=parent.sanitized) }}" title="{{ parent.description or parent.prefix }}">{{ parent.prefix }}</a>
+        <a class="crumb" href="{{ url_for('app.serve_map', vrf=vrf_key, prefix=parent.sanitized) }}" title="{{ parent.prefix }}{% if parent.description %} · {{ parent.description }}{% endif %}">{{ parent.prefix }}</a>
         <span class="crumb-sep">›</span>
         {% endfor %}
         <span class="crumb current" aria-current="page">{{ prefix }}</span>

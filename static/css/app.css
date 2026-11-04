@@ -83,8 +83,11 @@ button { font: inherit; color: inherit; }
 .crumb { font-family: var(--mono); font-size: 12.5px; padding: 3px 6px; border-radius: 4px; color: var(--muted); }
 a.crumb:hover { background: var(--hover-row); color: var(--text); text-decoration: none; }
 .crumb.current { color: var(--text); font-weight: 600; }
-.crumb-sep { color: var(--faint); font-size: 11px; }
-.crumb-desc { color: var(--muted); margin-left: 8px; font-size: 12px; overflow: hidden; text-overflow: ellipsis; }
+.crumb-sep { color: var(--faint); font-size: 11px; flex: none; }
+.crumb-desc { color: var(--muted); margin-left: 8px; font-size: 12px; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 0 1000 auto; }
+/* When the path does not fit, the description goes first, then parent prefixes shrink to an ellipsis; the current prefix stays whole */
+a.crumb { flex: 0 1 auto; min-width: 2.2em; overflow: hidden; text-overflow: ellipsis; }
+.crumb.current { flex: none; }
 .spacer { flex: 1; }
 #search-wrap { position: relative; flex: none; }
 #search {
@@ -312,7 +315,7 @@ table.changes.history tr.current td { font-weight: 600; }
 
 @media (max-width: 1240px) {
   :root { --tree-w: 240px; --insp-w: 296px; }
-  #tree .pct, .crumb-desc, #legend .cellnote { display: none; }
+  #tree .pct, .crumb-desc, #crumbs .chip small, #legend .cellnote { display: none; }
   #search { width: 200px; }
 }
 @media (max-width: 900px) {
