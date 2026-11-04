@@ -147,8 +147,9 @@ window.PrefixMapTop = (() => {
         });
         search.addEventListener("blur", () => setTimeout(() => { msg.hidden = true; }, 200));
         search.addEventListener("focus", () => { if (search.value.trim()) runSearch(false); });
+        // The / key gives "." on the Russian layout
         document.addEventListener("keydown", (e) => {
-            if (e.key === "/" && !(e.target instanceof HTMLInputElement) && !e.ctrlKey && !e.metaKey && !e.altKey) {
+            if ((e.key === "/" || (e.code === "Slash" && e.key === ".")) && !(e.target instanceof HTMLInputElement) && !e.ctrlKey && !e.metaKey && !e.altKey) {
                 e.preventDefault();
                 search.focus();
             }
