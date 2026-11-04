@@ -77,6 +77,26 @@ Apache, in the NetBox virtual host:
 
 Requires `mod_proxy` and `mod_proxy_http`.
 
+## Access control
+
+The maps show every prefix, IP address, DNS name, tenant and description that the API token can read, in images, data files, the search and the prefix tree. The app has no login of its own: restrict it at the reverse proxy, with the same rules as NetBox if that suits. Keep the webhook reachable for NetBox and protect it with `WEBHOOK_SECRET`:
+
+```apache
+<Location /prefix-map>
+    ProxyPass http://localhost:5000/prefix-map
+    ProxyPassReverse http://localhost:5000/prefix-map
+    AuthType Basic
+    AuthName "Prefix Map"
+    AuthUserFile /etc/apache2/prefix-map.htpasswd
+    Require valid-user
+</Location>
+<Location /prefix-map/webhook>
+    Require ip 127.0.0.1 ::1
+</Location>
+```
+
+Replace `Basic` with your SSO module (mod_auth_openidc, mod_auth_mellon, Kerberos) as needed, and the address in `Require ip` with that of the NetBox host when the webhook does not come from localhost. `/healthz` and `/metrics` carry no inventory data. `/errors` shows log lines; keep it behind the same rule. Without `WEBHOOK_SECRET`, anyone who can reach `/webhook` can trigger a full refetch from NetBox (at most one per `UPDATE_DEBOUNCE_SECONDS`).
+
 ## Endpoints
 
 All paths are relative to `BASE_PATH`.
@@ -97,7 +117,7 @@ All paths are relative to `BASE_PATH`.
 - IPv4 only; IPv6 prefixes are skipped.
 - Prefixes of /16 and longer get one cell per address. Shorter prefixes get a layered map with one cell per aligned block (/24 for a /8, at most 65,536 cells), shaded by the number of IP addresses in it.
 - The updater runs inside the web process; run a single web worker.
-- No authentication; restrict access at the reverse proxy if needed.
+- No authentication of its own; see [Access control](#access-control).
 
 ## Development
 

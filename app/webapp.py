@@ -527,11 +527,16 @@ def serve_data(vrf, prefix):
     return jsonify(data), 200
 
 
+IMAGE_NAME = re.compile(r'^address_map-[\w]+-[\w]+\.png$')
+
+
 @bp.route('/images/<filename>', methods=['GET'])
 def serve_image(filename):
     """
-    Serve image files from the output directory.
+    Serve map images from the output directory; other generated files (prefix lists, names) are not served here.
     """
+    if not IMAGE_NAME.match(filename):
+        return jsonify({'error': 'Not found.'}), 404
     return send_from_directory(OUTPUT_DIR, filename)
 
 
