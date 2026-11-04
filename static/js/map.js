@@ -952,18 +952,22 @@
     }
 
     // ---------- events ----------
+    // A non-Latin layout (Russian) gives "с", "х", "ъ" for the c, [, ] keys: fall back to the physical key
+    const CODE_KEY = { KeyC: "c", BracketLeft: "[", BracketRight: "]" };
+    const keyOf = (ev) => (ev.key.length === 1 && ev.key > "~" && CODE_KEY[ev.code]) || ev.key;
     document.addEventListener("keydown", (ev) => {
         if (ev.target.closest?.("input, select, textarea") || ev.ctrlKey || ev.metaKey || ev.altKey) return;
         if (img && img.naturalWidth && data && moveKey(ev)) return;
-        if (ev.key === "Escape") {
+        const key = keyOf(ev);
+        if (key === "Escape") {
             if (pinned !== null) pin(null);
             else if (selected) { selected = null; drawOverlays(); syncUrl(); }
-        } else if (ev.key === "[") setPanel("tree", !panelOpen("tree"));
-        else if (ev.key === "]") setPanel("insp", !panelOpen("insp"));
+        } else if (key === "[") setPanel("tree", !panelOpen("tree"));
+        else if (key === "]") setPanel("insp", !panelOpen("insp"));
         else if (!img || !img.naturalWidth) return;
-        else if (ev.key === "+" || ev.key === "=") setC(zoomStep(c, 1), true);
-        else if (ev.key === "-") setC(zoomStep(c, -1), true);
-        else if (ev.key === "0") setC(fitC(), false);
+        else if (key === "+" || key === "=") setC(zoomStep(c, 1), true);
+        else if (key === "-") setC(zoomStep(c, -1), true);
+        else if (key === "0") setC(fitC(), false);
     });
     // Arrows move the pinned cell (Shift: 16 cells), Enter opens it, c copies it
     const ARROWS = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
@@ -990,7 +994,7 @@
             if (action) navigate(action.url, action.external, ev.shiftKey);
             return true;
         }
-        if (ev.key === "c") {
+        if (keyOf(ev) === "c") {
             const a = pinned ?? hover;
             if (a !== null) copyText(layer ? `${intToIp(a)}/${blockLen}` : intToIp(a));
             else if (selected) copyText(`${intToIp(selected.start)}/${selected.len}`);

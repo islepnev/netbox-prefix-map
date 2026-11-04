@@ -705,6 +705,22 @@ def test_copy_address_and_free_block(open_page):
     assert page.evaluate('navigator.clipboard.readText()') == first
 
 
+def test_shortcuts_on_russian_layout(open_page):
+    """On the Russian layout c, [, ] and / give с, х, ъ and '.': the physical key counts."""
+    page = open_page(f'{BASE}/map/1/10_20_48_0_24')
+    page.context.grant_permissions(['clipboard-read', 'clipboard-write'])
+    wait_for_map(page)
+    press = '''([key, code]) => document.dispatchEvent(new KeyboardEvent("keydown", {key, code, bubbles: true}))'''
+    page.mouse.click(*cell_center(page, *cell_of('10.20.48.0/24', '10.20.48.9')))
+    page.evaluate(press, ['с', 'KeyC'])
+    assert page.evaluate('navigator.clipboard.readText()') == '10.20.48.9'
+    page.evaluate(press, ['х', 'BracketLeft'])
+    page.evaluate(press, ['ъ', 'BracketRight'])
+    assert {'no-tree', 'no-insp'} <= set(page.evaluate('document.body.className').split())
+    page.evaluate(press, ['.', 'Slash'])
+    assert page.evaluate('document.activeElement.id') == 'search'
+
+
 def test_free_blocks_of_one_size(open_page, dataset):
     page = open_page(f'{BASE}/map/1/10_20_0_0_17')
     wait_for_map(page)
