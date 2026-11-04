@@ -45,6 +45,7 @@ Each cell is `CELL_SIZE` pixels: a 1 px gap followed by the cell body. The axes 
 | DHCP or SLAAC IP | Black at 55% opacity |
 | Reserved or deprecated IP | Black at 25% opacity |
 | Inactive IP | Black at 10% opacity |
+| Address in an IP range, without an IP record | Dark gray dot in the middle of the cell |
 | Other IP | Black |
 | Grid | Dotted lines every 16 cells, inner lines only |
 
@@ -90,6 +91,7 @@ Layout: top bar (VRF, prefix path, search, freshness), prefix tree on the left, 
 - Hovering shows the address, its IP record or "free", the prefix chain and the free blocks of the innermost prefix in the inspector; the cell and the prefix are outlined. Clicking pins the cell; clicking it again or Esc unpins.
 - Double-clicking opens the child prefix that contains the cell, otherwise the IP address in NetBox.
 - Usage of every prefix, containers included, is the share of its addresses with an IP record, counted through any nested prefixes.
+- NetBox IP ranges overlapping a prefix (of its VRF; of all VRFs for a Global container) are stored in its data file (`ip_ranges`). The inspector shows the ranges of an address or block. Ranges take space like child prefixes: their addresses are never free. Without `ipam.view_iprange` on the token, ranges are skipped with a warning.
 - Free blocks are the largest aligned blocks with no IP record and no child prefix. Child containers are transparent: what is not assigned inside them is free. As in NetBox, the network and broadcast addresses of a prefix are not free unless it is a container, a pool, a /31 or a /32; the inspector labels them. Data files of prefixes without an image carry no IP list, so their free blocks are not shown.
 - The prefix tree shows the path from the outermost parent to the current prefix; other branches load on expand from `/data/...?nav=1`, which omits addresses and nested prefixes. Tree rows and the map highlight each other.
 - Search: an address or prefix inside the map is pinned or outlined in place; other queries go to `/search`, which returns, per VRF, the prefix itself or the innermost prefix containing the query, with the IP record if any. Result links carry `?focus=<query>`, which pins or outlines it when the map opens.

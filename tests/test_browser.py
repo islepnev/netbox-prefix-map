@@ -675,3 +675,21 @@ def test_svg_export_title_fits_the_map(open_page, path):
     }''')
     assert all(t <= widths['w'] for t in widths['texts']), widths
     assert widths['map'] <= widths['w']
+
+
+def test_ip_range_in_inspector_and_free_blocks(open_page, dataset):
+    page = open_page(f'{BASE}/map/1/10_20_0_0_17')
+    wait_for_map(page)
+    blocks = [ipaddress.ip_network(b) for b in page.evaluate(
+        '() => window.__prefixMap.freeBlocks("10.20.0.0/17").blocks.map((b) => '
+        '[24, 16, 8, 0].map((s) => Math.floor(b.start / 2 ** s) % 256).join(".") + "/" + b.len)')]
+    # 10.20.20.0/22 was free; 10.20.20.0/26 is now the planned range
+    assert not any(b.overlaps(ipaddress.ip_network('10.20.20.0/26')) for b in blocks)
+    assert ipaddress.ip_network('10.20.20.64/26') in blocks
+    page.mouse.move(*cell_center(page, *cell_of('10.20.0.0/17', '10.20.20.5')))
+    detail = page.inner_text('#insp-detail')
+    assert 'IP range' in page.inner_text('#insp-detail .pill')
+    assert '10.20.20.0 – 10.20.20.63' in detail and 'Printers, planned' in detail
+    assert 'IP range' in page.inner_text('#legend')
+    svg = page.evaluate('PrefixMapExport.build({})')
+    assert '<g fill="#555">' in svg and 'IP range' in svg

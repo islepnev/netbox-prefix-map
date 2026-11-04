@@ -61,7 +61,7 @@ python -m app.webapp    # сервер для разработки
 ### Webhook
 
 1. Operations › Integrations › Webhooks › Add: URL `http://<host>:5000/prefix-map/webhook`, метод `POST`, content type `application/json`, секрет как в `WEBHOOK_SECRET`.
-2. Operations › Integrations › Event Rules › Add: типы объектов IPAM › Prefix, IPAM › IP Address, IPAM › VRF, Tenancy › Tenant; события created, updated, deleted; действие — webhook из п. 1.
+2. Operations › Integrations › Event Rules › Add: типы объектов IPAM › Prefix, IPAM › IP Address, IPAM › IP Range, IPAM › VRF, Tenancy › Tenant; события created, updated, deleted; действие — webhook из п. 1.
 
 События для других типов объектов игнорируются. Серия событий запускает одно обновление сразу и не более одного повторного через `UPDATE_DEBOUNCE_SECONDS`.
 

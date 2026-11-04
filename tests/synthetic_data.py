@@ -174,7 +174,22 @@ def build_dataset(seed: int = 20):
         add_ip(f"192.168.0.{host}/24", None, status="active", role="vip" if host == 1 else None)
     add_ip("2001:db8::1/64", LAN_VRF_ID)
 
-    return {"vrfs": vrfs, "tenants": tenants, "roles": roles, "prefixes": prefixes, "ip_addresses": ip_addresses}
+    ip_ranges = []
+
+    def add_range(start, end, vrf, status="active", description="", role=None, mark_utilized=False):
+        first, last = (ipaddress.ip_interface(a).ip for a in (start, end))
+        ip_ranges.append({
+            "id": len(ip_ranges) + 1, "start_address": start, "end_address": end,
+            "size": int(last) - int(first) + 1, "vrf": vrf, "tenant": None, "status": status, "role": role,
+            "description": description, "mark_utilized": mark_utilized,
+        })
+
+    add_range("10.20.16.100/24", "10.20.16.199/24", LAN_VRF_ID, description="Office DHCP", role=1)
+    add_range("10.20.37.10/24", "10.20.37.250/24", LAN_VRF_ID, description="Lab DHCP", mark_utilized=True)
+    add_range("10.20.20.0/24", "10.20.20.63/24", LAN_VRF_ID, status="reserved", description="Printers, planned")
+
+    return {"vrfs": vrfs, "tenants": tenants, "roles": roles, "prefixes": prefixes, "ip_addresses": ip_addresses,
+            "ip_ranges": ip_ranges}
 
 
 class FakeNetboxManager:
@@ -191,6 +206,9 @@ class FakeNetboxManager:
 
     def get_vrfs(self):
         return self.dataset["vrfs"]
+
+    def get_ip_ranges(self):
+        return self.dataset.get("ip_ranges", [])
 
     def get_tenants(self):
         return self.dataset["tenants"]

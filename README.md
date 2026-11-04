@@ -8,7 +8,7 @@ The maps are drawn from [NetBox](https://github.com/netbox-community/netbox) pre
 
 ## What you can do
 
-- **See the whole space.** Prefixes of /16 and longer get one cell per address, and shorter ones one cell per /24 or larger block, shaded by how many addresses are used. Child prefixes are filled with their tenant's colour, and used addresses are drawn on top: in use, DHCP, reserved, inactive, or with a role (anycast, VIP).
+- **See the whole space.** Prefixes of /16 and longer get one cell per address, and shorter ones one cell per /24 or larger block, shaded by how many addresses are used. Child prefixes are filled with their tenant's colour, and used addresses are drawn on top: in use, DHCP, reserved, inactive, or with a role (anycast, VIP). NetBox IP ranges are marked too.
 - **Inspect any address.** Hover or click a cell to see its IP record or "free", the chain of prefixes around it with links to NetBox, and the free blocks of the innermost prefix. Network and broadcast addresses are marked as such.
 - **Find space.** Pick a size such as /26 to list the first free blocks of that size, then copy one with a click. Search by address or prefix across all VRFs.
 - **Share and print.** The URL keeps the pinned address. Print gives a vector map with title and legend, in colour or black and white with hatched tenants, and "Download SVG" saves the same drawing.
@@ -30,7 +30,7 @@ The screenshots use the synthetic test dataset (`tests/synthetic_data.py`); no r
 
 ## Requirements
 
-- NetBox 4.x and an API token with read access to IPAM (prefixes, IP addresses, VRFs; roles optional) and Tenancy (tenants)
+- NetBox 4.x and an API token with read access to IPAM (prefixes, IP addresses, VRFs; roles and IP ranges optional) and Tenancy (tenants)
 - Docker with Compose, or Python 3.13
 
 ## Configuration
@@ -73,7 +73,7 @@ python -m app.webapp    # development server
 ### Webhook
 
 1. Operations › Integrations › Webhooks › Add: URL `http://<host>:5000/prefix-map/webhook`, method `POST`, content type `application/json`, secret as in `WEBHOOK_SECRET`.
-2. Operations › Integrations › Event Rules › Add: object types IPAM › Prefix, IPAM › IP Address, IPAM › VRF, Tenancy › Tenant; events created, updated, deleted; action: the webhook above.
+2. Operations › Integrations › Event Rules › Add: object types IPAM › Prefix, IPAM › IP Address, IPAM › IP Range, IPAM › VRF, Tenancy › Tenant; events created, updated, deleted; action: the webhook above.
 
 Events for other object types are ignored. A burst of events triggers one update immediately and at most one follow-up after `UPDATE_DEBOUNCE_SECONDS`.
 

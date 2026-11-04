@@ -121,6 +121,16 @@ window.PrefixMapExport = (() => {
             });
             body.push(`<g fill="none" stroke="#444" stroke-width="${U / 8}">${outlines.join("")}</g>`);
         } else {
+            // IP ranges: a dot in the middle of each address cell, under the IP cells
+            const dots = [], D = BODY / 3;
+            for (const { start, end } of ctx.ranges || []) {
+                for (let a = Math.max(start, net.start); a <= Math.min(end, net.end); a++) {
+                    if (ctx.ipsByAddr.has(a)) continue;  // drawn as an IP cell
+                    const [x, y] = cellOf(a);
+                    dots.push(`<rect x="${x * U + GAP + D}" y="${y * U + GAP + D}" width="${D}" height="${D}"/>`);
+                }
+            }
+            if (dots.length) body.push(`<g fill="#555">${dots.join("")}</g>`);
             // One cell per IP record, grouped by kind
             const byKind = new Map();
             for (const ip of data.ip_addresses || []) {
@@ -154,6 +164,7 @@ window.PrefixMapExport = (() => {
                 const k = ctx.IP_KINDS[kind];
                 items.push({ fill: mono && kind === "role" ? "#000" : k.svg[0], opacity: mono && kind === "role" ? 1 : k.svg[1], hollow: mono && kind === "role", label: k.label });
             }
+            if ((ctx.ranges || []).length) items.push({ fill: "#fff", opacity: 1, dot: true, label: "IP range" });
         }
         const tenantItems = tenantOrder.map((key) => ({ fill: tenantFill.get(key), opacity: 1, label: ctx.tenantName(key), outline: true }))
             .sort((a, b) => a.label.localeCompare(b.label));
@@ -175,7 +186,8 @@ window.PrefixMapExport = (() => {
             const swatch = it.check
                 ? `<rect x="${it.x}" y="${y}" width="${sw}" height="${sw}" fill="url(#legend-check)" stroke="#999" stroke-width="${fs / 12}"/>`
                 : `<rect x="${it.x}" y="${y}" width="${sw}" height="${sw}" fill="${it.fill}" fill-opacity="${it.opacity}" stroke="#999" stroke-width="${fs / 12}"/>`
-                    + (it.hollow ? `<rect x="${it.x + sw / 3}" y="${y + sw / 3}" width="${sw / 3}" height="${sw / 3}" fill="#fff"/>` : "");
+                    + (it.hollow ? `<rect x="${it.x + sw / 3}" y="${y + sw / 3}" width="${sw / 3}" height="${sw / 3}" fill="#fff"/>` : "")
+                    + (it.dot ? `<rect x="${it.x + sw / 3}" y="${y + sw / 3}" width="${sw / 3}" height="${sw / 3}" fill="#555"/>` : "");
             return swatch + text;
         }));
         if (layer) defs.push(`<pattern id="legend-check" width="${sw / 4}" height="${sw / 4}" patternUnits="userSpaceOnUse"><rect width="${sw / 4}" height="${sw / 4}" fill="#fff"/><rect width="${sw / 8}" height="${sw / 8}" fill="#999"/><rect x="${sw / 8}" y="${sw / 8}" width="${sw / 8}" height="${sw / 8}" fill="#999"/></pattern>`);
