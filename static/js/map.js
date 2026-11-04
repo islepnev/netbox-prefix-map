@@ -395,11 +395,41 @@
             ? rangeBounds(selected.start, selected.end) : null);
         place(ov.free, freeHi ? rangeBounds(freeHi.start, freeHi.start + freeHi.size - 1) : null);
         drawChanges();
+        drawTenant();
     }
 
     // ---------- changes of the last update that changed this prefix ----------
     const CHANGE_KINDS = [["added", "added"], ["removed", "removed"], ["changed", "changed"]];
     let showChanges = store.get("prefix-map.show-changes") === "1";
+    // ---------- prefixes of one tenant, outlined from the legend ----------
+    let tenantHi = null;
+    const tenantPrefixes = (id) => {
+        const own = nested.filter((n) => String(n.p.tenant) === String(id) && !(layer && n.len > blockLen));
+        // Outermost only: a tenant's /24 inside its own /20 adds nothing to the outline
+        return own.filter((n) => !own.some((o) => o !== n && o.start <= n.start && o.end >= n.end && o.len < n.len));
+    };
+    function drawTenant() {
+        const box = $("ov-tenant");
+        if (!box) return;
+        if (tenantHi === null || !img) { box.hidden = true; return; }
+        const u = c / dpr;
+        box.replaceChildren(...tenantPrefixes(tenantHi).map((n) => {
+            const [x1, y1, x2, y2] = rangeBounds(n.start, n.end);
+            return el("div", { class: "ov-tenant", title: n.p.prefix,
+                style: `left:${x1 * u}px;top:${y1 * u}px;width:${(x2 - x1 + 1) * u}px;height:${(y2 - y1 + 1) * u}px` });
+        }));
+        box.hidden = false;
+    }
+    function toggleTenant(id) {
+        tenantHi = String(tenantHi) === String(id) ? null : id;
+        drawTenant();
+        document.querySelectorAll("#legend .tenant-toggle").forEach((e) => e.setAttribute("aria-pressed", String(e.dataset.tenant === String(tenantHi))));
+        if (tenantHi !== null) {
+            const list = tenantPrefixes(tenantHi);
+            toast(`${tenantName(tenantHi)}: ${list.length} ${list.length === 1 ? "prefix" : "prefixes"} outlined${list.length ? ` (${list.slice(0, 3).map((n) => n.p.prefix).join(", ")}${list.length > 3 ? ", …" : ""})` : ""}. Click again to clear.`);
+        }
+    }
+
     function drawChanges() {
         const box = $("ov-changes");
         const ch = data && data.changes;
@@ -785,7 +815,11 @@
                     .map(([id, c]) => {
                         // Colours come from a 16-colour palette by tenant id: tenants 1 and 17 look the same
                         const same = [...tenants].filter(([o, oc]) => o !== id && oc === c).map(([o]) => tenantName(o));
-                        return el("span", { class: same.length ? "lg same-color" : "lg", title: same.length ? `Same colour as ${same.join(", ")}` : null },
+                        const pressed = String(tenantHi) === String(id);
+                        return el("span", { class: same.length ? "lg tenant-toggle same-color" : "lg tenant-toggle", role: "button", tabindex: "0",
+                            "data-tenant": String(id), "aria-pressed": String(pressed),
+                            title: (same.length ? `Same colour as ${same.join(", ")}. ` : "") + "Click to outline its prefixes",
+                            onclick: () => toggleTenant(id), onkeydown: (ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); toggleTenant(id); } } },
                             sw(c), tenantName(id), same.length ? el("span", { class: "same-mark", text: "=" }) : null);
                     })) : null,
             el("span", { class: "right", id: "usage-total" },

@@ -751,7 +751,8 @@ def test_legend_marks_tenants_sharing_a_colour(open_page):
     page = open_page(f'{BASE}/map/1/10_20_0_0_17', route=(f'**{BASE}/data/1/10_20_0_0_17', route))
     wait_for_map(page)
     marked = page.eval_on_selector_all('#legend .lg.same-color', 'els => els.map(e => [e.textContent, e.title])')
-    assert marked == [['Core=', 'Same colour as Tenant 17'], ['Tenant 17=', 'Same colour as Core']]
+    assert [m[0] for m in marked] == ['Core=', 'Tenant 17=']
+    assert marked[0][1].startswith('Same colour as Tenant 17.') and marked[1][1].startswith('Same colour as Core.')
     assert page.locator('#legend .lg:not(.same-color):has-text("Office")').count() == 1
     svg, _ = export_svg(page)
     assert 'Core (same colour as Tenant 17)' in svg
@@ -786,6 +787,29 @@ def test_reserved_prefix_in_legend_chain_and_svg(open_page):
     page = open_page(f'{BASE}/map/1/10_20_48_0_24')
     wait_for_map(page)
     assert page.locator('#legend .sw.striped').count() == 0
+    assert page.errors == []
+
+
+def test_legend_tenant_outlines_its_prefixes(open_page, output_dir):
+    with open(os.path.join(output_dir, 'data-1-10_20_0_0_17.json')) as f:
+        nested = [ipaddress.ip_network(p['prefix']) for p in json.load(f)['nested_prefixes'] if p['tenant'] == 2]
+    outermost = {str(n) for n in nested if not any(o != n and n.subnet_of(o) for o in nested)}
+    page = open_page(f'{BASE}/map/1/10_20_0_0_17')
+    wait_for_map(page)
+    office = page.locator('#legend .tenant-toggle', has_text='Office')
+    office.click()
+    assert office.get_attribute('aria-pressed') == 'true'
+    titles = page.eval_on_selector_all('#ov-tenant .ov-tenant', 'els => els.map(e => e.title)')
+    assert set(titles) == outermost and len(titles) == len(outermost) > 1
+    assert f'Office: {len(outermost)} prefixes outlined' in page.inner_text('#toast')
+    page.keyboard.press('+')
+    box = page.eval_on_selector('#ov-tenant .ov-tenant', 'e => e.getBoundingClientRect().width')
+    assert box > 0
+    office.click()
+    assert page.is_hidden('#ov-tenant') and office.get_attribute('aria-pressed') == 'false'
+    page.locator('#legend .tenant-toggle', has_text='Lab').focus()
+    page.keyboard.press('Enter')
+    assert page.locator('#ov-tenant .ov-tenant').count() >= 1
     assert page.errors == []
 
 

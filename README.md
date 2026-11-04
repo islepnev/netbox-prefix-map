@@ -10,7 +10,7 @@ The maps are drawn from [NetBox](https://github.com/netbox-community/netbox) pre
 
 - **See the whole space.** Prefixes of /16 and longer get one cell per address, and shorter ones one cell per /24 or larger block, shaded by how many addresses are used. Child prefixes are filled with their tenant's colour, and used addresses are drawn on top: in use, DHCP, reserved, inactive, or with a role (anycast, VIP). Reserved and deprecated prefixes are striped, and NetBox IP ranges are marked too.
 - **Inspect any address.** Hover or click a cell to see its IP record or "free", the chain of prefixes around it with links to NetBox, and the free blocks of the innermost prefix. Network and broadcast addresses are marked as such.
-- **Find space.** Pick a size such as /26 to list the first free blocks of that size, then copy one with a click. Search by address, prefix, DNS name or description across all VRFs.
+- **Find space.** Pick a size such as /26 to list the first free blocks of that size, then copy one with a click. Search by address, prefix, DNS name or description across all VRFs. Click a tenant in the legend to outline its prefixes.
 - **Share and print.** The URL keeps the pinned address. Print gives a vector map with title and legend, in colour or black and white with hatched tenants, and "Download SVG" saves the same drawing.
 - **Work from the keyboard.** Arrow keys move the pin, Enter opens the child prefix or the IP in NetBox, `c` copies, `/` searches, `+` `-` `0` zoom; Ctrl + wheel zooms about the pointer and dragging pans.
 
