@@ -1023,3 +1023,34 @@ def test_fractional_zoom_keeps_cells_identical(open_page, output_dir, dpr, press
     expected = png[rows][:, cols]
     assert shot.shape[:2] == (png.shape[0] * c // CELL_SIZE, png.shape[1] * c // CELL_SIZE)
     assert (np.abs(shot - expected).max(axis=2) > 8).mean() < 0.001, f"c={c}"
+
+
+def test_change_history_list(open_page):
+    def record(at, added=(), removed=()):
+        return {'at': at, 'since': at - 3600, 'added': list(added), 'removed': list(removed), 'changed': [],
+                'prefixes_added': [], 'prefixes_removed': [], 'added_count': len(added),
+                'removed_count': len(removed), 'changed_count': 0, 'prefixes_added_count': 0,
+                'prefixes_removed_count': 0}
+
+    def inject(route):
+        data = route.fetch().json()
+        if data.get('prefix') == '10.20.48.0/24':
+            history = [record(1767225600, added=['10.20.48.1']),
+                       record(1767139200, removed=['10.20.48.200', '10.20.48.201']),
+                       record(1767052800, added=['10.20.48.5', '10.20.48.6', '10.20.48.7'])]
+            data['changes'], data['changes_history'] = history[0], history
+        route.fulfill(json=data)
+
+    page = open_page(f'{BASE}/map/1/10_20_48_0_24', route=(f'**{BASE}/data/**', inject))
+    wait_for_map(page)
+    section = page.locator('#sum-free section:has-text("Last change")')
+    rows = section.locator('table.history tr')
+    assert rows.count() == 3 and 'current' in rows.nth(0).get_attribute('class')
+    assert rows.nth(2).locator('td.n').inner_text() == '3 IP added'
+    page.check('#show-changes')
+    rows.nth(1).click()
+    section = page.locator('#sum-free section:has-text("Earlier change")')
+    assert section.locator('.sub').inner_text() == '2 removed'
+    assert page.locator('#ov-changes .ov-change.removed').count() == 2
+    assert page.locator('#ov-changes .ov-change.added').count() == 0
+    assert page.errors == []
