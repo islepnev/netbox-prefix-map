@@ -411,7 +411,7 @@ def help_page():
 def vrf_view(vrf):
     vrf_info = next((v for v in load_vrf_data() if str(v['id']) == vrf), None)
     if not vrf_info and vrf != 'None':
-        return render_template('error.html', message=f"VRF {vrf} not found."), 404
+        return render_template('error.html', message=i18n.t('error.vrf_not_found', vrf=vrf)), 404
     tenants, _ = load_names()
     return render_template('vrf.html', vrf=vrf_info, vrf_key=vrf, summary=vrf_summary(vrf), tenants=tenants,
                            netbox_url=get_netbox_url())
@@ -435,7 +435,7 @@ def serve_map(vrf, prefix):
 
     image_exists = os.path.exists(os.path.join(OUTPUT_DIR, image_filename))
     if not image_exists and not os.path.exists(os.path.join(OUTPUT_DIR, data_filename)):
-        return render_template('error.html', message=f"Visualization for prefix {display_prefix} not found."), 404
+        return render_template('error.html', message=i18n.t('error.map_not_found', prefix=display_prefix)), 404
 
     prefix_entry = find_prefix_entry(vrf, display_prefix)
     details = prefix_details(prefix_entry)
@@ -607,9 +607,9 @@ def search_text(query):
     return results[:SEARCH_LIMIT], len(results) > SEARCH_LIMIT
 
 
-# "free /26", "free 26", "free /26 in 10.20.0.0/16"
-FREE_QUERY = re.compile(r'^free\s*/?\s*(\d{1,2})(?:\s+(?:in\s+)?(\d{1,3}(?:\.\d{1,3}){3}/\d{1,2}))?$',
-                        re.IGNORECASE)
+# "free /26", "free 26", "free /26 in 10.20.0.0/16"; in Russian "свободные /26 в 10.20.0.0/16"
+FREE_QUERY = re.compile(r'^(?:free|свободн\w*)\s*/?\s*(\d{1,2})'
+                        r'(?:\s+(?:(?:in|в)\s+)?(\d{1,3}(?:\.\d{1,3}){3}/\d{1,2}))?$', re.IGNORECASE)
 FREE_PER_VRF = 10
 
 
@@ -654,6 +654,11 @@ def search_free(prefix_len, within=None, prefer_vrf=None):
     return results, counts
 
 
+def search_error(code, status, **params):
+    """Error of /search: error_code for scripts, error in the language of the request."""
+    return jsonify({'error': i18n.t(f'search.error.{code}', **params), 'error_code': code}), status
+
+
 @bp.route('/search', methods=['GET'])
 def search():
     query = request.args.get('q', '').strip()
@@ -662,10 +667,10 @@ def search():
         try:
             within = ipaddress.ip_network(free.group(2), strict=False) if free.group(2) else None
         except ValueError:
-            return jsonify({'error': f'Not an IPv4 prefix: {free.group(2)}'}), 400
+            return search_error('bad_prefix', 400, prefix=free.group(2))
         found = search_free(int(free.group(1)), within, prefer_vrf=request.args.get('vrf'))
         if found is None:
-            return jsonify({'error': 'Free space is listed after the next update.'}), 503
+            return search_error('free_not_ready', 503)
         results, counts = found
         return jsonify({'query': query, 'results': results, 'free': True, 'counts': counts})
     if SEARCH_QUERY.match(query):
@@ -676,8 +681,7 @@ def search():
     elif len(query) >= 2 and not ADDRESS_LIKE.match(query):
         results, truncated = search_text(query)
         return jsonify({'query': query, 'results': results, 'text': True, 'truncated': truncated})
-    return jsonify({'error': 'Expected an IPv4 address or prefix (10.20.0.1, 10.20.36.0/24), '
-                             'or at least 2 characters of a name or description.'}), 400
+    return search_error('bad_query', 400)
 
 
 @bp.route('/data/<vrf>/<path:prefix>', methods=['GET'])

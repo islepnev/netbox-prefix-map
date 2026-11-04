@@ -115,3 +115,76 @@ def test_page_embeds_messages_of_its_language(client):
 def test_json_endpoints_have_no_language_vary(client):
     r = client.get(f'{BASE}/data/1/10_20_48_0_20')
     assert 'Accept-Language' not in r.headers.get('Vary', '')
+
+
+def test_russian_pages(client):
+    ru = {'Accept-Language': 'ru'}
+    html = client.get(f'{BASE}/', headers=ru).data.decode()
+    assert 'Префиксы IPv4 и IP-адреса по VRF' in html and '>Глобальный</a>' in html
+    html = client.get(f'{BASE}/map/1', headers=ru).data.decode()
+    assert 'Занято адресов' in html and '<span class="pill">Контейнер</span>' in html
+    assert re.search(r'<b>[\d ]+</b><span>(префикс|префикса|префиксов) IPv4</span>', html)
+    html = client.get(f'{BASE}/map/1/10_20_48_0_20', headers=ru).data.decode()
+    assert 'Инспектор' in html and 'Дерево префиксов' in html and '<kbd>Esc</kbd> открепляет' in html
+    r = client.get(f'{BASE}/map/999', headers=ru)
+    assert r.status_code == 404 and 'VRF 999 не найден.' in r.data.decode()
+
+
+def test_search_errors_are_translated_with_a_code(client):
+    r = client.get(f'{BASE}/search?q=x', headers={'Accept-Language': 'ru'})
+    assert r.status_code == 400
+    assert r.json['error_code'] == 'bad_query' and r.json['error'].startswith('Нужен IPv4-адрес')
+    r = client.get(f'{BASE}/search?q=free /26 in 10.20.0.0/99')
+    assert r.status_code == 400
+    assert r.json == {'error': 'Not an IPv4 prefix: 10.20.0.0/99', 'error_code': 'bad_prefix'}
+
+
+def test_free_search_in_russian(client):
+    en = client.get(f'{BASE}/search', query_string={'q': 'free /26 in 10.20.0.0/16'}).json
+    ru = client.get(f'{BASE}/search', query_string={'q': 'свободные /26 в 10.20.0.0/16'}).json
+    assert ru['free'] and ru['results'] == en['results'] and ru['results']
+
+
+TEXT_ALLOWED = re.compile(r'^(VRF|RD|VLAN|NetBox|IPv4|[A-Z]?[\W\d_]*)$')
+
+
+class TemplateText(__import__('html.parser').parser.HTMLParser):
+    """Words in template text and in title, alt, placeholder, aria-label attributes, outside {{ }} and {% %}."""
+    ATTRS = ('title', 'alt', 'placeholder', 'aria-label')
+
+    def __init__(self):
+        super().__init__()
+        self.words, self.skip = [], 0
+
+    def add(self, text):
+        text = re.sub(r'\{\{.*?\}\}|\{%.*?%\}|\{#.*?#\}', ' ', text, flags=re.S)
+        self.words += [w for w in re.findall(r'[^\s·›—|]+', text) if not TEXT_ALLOWED.match(w)]
+
+    def handle_starttag(self, tag, attrs):
+        if tag in ('script', 'style', 'svg', 'kbd', 'code'):
+            self.skip += 1
+        for name, value in attrs:
+            if name in self.ATTRS and value:
+                self.add(value)
+
+    def handle_endtag(self, tag):
+        if tag in ('script', 'style', 'svg', 'kbd', 'code'):
+            self.skip -= 1
+
+    def handle_data(self, data):
+        if not self.skip:
+            self.add(data)
+
+
+# Help prose is checked by structure (test_help_bodies_match); the rest must take its text from the catalogues
+TEMPLATES = sorted(os.path.basename(p) for p in glob.glob(os.path.join(ROOT, 'templates', '*.html'))
+                   if os.path.basename(p) != 'help.html')
+
+
+@pytest.mark.parametrize('name', TEMPLATES)
+def test_templates_have_no_literal_text(name):
+    with open(os.path.join(ROOT, 'templates', name), encoding='utf-8') as f:
+        source = f.read()
+    parser = TemplateText()
+    parser.feed(re.sub(r'\{\{.*?\}\}|\{%.*?%\}|\{#.*?#\}', ' ', source, flags=re.S))
+    assert not parser.words, parser.words

@@ -59,6 +59,16 @@ def translate(lang, key, **params):
     return message
 
 
+def status_label(lang, status):
+    """NetBox status value (active, dhcp) as shown; values without a message are capitalized."""
+    if not status:
+        return ''
+    key = f'status.{status}'
+    if key in CATALOGUES[lang] or key in CATALOGUES[DEFAULT_LANGUAGE]:
+        return translate(lang, key)
+    return status[:1].upper() + status[1:]
+
+
 def requested_language():
     """?lang=, then the lang cookie, then Accept-Language; English by default."""
     for value in (request.args.get('lang'), request.cookies.get(COOKIE)):
@@ -85,7 +95,7 @@ def init_app(app, cookie_path='/'):
         lang = get_language()
         return {'lang': lang, 't': t, 'languages': LANGUAGES, 'language_names': LANGUAGE_NAMES,
                 'i18n_messages': PAGE_MESSAGES[lang],
-                'fmt_count': lambda n: format_number(lang, n)}
+                'fmt_count': lambda n: format_number(lang, n), 'status_label': lambda s: status_label(lang, s)}
 
     @app.after_request
     def remember_language(response):
