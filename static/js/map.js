@@ -349,6 +349,9 @@
     const pointIn = (ev) => { const r = viewport.getBoundingClientRect(); return [ev.clientX - r.left, ev.clientY - r.top]; };
 
     function enableGestures() {
+        // A drag that starts on the image must not become the browser's image drag-and-drop (Firefox ignores
+        // -webkit-user-drag; iOS starts system drag-and-drop): it would cancel the pointer and end the pan
+        viewport.addEventListener("dragstart", (ev) => ev.preventDefault());
         // Wheel: zoom about the pointer. Touchpad pinch arrives as a wheel event with ctrlKey and small deltas.
         viewport.addEventListener("wheel", (ev) => {
             ev.preventDefault();
