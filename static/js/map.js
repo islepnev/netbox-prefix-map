@@ -215,6 +215,7 @@
             viewport.scrollTop = cy * h + topPx - vh / 2;
         }
         document.documentElement.style.setProperty("--hair", `${1 / dpr}px`);
+        stage.classList.add("laid-out");
         $("zoom-level").textContent = `${k}×`;
         $("zoom-level").title = `${k} device px per image px · 1 address = ${cs * k} device px`;
         $("zoom-out").disabled = k <= 1;
