@@ -25,7 +25,7 @@
 # From corrections in this session
 
 ## Commits and PRs
-- Commit message: short subject, terse bullets, `Co-Authored-By` line only. No session links, no "Generated with" lines.
+- Commit message: short subject, terse bullets, then `Assisted-by: Claude Opus 5.5` as the only trailer. The owner is the author and committer; never `Co-Authored-By` with an agent, no session links, no "Generated with" lines.
 - PR: short title; body of terse bullets grouped under plain labels (Map, Search, Other); no headings, footers, links or emojis.
 - After posting a PR or comment, read it back and remove anything a tool appended.
 - Keep history linear: branch from the current default branch, no merge commits.
