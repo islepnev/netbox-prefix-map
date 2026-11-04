@@ -69,7 +69,7 @@ Prefixes shorter than /16 would need a grid of 4096 × 4096 cells or more. They 
 
 The data file carries `layer` (`block_len`, `blocks`: block index and IP count) instead of the IP list. On the page a cell is a block: the inspector shows its IP count, the prefix chain, prefixes inside it and free blocks down to the block size; double-click opens the map of the child prefix covering the block, or of the first prefix inside it.
 
-Tenant colors are taken from a 16-color palette by tenant id, so a tenant keeps its color when others are added or removed. The palette has no gray: a gray fill would read as a reserved IP.
+Tenant colors are taken from a 16-color palette by tenant id, so a tenant keeps its color when others are added or removed. The palette has no gray: a gray fill would read as a reserved IP. Tenant ids 16 apart share a color; the map page legend marks tenants of the current map that share one (`=`, with the other names in the tooltip), and the exported SVG names them after the tenant.
 
 ## Updates
 
@@ -99,7 +99,7 @@ Layout: top bar (VRF, prefix path, search, freshness), prefix tree on the left, 
 - The prefix tree shows the path from the outermost parent to the current prefix; other branches load on expand from `/data/...?nav=1`, which omits addresses and nested prefixes. Tree rows and the map highlight each other.
 - Text search: other queries of 2 characters or more go to `/search` as text, matched case-insensitively against IP DNS names and descriptions (`search_index.json`) and prefix descriptions, tenant and role names; IP results link to the innermost prefix map with `?focus=`. At most 50 results.
 - Search: an address or prefix inside the map is pinned or outlined in place; other queries go to `/search`, which returns, per VRF, the prefix itself or the innermost prefix containing the query, with the IP record if any. Result links carry `?focus=<query>`, which pins or outlines it when the map opens.
-- Export and print (`static/js/map_export.js`): an SVG is drawn in the browser from the data file, with the same layout as the PNG: one rect per IP (per block with its usage darkness on layered maps), nested prefixes with tenant fills and dotted outlines, the octet labels as text, a title and a legend. "Download SVG" saves it; on print (`beforeprint`, Ctrl+P included) it replaces the page through the print stylesheet, so the browser prints a vector map with legend and no UI, landscape for 2:1 maps. In black and white, tenants get hatch patterns instead of colors and IPs with a role become hollow black cells.
+- Export and print (`static/js/map_export.js`): an SVG is drawn in the browser from the data file, with the same layout as the PNG: one rect per IP (per block with its usage darkness on layered maps), nested prefixes with tenant fills and dotted outlines, the octet labels as text, a title and a legend. "Download SVG" saves it; on print (`beforeprint`, Ctrl+P included) it replaces the page through the print stylesheet, so the browser prints a vector map with legend and no UI, landscape for 2:1 maps. In black and white, tenants get hatch patterns instead of colors (16 patterns in order of first appearance on the map; beyond 16 the legend names tenants sharing a pattern) and IPs with a role become hollow black cells.
 - The freshness dot polls `/healthz` and turns amber when the last update failed, the updater stopped or the data is older than 24 h.
 - Colors of the page follow the system light or dark theme; the map keeps its white background.
 

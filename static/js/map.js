@@ -737,7 +737,12 @@
             tenants.size ? el("span", { class: "vsep" }) : null,
             tenants.size ? el("span", { class: "lg-group tenants" }, el("span", { class: "lg-label", text: "Tenants" }),
                 [...tenants].sort((a, b) => tenantName(a[0]).localeCompare(tenantName(b[0])))
-                    .map(([id, c]) => el("span", { class: "lg" }, sw(c), tenantName(id)))) : null,
+                    .map(([id, c]) => {
+                        // Colours come from a 16-colour palette by tenant id: tenants 1 and 17 look the same
+                        const same = [...tenants].filter(([o, oc]) => o !== id && oc === c).map(([o]) => tenantName(o));
+                        return el("span", { class: same.length ? "lg same-color" : "lg", title: same.length ? `Same colour as ${same.join(", ")}` : null },
+                            sw(c), tenantName(id), same.length ? el("span", { class: "same-mark", text: "=" }) : null);
+                    })) : null,
             el("span", { class: "right", id: "usage-total" },
                 usageText(),
                 img ? el("span", { class: "cellnote", text: layer ? ` · 1 cell = /${blockLen}` : " · 1 cell = 1 address" }) : null),

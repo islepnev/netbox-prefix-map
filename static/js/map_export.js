@@ -16,6 +16,14 @@ window.PrefixMapExport = (() => {
         '<path d="M0 8L8 0M0 0L8 8" stroke="#000" stroke-width=".6"/>',
         '<path d="M0 4H8M4 0V8" stroke="#000" stroke-width=".6"/>',
         '<circle cx="2" cy="2" r=".9" fill="#000"/><circle cx="6" cy="6" r=".9" fill="#000"/>',
+        '<path d="M0 4L4 0M0 8L8 0M4 8L8 4" stroke="#000" stroke-width=".6"/>',
+        '<path d="M0 4L4 8M0 0L8 8M4 0L8 4" stroke="#000" stroke-width=".6"/>',
+        '<path d="M0 2H8M0 6H8" stroke="#000" stroke-width=".6"/>',
+        '<path d="M2 0V8M6 0V8" stroke="#000" stroke-width=".6"/>',
+        '<circle cx="4" cy="4" r="2" fill="#000"/>',
+        '<circle cx="4" cy="4" r="2.2" fill="none" stroke="#000" stroke-width=".8"/>',
+        '<path d="M0 6L2 2L4 6L6 2L8 6" fill="none" stroke="#000" stroke-width=".8"/>',
+        '<path d="M0 8L8 0M0 4H8" stroke="#000" stroke-width=".6"/>',
     ];
     let ctx = null;
 
@@ -41,6 +49,7 @@ window.PrefixMapExport = (() => {
 
         // Tenant fills: color, or one hatch per tenant in black and white
         const tenantFill = new Map();
+        const tenantLook = new Map();  // colour, or hatch number in black and white: equal looks are named in the legend
         const tenantOrder = [];
         const fillOf = (p) => {
             if (!p.tenant || !p.color) return null;
@@ -50,8 +59,10 @@ window.PrefixMapExport = (() => {
                 if (mono) {
                     const id = `t${tenantFill.size}`;
                     defs.push(`<pattern id="${id}" width="8" height="8" patternUnits="userSpaceOnUse"><rect width="8" height="8" fill="#fff"/>${HATCHES[tenantFill.size % HATCHES.length]}</pattern>`);
+                    tenantLook.set(key, tenantFill.size % HATCHES.length);
                     tenantFill.set(key, `url(#${id})`);
                 } else {
+                    tenantLook.set(key, p.color);
                     tenantFill.set(key, p.color);
                 }
             }
@@ -166,8 +177,12 @@ window.PrefixMapExport = (() => {
             }
             if ((ctx.ranges || []).length) items.push({ fill: "#fff", opacity: 1, dot: true, label: "IP range" });
         }
-        const tenantItems = tenantOrder.map((key) => ({ fill: tenantFill.get(key), opacity: 1, label: ctx.tenantName(key), outline: true }))
-            .sort((a, b) => a.label.localeCompare(b.label));
+        const sameAs = (key) => {
+            const same = tenantOrder.filter((o) => o !== key && tenantLook.get(o) === tenantLook.get(key)).map(ctx.tenantName);
+            return same.length ? ` (same ${mono ? "pattern" : "colour"} as ${same.join(", ")})` : "";
+        };
+        const tenantItems = tenantOrder.map((key) => ({ fill: tenantFill.get(key), opacity: 1, label: ctx.tenantName(key) + sameAs(key), name: ctx.tenantName(key), outline: true }))
+            .sort((a, b) => a.name.localeCompare(b.name));
         const rows = [];
         let row = [], used = 0;
         const sw = fs, itemW = (it) => sw + fs * 0.5 + it.label.length * fs * 0.62 + fs * 1.6;
