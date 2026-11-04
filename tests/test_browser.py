@@ -813,6 +813,52 @@ def test_legend_tenant_outlines_its_prefixes(open_page, output_dir):
     assert page.errors == []
 
 
+def test_free_search_matches_the_map_and_opens_it(open_page, server):
+    """The server finds as many free /26 in the /17 as the map page lists, and Enter opens the first one."""
+    import urllib.request
+    with urllib.request.urlopen(f'{server}{BASE}/search?q=free%20/26%20in%2010.20.0.0/17') as r:
+        body = json.load(r)
+    page = open_page(f'{BASE}/map/1/10_20_0_0_17')
+    wait_for_map(page)
+    on_map = page.evaluate("""() => window.__prefixMap.freeBlocks('10.20.0.0/17').blocks
+        .filter(b => b.len <= 26).reduce((s, b) => s + b.size / 64, 0)""")
+    assert body['counts'] == {'LAN': on_map}
+    page.fill('#search', 'free /26')
+    page.wait_for_selector('#search-msg li')
+    assert page.inner_text('#search-msg').startswith('Free: ')
+    first = page.inner_text('#search-msg li a >> nth=0')
+    assert first.endswith('/26')
+    with page.expect_navigation():
+        page.press('#search', 'Enter')
+    assert page.url.endswith(f'?focus={first}')
+    wait_for_map(page)
+    assert page.is_visible('#ov-select')
+    assert page.errors == []
+
+
+def test_tenant_list_in_inspector_and_permalink(open_page):
+    page = open_page(f'{BASE}/map/1/10_20_0_0_17')
+    wait_for_map(page)
+    page.locator('#legend .tenant-toggle', has_text='Office').click()
+    assert page.evaluate('location.search') == '?tenant=2'
+    section = page.locator('#sum-free section', has_text='Tenant Office')
+    rows = section.locator('table.tenant-list tr td:first-child').all_inner_texts()
+    outlined = page.eval_on_selector_all('#ov-tenant .ov-tenant', 'els => els.map(e => e.title)')
+    assert rows == sorted(outlined, key=lambda p: ipaddress.ip_network(p)) and len(rows) > 1
+    assert '% ' not in section.locator('h3').inner_text()  # usage is in the header, e.g. "1,234 / 9,000 · 14%"
+    section.locator('tr', has_text='10.20.8.0/21').click()
+    assert page.is_visible('#ov-select')
+    assert 'focus=10.20.8.0%2F21' in page.url or 'focus=10.20.8.0/21' in page.url
+    url = page.url
+    page.goto(url)
+    wait_for_map(page)
+    assert page.locator('#ov-tenant .ov-tenant').count() == len(rows), "tenant outline restored from the URL"
+    assert page.is_visible('#ov-select'), "focus restored too"
+    page.locator('#sum-free button', has_text='Clear outline').click()
+    assert page.is_hidden('#ov-tenant') and 'tenant=' not in page.url
+    assert page.errors == []
+
+
 def test_svg_export_of_layered_map(open_page):
     page = open_page(f'{BASE}/map/1/10_0_0_0_8')
     wait_for_map(page)
@@ -934,7 +980,8 @@ def test_last_change_section_and_overlay(open_page):
     def inject(route):
         data = route.fetch().json()
         if data.get('prefix') == '10.20.48.0/24':
-            data['changes'] = {'at': 1767225600, 'since': 1767139200, 'added': ['10.20.48.1'], 'removed': ['10.20.48.200'],
+            data['changes'] = {'at': 1767225600, 'since': 1767139200, 'added': ['10.20.48.1'],
+                               'removed': ['10.20.48.200'],
                                'changed': [], 'prefixes_added': [], 'prefixes_removed': [],
                                'added_count': 1, 'removed_count': 1, 'changed_count': 0,
                                'prefixes_added_count': 0, 'prefixes_removed_count': 0}
@@ -977,3 +1024,34 @@ def test_fractional_zoom_keeps_cells_identical(open_page, output_dir, dpr, press
     expected = png[rows][:, cols]
     assert shot.shape[:2] == (png.shape[0] * c // CELL_SIZE, png.shape[1] * c // CELL_SIZE)
     assert (np.abs(shot - expected).max(axis=2) > 8).mean() < 0.001, f"c={c}"
+
+
+def test_change_history_list(open_page):
+    def record(at, added=(), removed=()):
+        return {'at': at, 'since': at - 3600, 'added': list(added), 'removed': list(removed), 'changed': [],
+                'prefixes_added': [], 'prefixes_removed': [], 'added_count': len(added),
+                'removed_count': len(removed), 'changed_count': 0, 'prefixes_added_count': 0,
+                'prefixes_removed_count': 0}
+
+    def inject(route):
+        data = route.fetch().json()
+        if data.get('prefix') == '10.20.48.0/24':
+            history = [record(1767225600, added=['10.20.48.1']),
+                       record(1767139200, removed=['10.20.48.200', '10.20.48.201']),
+                       record(1767052800, added=['10.20.48.5', '10.20.48.6', '10.20.48.7'])]
+            data['changes'], data['changes_history'] = history[0], history
+        route.fulfill(json=data)
+
+    page = open_page(f'{BASE}/map/1/10_20_48_0_24', route=(f'**{BASE}/data/**', inject))
+    wait_for_map(page)
+    section = page.locator('#sum-free section:has-text("Last change")')
+    rows = section.locator('table.history tr')
+    assert rows.count() == 3 and 'current' in rows.nth(0).get_attribute('class')
+    assert rows.nth(2).locator('td.n').inner_text() == '3 IP added'
+    page.check('#show-changes')
+    rows.nth(1).click()
+    section = page.locator('#sum-free section:has-text("Earlier change")')
+    assert section.locator('.sub').inner_text() == '2 removed'
+    assert page.locator('#ov-changes .ov-change.removed').count() == 2
+    assert page.locator('#ov-changes .ov-change.added').count() == 0
+    assert page.errors == []

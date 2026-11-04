@@ -13,12 +13,13 @@ from typing import Dict, List, Set
 def filter_keys_from_dicts(data: List[Dict], keys_to_keep: Set[str]) -> List[Dict]:
     """
     Filters specified keys from a list of dictionaries.
-    
+
     :param data: A list of dictionaries to filter.
     :param keys_to_keep: A set of keys to retain in each dictionary.
     :return: A list of dictionaries with only the specified keys.
     """
     return [{k: d[k] for k in keys_to_keep if k in d} for d in data]
+
 
 def load_csv(file_path):
     """Load a CSV file and return its rows as a list of dictionaries."""
@@ -270,7 +271,7 @@ def _unused_build_prefix_tree(prefixes):
             trees[vrf][ip_version][prefix_str] = node
 
     # Convert defaultdicts to regular dicts for JSON serialization
-    return {vrf: {str(version): list(tree.values()) for version, tree in ip_versions.items()} 
+    return {vrf: {str(version): list(tree.values()) for version, tree in ip_versions.items()}
             for vrf, ip_versions in trees.items()}
 
 

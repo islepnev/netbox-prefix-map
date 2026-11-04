@@ -386,8 +386,10 @@ def test_label_on_free_space_only(output_dir, dataset):
         box = labels[y * CELL_SIZE:(y + 16) * CELL_SIZE, x * CELL_SIZE:(x + 16) * CELL_SIZE]
         per_block[third] = box.any()
     assert per_block[59] and per_block[63], "empty /24s are labelled"
-    dense = [t for t, used in ((t, len(ips_in(dataset, f"10.20.{t}.0/24")) + len(ips_in(dataset, f"10.20.{t}.0/24", role=True)))
-                               for t in range(48, 64)) if used > 230]
+
+    def used(t):
+        return len(ips_in(dataset, f"10.20.{t}.0/24")) + len(ips_in(dataset, f"10.20.{t}.0/24", role=True))
+    dense = [t for t in range(48, 64) if used(t) > 230]
     assert all(not per_block[t] for t in dense)
 
 
@@ -462,8 +464,9 @@ def test_ip_ranges_in_data_file_and_image(output_dir, dataset):
 
 def test_prefix_changes():
     from app.cli import prefix_changes
-    ip = lambda a, status='active', dns='': {'address': f'{a}/24', 'vrf': 1, 'status': status, 'role': None,  # noqa: E731
-                                            'dns_name': dns}
+
+    def ip(a, status='active', dns=''):
+        return {'address': f'{a}/24', 'vrf': 1, 'status': status, 'role': None, 'dns_name': dns}
     previous = {'generated_at': 100.0, 'nested_prefixes': [{'prefix': '10.0.0.0/26'}],
                 'ip_addresses': [ip('10.0.0.1'), ip('10.0.0.2'), ip('10.0.0.3', dns='a')]}
     now = [ip('10.0.0.1'), ip('10.0.0.3', dns='b'), ip('10.0.0.10'), ip('10.0.0.9')]
@@ -546,6 +549,8 @@ def test_tenant_child_covers_stripes(tmp_path):
     image = load_rgb(image_path(str(tmp_path), 1, "172.16.0.0/24"))
     assert stripes_in_free_cells(image, "172.16.0.0/24", "172.16.0.0/26", set()) == 0
     assert stripes_in_free_cells(image, "172.16.0.0/24", "172.16.0.64/26", set()) > 0.9
+
+
 def test_layered_map_stripes_reserved_prefix(output_dir):
     """10.30.0.0/16 is reserved and has no tenant: grey stripes on white on the /8 map."""
     image = load_rgb(image_path(output_dir, LAN, "10.0.0.0/8"))
@@ -556,3 +561,28 @@ def test_layered_map_stripes_reserved_prefix(output_dir):
     x0, y0, _, _ = layer_cell_box("10.0.0.0/8", 24, "10.99.0.0")
     on, _ = stripe_pixels(image, x0, y0, x0 + 8 * CELL_SIZE, y0 + 8 * CELL_SIZE)
     assert (on.min(axis=1) > 200).mean() > 0.9, "free space is not striped"
+
+
+def test_change_history_keeps_the_last_updates(tmp_path, monkeypatch):
+    """Three changing updates and one without changes: three records, newest first, capped lists."""
+    from app.cli import HISTORY_LIST_LIMIT, change_history, run_update
+    from tests.synthetic_data import FakeNetboxManager, build_dataset
+    monkeypatch.setenv('OUTPUT_DIR', str(tmp_path))
+    dataset = build_dataset()
+    run_update(mgr=FakeNetboxManager(dataset))
+    path = data_path(str(tmp_path), LAN, "10.20.48.0/24")
+    removed = []
+    for address in [ip['address'] for ip in ips_in(dataset, '10.20.48.0/24')][:3]:
+        dataset['ip_addresses'] = [ip for ip in dataset['ip_addresses'] if ip['address'] != address]
+        removed.append(address.split('/')[0])
+        run_update(mgr=FakeNetboxManager(dataset))
+    run_update(mgr=FakeNetboxManager(dataset))
+    with open(path) as f:
+        data = json.load(f)
+    assert [h['removed'] for h in data['changes_history']] == [[a] for a in reversed(removed)]
+    assert data['changes'] == data['changes_history'][0]
+    # A data file of the previous version: its last change seeds the history
+    seeded = change_history({'changes': {'at': 1, 'added': [str(i) for i in range(300)]}}, None)
+    assert len(seeded) == 1 and len(seeded[0]['added']) == HISTORY_LIST_LIMIT
+    many = change_history({'changes_history': [{'at': i} for i in range(10)]}, {'at': 99})
+    assert [h['at'] for h in many] == [99] + list(range(9))
