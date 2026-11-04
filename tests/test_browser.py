@@ -419,7 +419,7 @@ def test_search_pins_address_in_map(open_page):
     page.keyboard.press('/')
     page.keyboard.type('10.20.48.1')
     assert page.is_visible('#ov-pin')
-    assert 'pinned' in page.inner_text('#search-msg')
+    assert 'pinned' not in page.inner_text('#search-msg')
     page.fill('#search', '10.20.49.0/24')
     assert page.is_visible('#ov-select')
     with page.expect_navigation():
@@ -745,19 +745,19 @@ def retenant(mapping):
     return handle
 
 
-def test_legend_marks_tenants_sharing_a_colour(open_page):
-    """Colours repeat every 16 tenant ids; the legend names tenants that look the same on this map."""
+def test_legend_does_not_describe_shared_colours(open_page):
+    """Tenants 16 ids apart share a colour; the legend lists both by name and adds nothing about it."""
     route = retenant({'10.20.0.64/26': (17, '#8fbbd9')})  # colour of tenant 1, Core
     page = open_page(f'{BASE}/map/1/10_20_0_0_17', route=(f'**{BASE}/data/1/10_20_0_0_17', route))
     wait_for_map(page)
-    marked = page.eval_on_selector_all('#legend .lg.same-color', 'els => els.map(e => [e.textContent, e.title])')
-    assert [m[0] for m in marked] == ['Core=', 'Tenant 17=']
-    assert marked[0][1].startswith('Same colour as Tenant 17.') and marked[1][1].startswith('Same colour as Core.')
-    assert page.locator('#legend .lg:not(.same-color):has-text("Office")').count() == 1
-    svg, _ = export_svg(page)
-    assert 'Core (same colour as Tenant 17)' in svg
-    _, root = export_svg(page, mono=True)
-    assert not any('same pattern' in (t.text or '') for t in root.iter(SVG_NS + 'text'))
+    names = page.eval_on_selector_all('#legend .tenant-toggle', 'els => els.map(e => e.textContent)')
+    assert 'Core' in names and 'Tenant 17' in names
+    assert 'same' not in page.inner_text('#legend').lower()
+    titles = page.eval_on_selector_all('#legend [title]', 'els => els.map(e => e.title)')
+    assert all('same' not in t.lower() for t in titles)
+    for mono in (False, True):
+        _, root = export_svg(page, mono=mono)
+        assert not any('same' in (t.text or '').lower() for t in root.iter(SVG_NS + 'text'))
     assert page.errors == []
 
 
@@ -770,8 +770,6 @@ def test_svg_export_black_and_white_has_16_distinct_hatches(open_page, output_di
     _, root = export_svg(page, mono=True)
     hatches = hatches_of(root)
     assert set(hatches.values()) == set(range(16)), "17 tenants use all 16 hatches"
-    same = [t.text for t in root.iter(SVG_NS + 'text') if 'same pattern' in (t.text or '')]
-    assert len(same) == 2, same
 
 
 def test_reserved_prefix_in_legend_chain_and_svg(open_page):
@@ -801,7 +799,7 @@ def test_legend_tenant_outlines_its_prefixes(open_page, output_dir):
     assert office.get_attribute('aria-pressed') == 'true'
     titles = page.eval_on_selector_all('#ov-tenant .ov-tenant', 'els => els.map(e => e.title)')
     assert set(titles) == outermost and len(titles) == len(outermost) > 1
-    assert f'Office: {len(outermost)} prefixes outlined' in page.inner_text('#toast')
+    assert page.is_hidden('#toast'), "the outline is the feedback"
     page.keyboard.press('+')
     box = page.eval_on_selector('#ov-tenant .ov-tenant', 'e => e.getBoundingClientRect().width')
     assert box > 0

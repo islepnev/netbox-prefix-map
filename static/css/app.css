@@ -303,7 +303,6 @@ kbd { font: 11px var(--mono); border: 1px solid var(--line); border-radius: 3px;
 .range-item + .range-item { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line-2); }
 .range-item > .mono { display: flex; align-items: center; gap: 2px; margin-bottom: 6px; white-space: nowrap; }
 .lg .sw.checker { background: repeating-conic-gradient(#b0b0b0 0 25%, #fff 0 50%) 0 0 / 4px 4px; border-radius: 0; }
-.lg .same-mark { color: var(--warn); font-weight: 700; margin-left: -3px; cursor: help; }
 table.changes.history tr.current td { font-weight: 600; }
 .history { margin-top: 10px; }
 .lg-group { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; min-width: 0; }
