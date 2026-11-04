@@ -1,3 +1,4 @@
+import ipaddress
 import hashlib
 import hmac
 import json
@@ -368,3 +369,31 @@ def test_search_text_matches_vlan_and_scope(client):
     assert [r['prefix'] for r in body['results']] == ['10.20.50.0/24']
     _, body = search(client, 'building storage')
     assert body['results'][0]['prefix'] == '10.20.48.0/20'
+
+
+def test_search_free_blocks(client):
+    r = client.get(f'{BASE}/search', query_string={'q': 'free /26 in 10.20.0.0/17'})
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body['free'] and set(body['counts']) == {'LAN'}
+    blocks = [ipaddress.ip_network(x['prefix']) for x in body['results']]
+    assert blocks == sorted(blocks) and all(b.prefixlen == 26 and b.subnet_of(ipaddress.ip_network('10.20.0.0/17'))
+                                            for b in blocks)
+    first = body['results'][0]
+    assert first['url'] == f"{BASE}/map/1/{first['in'].replace('.', '_').replace('/', '_')}?focus={first['prefix']}"
+    assert len(body['results']) == 10, "at most 10 per VRF"
+    # Every VRF with free space is listed; "free 22" without a slash works too
+    body = client.get(f'{BASE}/search', query_string={'q': 'FREE 22'}).get_json()
+    assert set(body['counts']) == {'LAN', 'Global'} and body['results'][0]['vrf_name'] == 'Global'
+    body = client.get(f'{BASE}/search', query_string={'q': 'free /22', 'vrf': '1'}).get_json()
+    assert body['results'][0]['vrf_name'] == 'LAN', "the VRF of the page comes first"
+    assert client.get(f'{BASE}/search', query_string={'q': 'free /26 in 999.1.1.0/24'}).status_code == 400
+
+
+def test_search_free_before_first_update(client, monkeypatch):
+    import app.webapp as webapp
+    real = webapp.load_output_json
+    monkeypatch.setattr(webapp, 'load_output_json',
+                        lambda name, default: default if name == 'free_space.json' else real(name, default))
+    r = client.get(f'{BASE}/search', query_string={'q': 'free /24'})
+    assert r.status_code == 503 and 'next update' in r.get_json()['error']
