@@ -1,11 +1,12 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="{{ lang }}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{{ prefix }} · VRF {{ vrf.name if vrf else 'Global' }} · Prefix Map</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
     <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
+{% include '_i18n.html' %}
     <script src="{{ url_for('static', filename='js/topbar.js') }}" defer></script>
     <script src="{{ url_for('static', filename='js/prefix_tree.js') }}" defer></script>
     <script src="{{ url_for('static', filename='js/map_export.js') }}" defer></script>

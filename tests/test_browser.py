@@ -1122,3 +1122,19 @@ def test_change_history_list(open_page):
     assert page.locator('#ov-changes .ov-change.removed').count() == 2
     assert page.locator('#ov-changes .ov-change.added').count() == 0
     assert page.errors == []
+
+
+def test_language_switch_keeps_the_pin(open_page):
+    page = open_page(f'{BASE}/map/1/10_20_48_0_24?focus=10.20.48.9')
+    wait_for_map(page)
+    assert page.evaluate('document.documentElement.lang') == 'en'
+    with page.expect_navigation():
+        page.click('.lang-switch a[data-lang="ru"]')
+    wait_for_map(page)
+    assert page.evaluate('document.documentElement.lang') == 'ru'
+    assert page.evaluate('I18N.lang') == 'ru'
+    assert page.url.endswith('?focus=10.20.48.9'), "lang= leaves the address bar, the pin stays"
+    assert page.is_visible('#ov-pin')
+    page.reload()
+    wait_for_map(page)
+    assert page.evaluate('document.documentElement.lang') == 'ru', "kept in the cookie"

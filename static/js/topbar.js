@@ -159,6 +159,13 @@ window.PrefixMapTop = (() => {
     pollHealth();
     setInterval(pollHealth, 60000);
 
+    // Language switch: keep the current query (?focus=, ?tenant=), which the map updates after load
+    document.querySelectorAll(".lang-switch a[data-lang]").forEach((a) => a.addEventListener("click", () => {
+        const url = new URL(window.location.href);
+        url.searchParams.set("lang", a.dataset.lang);
+        a.href = url.href;
+    }));
+
     return {
         setGeneratedAt(seconds) { generatedAt = seconds || null; renderFresh(); },
         setSearchHandler(fn) { searchHandler = fn; },

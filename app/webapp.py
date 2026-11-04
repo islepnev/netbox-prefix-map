@@ -12,6 +12,7 @@ import time
 
 from app.cli import run_update
 from app.free_space import aligned_blocks
+from app import i18n
 from app.logging_config import recent_log_handler, setup_logging
 from app.updater_manager import UpdaterManager
 from app.utils import load_json, resolve_output_dir
@@ -33,6 +34,7 @@ app = Flask(
 )
 
 bp = Blueprint('app', __name__, url_prefix=BASE_PATH)
+i18n.init_app(app, cookie_path=BASE_PATH or '/')
 
 # NetBox signs the raw body with HMAC-SHA512 of this secret (X-Hook-Signature)
 WEBHOOK_SECRET = os.getenv('WEBHOOK_SECRET', '')
