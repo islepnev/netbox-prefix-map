@@ -203,7 +203,7 @@ def verify_webhook_signature(body: bytes, signature: str) -> bool:
     return hmac.compare_digest(expected, signature or '')
 
 
-NAV_EXCLUDED_KEYS = {'ip_addresses', 'nested_prefixes'}
+NAV_EXCLUDED_KEYS = {'ip_addresses', 'nested_prefixes', 'changes'}
 
 
 @app.after_request

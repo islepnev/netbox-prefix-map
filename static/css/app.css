@@ -186,6 +186,15 @@ body.no-tree #tree-panel, body.no-insp #insp-panel { display: none; }
 #ov-select { box-shadow: inset 0 0 0 var(--hair) #1f5fe0; outline: var(--hair) dashed rgba(255, 255, 255, .9); background: rgba(31, 95, 224, .08); }
 #ov-free { box-shadow: inset 0 0 0 var(--hair) #0a8f4f; background: rgba(10, 143, 79, .12); }
 #ov-hover { box-shadow: inset 0 0 0 var(--hair) #111, 0 0 0 var(--hair) #fff; }
+#ov-changes { position: absolute; inset: 0; pointer-events: none; }
+.ov-change { position: absolute; box-shadow: inset 0 0 0 calc(var(--hair) * 2) var(--c); background: color-mix(in srgb, var(--c) 18%, transparent); }
+.ov-change.added { --c: #16a34a; }
+.ov-change.removed { --c: #dc2626; }
+.ov-change.changed { --c: #d48a0b; }
+.ov-change.prefix { background: none; outline: calc(var(--hair) * 2) dashed var(--c); outline-offset: calc(var(--hair) * -2); box-shadow: none; }
+table.changes td.added { color: #16a34a; }
+table.changes td.removed { color: #dc2626; }
+table.changes td.changed { color: var(--warn); }
 #ov-pin { box-shadow: inset 0 0 0 var(--hair) #1f5fe0, 0 0 0 var(--hair) #fff, 0 0 0 calc(var(--hair) * 2) #1f5fe0; }
 .map-empty { position: absolute; inset: 0; display: grid; place-items: center; padding: 24px; color: var(--muted); text-align: center; }
 .map-empty p { max-width: 420px; margin: 0; }
