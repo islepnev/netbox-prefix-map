@@ -836,6 +836,29 @@ def test_free_search_matches_the_map_and_opens_it(open_page, server):
     assert page.errors == []
 
 
+def test_tenant_list_in_inspector_and_permalink(open_page):
+    page = open_page(f'{BASE}/map/1/10_20_0_0_17')
+    wait_for_map(page)
+    page.locator('#legend .tenant-toggle', has_text='Office').click()
+    assert page.evaluate('location.search') == '?tenant=2'
+    section = page.locator('#sum-free section', has_text='Tenant Office')
+    rows = section.locator('table.tenant-list tr td:first-child').all_inner_texts()
+    outlined = page.eval_on_selector_all('#ov-tenant .ov-tenant', 'els => els.map(e => e.title)')
+    assert rows == sorted(outlined, key=lambda p: ipaddress.ip_network(p)) and len(rows) > 1
+    assert '% ' not in section.locator('h3').inner_text()  # usage is in the header, e.g. "1,234 / 9,000 · 14%"
+    section.locator('tr', has_text='10.20.8.0/21').click()
+    assert page.is_visible('#ov-select')
+    assert 'focus=10.20.8.0%2F21' in page.url or 'focus=10.20.8.0/21' in page.url
+    url = page.url
+    page.goto(url)
+    wait_for_map(page)
+    assert page.locator('#ov-tenant .ov-tenant').count() == len(rows), "tenant outline restored from the URL"
+    assert page.is_visible('#ov-select'), "focus restored too"
+    page.locator('#sum-free button', has_text='Clear outline').click()
+    assert page.is_hidden('#ov-tenant') and 'tenant=' not in page.url
+    assert page.errors == []
+
+
 def test_svg_export_of_layered_map(open_page):
     page = open_page(f'{BASE}/map/1/10_0_0_0_8')
     wait_for_map(page)

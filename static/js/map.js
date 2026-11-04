@@ -420,14 +420,34 @@
         }));
         box.hidden = false;
     }
-    function toggleTenant(id) {
-        tenantHi = String(tenantHi) === String(id) ? null : id;
+    function toggleTenant(id, quiet) {
+        tenantHi = id === null || String(tenantHi) === String(id) ? null : String(id);
         drawTenant();
-        document.querySelectorAll("#legend .tenant-toggle").forEach((e) => e.setAttribute("aria-pressed", String(e.dataset.tenant === String(tenantHi))));
-        if (tenantHi !== null) {
-            const list = tenantPrefixes(tenantHi);
-            toast(`${tenantName(tenantHi)}: ${list.length} ${list.length === 1 ? "prefix" : "prefixes"} outlined${list.length ? ` (${list.slice(0, 3).map((n) => n.p.prefix).join(", ")}${list.length > 3 ? ", …" : ""})` : ""}. Click again to clear.`);
+        document.querySelectorAll("#legend .tenant-toggle").forEach((e) => e.setAttribute("aria-pressed", String(e.dataset.tenant === tenantHi)));
+        renderSummary();
+        syncUrl();
+        if (tenantHi !== null && !quiet) {
+            const n = tenantPrefixes(tenantHi).length;
+            toast(`${tenantName(tenantHi)}: ${n} ${n === 1 ? "prefix" : "prefixes"} outlined`);
         }
+    }
+    // Inspector summary: the outlined tenant's prefixes with usage; a row outlines one prefix
+    function tenantSection() {
+        if (tenantHi === null) return null;
+        const list = tenantPrefixes(tenantHi).sort((x, y) => x.start - y.start);
+        const known = hasIps || countsKnown;
+        const ips = list.reduce((s, n) => s + (known ? countIps(n.start, n.end) : 0), 0);
+        const size = list.reduce((s, n) => s + n.size, 0);
+        const shown = list.slice(0, 12);
+        return sec(`Tenant ${tenantName(tenantHi)}`, known ? `${fmt(ips)} / ${fmt(size)} · ${pct(ips, size)}` : `${fmt(size)} addresses`,
+            el("table", { class: "free tenant-list" }, el("tbody", null, shown.map((n) => {
+                const u = known ? countIps(n.start, n.end) : null;
+                return el("tr", { onclick: () => outline(n) },
+                    el("td", { text: n.p.prefix }),
+                    el("td", { class: "n", text: u === null ? "" : `${fmt(u)} used · ${pct(u, n.size)}` }));
+            }))),
+            list.length > shown.length ? el("div", { class: "hint", text: `${fmt(list.length - shown.length)} more` }) : null,
+            el("button", { type: "button", class: "linkish", text: "Clear outline", onclick: () => toggleTenant(null) }));
     }
 
     function drawChanges() {
@@ -519,6 +539,8 @@
         const focus = pinned !== null ? intToIp(pinned) : selected ? `${intToIp(selected.start)}/${selected.len}` : null;
         if (focus) url.searchParams.set("focus", focus);
         else url.searchParams.delete("focus");
+        if (tenantHi !== null) url.searchParams.set("tenant", tenantHi);
+        else url.searchParams.delete("tenant");
         if (url.href !== window.location.href) history.replaceState(history.state, "", url);
     }
     function pin(a, scroll) {
@@ -767,7 +789,7 @@
                     el("span", { text: used === null ? "IPs" : `IPs · ${pct(used, total)}` })),
                 el("div", { class: "stat" }, el("b", { text: fmt((data.child_prefixes || []).length) }), el("span", { text: "child prefixes" })),
                 el("div", { class: "stat" }, el("b", { text: fmt(total) }), el("span", { text: "addresses" }))));
-        const sections = [];
+        const sections = [tenantSection()];
         if (hasIps || countsKnown) sections.push(freeSection(net, cfg.prefix));
         sections.push(changesSection());
         if (dupes.size) {
@@ -1014,7 +1036,11 @@
             renderSummary();
             if (img) {
                 startMap();
+                // ?tenant=<id>: outline that tenant, when it has prefixes on this map. Read before applying ?focus=,
+                // which rewrites the URL; applied after it, so that both end up in the URL again.
+                const t = new URLSearchParams(window.location.search).get("tenant");
                 applyFocus();
+                if (t && tenantPrefixes(t).length) toggleTenant(t, true);
                 initExport();
             }
             document.body.dataset.ready = "1";
