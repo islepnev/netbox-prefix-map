@@ -102,7 +102,7 @@ When the app shares the host with NetBox (the `/prefix-map` path in the NetBox v
 
 - signed in to NetBox and may view prefixes: the maps open;
 - not signed in, or the session expired: the NetBox login page, which returns to the map (single sign-on works as in NetBox);
-- signed in without the permission, e.g. a user created by single sign-on without groups: "No access" (403);
+- signed in without the permission, e.g. a user created by single sign-on without groups: "Access Denied" (403);
 - NetBox does not answer: 503.
 
 The answer is kept per session for `NETBOX_AUTH_CACHE_SECONDS`: a logout or a change of permissions takes effect within that time. Constraints of object permissions are not applied: a user who may view some prefixes sees all maps. `/static`, `/healthz`, `/metrics` and `/webhook` are open without a session. Written against the API of NetBox 4.6.

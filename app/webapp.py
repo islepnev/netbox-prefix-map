@@ -264,7 +264,8 @@ def check_access():
     if result == auth.LOGIN:
         target = request.full_path.rstrip('?')
         return redirect(f"{NETBOX_LOGIN_URL}?next={quote(target, safe='/')}", code=302)
-    return render_template('error.html', title=i18n.t('auth.title'), message=i18n.t(key), back=False), status
+    title = i18n.t('auth.unavailable_title' if result == auth.UNAVAILABLE else 'auth.title')
+    return render_template('error.html', title=title, message=i18n.t(key), back=False), status
 
 
 @app.context_processor

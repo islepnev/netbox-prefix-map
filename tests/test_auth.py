@@ -175,7 +175,7 @@ def test_user_with_access_opens_the_maps(client, netbox):
 def test_user_without_permission_gets_403(client, netbox):
     with_cookie(client, 'no-perm')
     r = client.get(f'{BASE}/map/1/10_20_0_0_17', headers={'Accept-Language': 'en'})
-    assert r.status_code == 403 and b'may not view prefixes' in r.data and b'No access' in r.data
+    assert r.status_code == 403 and b'You do not have permission' in r.data and b'Access Denied' in r.data
     assert b'>Back to the VRF list</a>' not in r.data, "the VRF list is closed too"
     r = client.get(f'{BASE}/data/1/10_20_0_0_17')
     assert r.status_code == 403 and r.get_json()['error_code'] == 'forbidden'
@@ -185,14 +185,15 @@ def test_user_without_permission_gets_403(client, netbox):
 def test_403_page_in_russian(client, netbox):
     with_cookie(client, 'no-perm')
     r = client.get(f'{BASE}/', headers={'Accept-Language': 'ru'})
-    assert r.status_code == 403 and 'Нет доступа' in r.get_data(as_text=True)
+    assert r.status_code == 403 and 'Отказано в доступе' in r.get_data(as_text=True)
 
 
 def test_netbox_down_gives_503(webapp, client, monkeypatch):
     monkeypatch.setattr(webapp, 'NETBOX_SESSION_AUTH', True)
     monkeypatch.setattr(webapp, 'session_auth', checker(FakeNetbox(error=requests.ConnectionError('refused'))))
     with_cookie(client, COOKIE)
-    assert client.get(f'{BASE}/').status_code == 503
+    r = client.get(f'{BASE}/', headers={'Accept-Language': 'en'})
+    assert r.status_code == 503 and b'Service Unavailable' in r.data
     r = client.get(f'{BASE}/data/1/10_20_0_0_17')
     assert r.status_code == 503 and r.get_json()['error_code'] == 'unavailable'
 
