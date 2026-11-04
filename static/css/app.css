@@ -317,6 +317,7 @@ body.doc-page #top { position: sticky; top: 0; z-index: 10; }
 .prose li { margin: 4px 0; }
 .prose .diagram { display: block; max-width: 100%; height: auto; margin: 12px 0; border: 1px solid var(--line); border-radius: 6px; }
 .prose table.keys { border: 1px solid var(--line); border-radius: 8px; margin-top: 8px; }
+.prose .credit { margin-top: 32px; color: var(--muted); font-size: 12px; }
 .prose table.keys td:first-child { white-space: nowrap; color: var(--muted); }
 .page-main { width: 100%; max-width: 1080px; margin: 0 auto; padding: 24px 16px 48px; }
 .page-head { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; }
