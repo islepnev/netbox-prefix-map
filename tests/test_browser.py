@@ -132,6 +132,61 @@ def test_zoom_steps(open_page):
 
 
 @pytest.mark.parametrize("dpr", [1, 2])
+def test_ctrl_wheel_zooms_about_the_pointer(open_page, dpr):
+    """Once the map overflows the view, the cell under the pointer stays under it (a centred map stays centred)."""
+    page = open_page(f'{BASE}/map/1/10_20_48_0_20', device_scale_factor=dpr, viewport=(1200, 800))
+    wait_for_map(page)
+    for _ in range(4):
+        page.keyboard.press('+')
+    addr = '10.20.60.0'  # the middle cell of the /20
+    x, y = cell_center(page, *cell_of('10.20.48.0/20', addr))
+    page.mouse.move(x, y)
+    assert page.inner_text('#insp-detail .big').startswith(addr + '/')
+    c0 = page.evaluate('window.__prefixMap.c')
+    page.keyboard.down('Control')
+    for _ in range(3):
+        page.mouse.wheel(0, -100)
+    page.keyboard.up('Control')
+    c1 = page.evaluate('window.__prefixMap.c')
+    assert c1 > c0
+    page.mouse.move(x + 1, y)
+    page.mouse.move(x, y)
+    assert page.inner_text('#insp-detail .big').startswith(addr + '/'), "the cell under the pointer stays"
+    page.keyboard.down('Control')
+    page.mouse.wheel(0, 100)
+    page.keyboard.up('Control')
+    c2 = page.evaluate('window.__prefixMap.c')
+    assert c2 < c1
+    page.mouse.move(x + 1, y)
+    page.mouse.move(x, y)
+    assert page.inner_text('#insp-detail .big').startswith(addr + '/')
+    page.mouse.wheel(0, 100)
+    assert page.evaluate('window.__prefixMap.c') == c2, "the plain wheel scrolls, it does not zoom"
+    assert page.errors == []
+
+
+def test_drag_pans_and_does_not_pin(open_page):
+    page = open_page(f'{BASE}/map/1/10_20_48_0_20', viewport=(1200, 800))
+    wait_for_map(page)
+    for _ in range(6):
+        page.keyboard.press('+')
+    before = page.eval_on_selector('#viewport', 'v => [v.scrollLeft, v.scrollTop]')
+    vp = page.locator('#viewport').bounding_box()
+    x, y = vp['x'] + vp['width'] / 2, vp['y'] + vp['height'] / 2
+    page.mouse.move(x, y)
+    page.mouse.down()
+    page.mouse.move(x - 60, y - 40, steps=5)
+    assert 'dragging' in page.get_attribute('#viewport', 'class')
+    page.mouse.up()
+    after = page.eval_on_selector('#viewport', 'v => [v.scrollLeft, v.scrollTop]')
+    assert [round(a - b) for a, b in zip(after, before)] == [60, 40]
+    assert 'focus=' not in page.url and 'dragging' not in (page.get_attribute('#viewport', 'class') or '')
+    page.mouse.click(x, y)
+    assert 'focus=' in page.evaluate('location.href'), "a click still pins"
+    assert page.errors == []
+
+
+@pytest.mark.parametrize("dpr", [1, 2])
 def test_fit_goes_below_1x(open_page, dpr):
     """A /8 layered map (256 x 256 cells, 1024 device px at 1 x) fits a small window."""
     page = open_page(f'{BASE}/map/1/10_0_0_0_8', device_scale_factor=dpr, viewport=(1000, 700))
