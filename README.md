@@ -29,7 +29,7 @@ The same space at three levels, as printed:
 
 ## Install
 
-On the NetBox host, with Docker:
+On the NetBox host, with Docker; NetBox itself may run on the host or in Docker:
 
 1. Create a read-only API token in NetBox and write `.env` in the project directory:
 
@@ -42,15 +42,26 @@ On the NetBox host, with Docker:
    ```
 
 2. Start it: `make up`.
-3. Apache, in the NetBox virtual host:
+3. In the reverse proxy in front of NetBox, send `/prefix-map` to the app, before the rule for NetBox itself. Apache:
 
    ```apache
    ProxyPass        /prefix-map http://127.0.0.1:5000/prefix-map
    ProxyPassReverse /prefix-map http://127.0.0.1:5000/prefix-map
    ```
 
+   nginx:
+
+   ```nginx
+   location /prefix-map/ {
+       proxy_pass http://127.0.0.1:5000;
+       proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+   }
+   ```
+
+   A proxy running in a container does not reach `127.0.0.1` of the host: publish the app on an address it reaches (`PUBLISH_ADDR`).
+
 4. NetBox, Operations › Integrations:
-   - Webhooks › Add: URL `http://127.0.0.1:5000/prefix-map/webhook`, secret from `.env`.
+   - Webhooks › Add: URL `https://netbox.example.com/prefix-map/webhook`, secret from `.env`.
    - Event Rules › Add: object types Prefix, IP Address, IP Range, VRF, Tenant; events created, updated, deleted; action: that webhook.
 
 Open `https://netbox.example.com/prefix-map/`. The maps appear when the first update ends. They open to users signed in to NetBox who may view prefixes there; others get the NetBox login page or "Access Denied".
@@ -97,14 +108,14 @@ Read from the environment or from `.env` in the project directory.
 The maps show every prefix, IP address, DNS name, tenant and description that the API token can read.
 
 - Keep port 5000 closed to the network (`PUBLISH_ADDR=127.0.0.1`): Docker publishes ports past the host firewall, and the port bypasses the reverse proxy.
-- `NETBOX_SESSION_AUTH=1` needs the app on the NetBox host, so that the browser sends it the NetBox session cookie. The app asks the NetBox API with that cookie whether the user may view prefixes, and keeps the answer per session for `NETBOX_AUTH_CACHE_SECONDS`. Constraints of object permissions are not applied: a user who may view some prefixes sees all maps. `/static`, `/healthz`, `/metrics` and `/webhook` are open without a session. When NetBox does not answer, pages give 503.
+- `NETBOX_SESSION_AUTH=1` needs the app under the host name of NetBox, so that the browser sends it the NetBox session cookie. The app asks the NetBox API with that cookie whether the user may view prefixes, and keeps the answer per session for `NETBOX_AUTH_CACHE_SECONDS`. Constraints of object permissions are not applied: a user who may view some prefixes sees all maps. `/static`, `/healthz`, `/metrics` and `/webhook` are open without a session. When NetBox does not answer, pages give 503.
 - Without it, the app has no login of its own: restrict `/prefix-map` at the reverse proxy, e.g. Apache `AuthType Basic` with `Require valid-user`, and let the NetBox host reach `/prefix-map/webhook`.
 - Without `WEBHOOK_SECRET`, anyone who can reach `/webhook` can trigger a full refetch from NetBox (at most one per `UPDATE_DEBOUNCE_SECONDS`).
 - `/healthz` and `/metrics` carry no inventory data; `/errors` shows log lines.
 
 ### Webhook
 
-Optionally add IPAM › Role, IPAM › VLAN, DCIM › Site, Location, Region, Site Group to the event rule, so that renames show up at once. When NetBox runs on another host, use an address where it reaches the app.
+Optionally add IPAM › Role, IPAM › VLAN, DCIM › Site, Location, Region, Site Group to the event rule, so that renames show up at once. The webhook goes through the reverse proxy, as the maps do; when NetBox does not reach its own public name, use an address where it reaches the app, e.g. `http://127.0.0.1:5000/prefix-map/webhook` for NetBox on the host.
 
 Where IP addresses change often and in batches, leave IP Address out of the event rule: NetBox queues one webhook job per changed object. Set `UPDATE_INTERVAL_SECONDS` (e.g. `900`) instead; the maps then pick up address changes within that interval, and webhooks for the other objects still update them at once.
 
