@@ -1,4 +1,5 @@
 import ipaddress
+import json
 import os
 import socket
 import threading
@@ -570,3 +571,73 @@ def test_free_blocks_of_one_size(open_page, dataset):
     page.reload()
     wait_for_map(page)
     assert page.input_value('#sum-free select') == '26'
+
+
+def export_svg(page, mono=False):
+    import xml.etree.ElementTree as ET
+    svg = page.evaluate(f'PrefixMapExport.build({{mono: {"true" if mono else "false"}}})')
+    return svg, ET.fromstring(svg)  # raises on malformed XML
+
+
+SVG_NS = '{http://www.w3.org/2000/svg}'
+
+
+def test_svg_export_has_a_cell_per_ip_and_a_legend(open_page, dataset):
+    page = open_page(f'{BASE}/map/1/10_20_50_0_24')
+    wait_for_map(page)
+    svg, root = export_svg(page)
+    ips = [ip for ip in dataset['ip_addresses'] if ip['vrf'] == 1
+           and ipaddress.ip_address(ip['address'].split('/')[0]) in ipaddress.ip_network('10.20.50.0/24')]
+    cell_groups = [g for g in root.iter(SVG_NS + 'g') if g.get('fill-opacity')]
+    assert sum(len(g.findall(SVG_NS + 'rect')) for g in cell_groups) == len(ips)
+    texts = [t.text for t in root.iter(SVG_NS + 'text')]
+    assert texts[0].startswith('10.20.50.0/24 · VRF LAN')
+    for label in ('In use', 'Printers'):
+        assert label in texts
+    assert 'url(#t0)' not in svg
+
+
+def test_svg_export_black_and_white_hatches_tenants(open_page):
+    page = open_page(f'{BASE}/map/1/10_20_0_0_17')
+    wait_for_map(page)
+    _, root = export_svg(page, mono=True)
+    patterns = root.findall(f'.//{SVG_NS}pattern')
+    assert len(patterns) >= 8
+    fills = {r.get('fill') for r in root.iter(SVG_NS + 'rect') if r.find(SVG_NS + 'title') is not None}
+    assert fills <= {f'url(#t{i})' for i in range(len(patterns))} | {'none'}
+
+
+def test_svg_export_of_layered_map(open_page):
+    page = open_page(f'{BASE}/map/1/10_0_0_0_8')
+    wait_for_map(page)
+    svg, root = export_svg(page)
+    assert '1 cell = /24' in svg
+    assert root.get('viewBox').startswith('0 0 2560 ')
+
+
+def test_svg_export_escapes_user_text(open_page):
+    evil = '<b onclick="x">&</b>'
+
+    def inject(route):
+        html = route.fetch().text()
+        # Only inside the page config: elsewhere the raw tag would be page markup, not text
+        head, config = html.split('id="page-config">', 1)
+        route.fulfill(body=head + 'id="page-config">' + config.replace('Storage block', json.dumps(evil)[1:-1]),
+                      content_type='text/html')
+
+    page = open_page(f'{BASE}/map/1/10_20_48_0_20', route=(f'**{BASE}/map/1/10_20_48_0_20', inject))
+    wait_for_map(page)
+    svg, root = export_svg(page)
+    assert evil in next(root.iter(SVG_NS + 'text')).text
+
+
+def test_print_shows_only_the_vector_map(open_page):
+    page = open_page(f'{BASE}/map/1/10_20_48_0_20')
+    wait_for_map(page)
+    page.evaluate('PrefixMapExport.preparePrint()')
+    page.emulate_media(media='print')
+    assert page.is_visible('#print-sheet svg')
+    for hidden in ('#top', '#tree-panel', '#insp-panel', '#map-panel', '#legend'):
+        assert page.is_hidden(hidden), hidden
+    page.emulate_media(media='screen')
+    assert page.is_hidden('#print-sheet') and page.is_visible('#map-img')
