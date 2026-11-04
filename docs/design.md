@@ -47,6 +47,8 @@ Each cell is `CELL_SIZE` pixels: a 1 px gap followed by the cell body. The axes 
 | Inactive IP | Black at 10% opacity |
 | Other IP | Black |
 | Grid | Dotted lines every 16 cells, inner lines only |
+
+Prefix outlines and the grid are drawn with matplotlib; IP cells are painted into the pixel array afterwards (one matplotlib patch per IP made large maps slow: 50,000 IPs took 112 s, now 34 s).
 | Labels | Third octet of each /24 in a 3×5 pixel font, gray, on a free spot near the block center; none when the block has no room |
 
 ### Layered maps
