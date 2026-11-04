@@ -1,4 +1,5 @@
 window.PrefixMapTop = (() => {
+    const { t, fmt } = window.I18N;
     const fresh = document.getElementById("fresh");
     const freshText = document.getElementById("fresh-text");
     const search = document.getElementById("search");
@@ -10,11 +11,11 @@ window.PrefixMapTop = (() => {
     let searchHandler = null;
 
     function formatTime(seconds) {
-        const t = new Date(seconds * 1000);
-        const sameDay = t.toDateString() === new Date().toDateString();
+        const d = new Date(seconds * 1000);
+        const sameDay = d.toDateString() === new Date().toDateString();
         return sameDay
-            ? t.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-            : t.toLocaleDateString([], { month: "short", day: "numeric" });
+            ? window.I18N.time(d, { hour: "2-digit", minute: "2-digit" })
+            : window.I18N.dateOnly(d, { month: "short", day: "numeric" });
     }
 
     function renderFresh() {
@@ -22,19 +23,19 @@ window.PrefixMapTop = (() => {
         const last = (health && health.last_success_at) || generatedAt;
         const age = last ? Date.now() / 1000 - last : null;
         const problems = [];
-        if (healthError) problems.push(`Health check failed: ${healthError}.`);
-        if (health && health.status !== "ok") problems.push(`Updater: ${health.status}.`);
-        if (health && health.last_error) problems.push(`Last update failed: ${health.last_error}`);
-        if (age !== null && age > STALE_SECONDS) problems.push("Data is older than 24 h.");
+        if (healthError) problems.push(t("fresh.health_failed", { error: healthError }));
+        if (health && health.status !== "ok") problems.push(t("fresh.updater", { status: health.status }));
+        if (health && health.last_error) problems.push(t("fresh.last_failed", { error: health.last_error }));
+        if (age !== null && age > STALE_SECONDS) problems.push(t("fresh.stale"));
         fresh.classList.toggle("stale", problems.length > 0);
         fresh.classList.toggle("ok", problems.length === 0 && last !== null);
-        let text = last ? `updated ${formatTime(last)}` : "no update yet";
-        if (health && health.update_running) text = "updating…";
+        let text = last ? t("fresh.updated", { time: formatTime(last) }) : t("fresh.none");
+        if (health && health.update_running) text = t("fresh.running");
         freshText.textContent = text;
         const lines = [];
-        if (last) lines.push(`Data generated ${new Date(last * 1000).toLocaleString()}.`);
+        if (last) lines.push(t("fresh.generated", { date: window.I18N.date(last * 1000) }));
         lines.push(...problems);
-        if (!problems.length && last) lines.push("Updates run on NetBox webhooks.");
+        if (!problems.length && last) lines.push(t("fresh.webhooks"));
         fresh.title = lines.join("\n");
     }
 
@@ -66,25 +67,29 @@ window.PrefixMapTop = (() => {
         return e;
     }
 
+    // vrf_name of the Global VRF is "Global" in the JSON, shown in the page language
+    const vrfName = (r) => (r.vrf === "None" ? t("vrf.global") : r.vrf_name);
+    const statusLabel = (s) => (s && window.I18N.has(`status.${s}`) ? t(`status.${s}`) : s);
+
     function resultItem(r) {
         const li = node("li");
         const link = node("a", "mono", r.kind === "ip" ? r.address : r.prefix);
         link.href = r.url;
         if (r.kind === "free") {
-            li.append(node("span", "chip", r.vrf_name), link, node("span", "desc", ` free · in ${r.in}`));
+            li.append(node("span", "chip", vrfName(r)), link, node("span", "desc", ` ${t("search.free_in", { prefix: r.in })}`));
             return li;
         }
         if (r.kind === "ip") {
-            li.append(node("span", "chip", r.vrf_name), link, node("span", "desc", ` in ${r.prefix}`));
+            li.append(node("span", "chip", vrfName(r)), link, node("span", "desc", ` ${t("search.in", { prefix: r.prefix })}`));
             li.append(node("div", "ip", [r.ip.dns_name, r.ip.description].filter(Boolean).join(" · ")));
             return li;
         }
-        const details = [r.match === "exact" ? "" : "contains it", r.description].filter(Boolean).join(" · ");
-        li.append(node("span", "chip", r.vrf_name), link);
+        const details = [r.match === "exact" ? "" : t("search.contains_it"), r.description].filter(Boolean).join(" · ");
+        li.append(node("span", "chip", vrfName(r)), link);
         if (details) li.append(node("span", "desc", ` ${details}`));
         if (r.ip !== undefined) {
             const ip = r.ip;
-            li.append(node("div", "ip", ip ? [ip.status, ip.role, ip.dns_name].filter(Boolean).join(" · ") || "IP record" : "no IP record"));
+            li.append(node("div", "ip", ip ? [statusLabel(ip.status), ip.role, ip.dns_name].filter(Boolean).join(" · ") || t("search.ip_record") : t("search.no_ip_record")));
         }
         return li;
     }
@@ -96,20 +101,20 @@ window.PrefixMapTop = (() => {
             .then((r) => r.json().then((body) => ({ ok: r.ok, body })))
             .then(({ ok, body }) => {
                 if (seq !== searchSeq) return;
-                if (!ok) { ui.bad(); say(body.error || "Search failed."); return; }
+                if (!ok) { ui.bad(); say(body.error || t("search.failed")); return; }
                 if (!body.results.length) {
-                    say(body.free ? `${q}: no free block of that size.` : body.text ? `${q}: no names or descriptions match.` : `${q}: no prefix contains it.`);
+                    say(t(body.free ? "search.no_free" : body.text ? "search.no_text" : "search.no_prefix", { q }));
                     return;
                 }
                 if (commit) { window.location.href = body.results[0].url; return; }
                 const list = node("ul");
                 list.append(...body.results.map(resultItem));
                 const head = body.free
-                    ? `Free: ${Object.entries(body.counts).map(([vrf, n]) => `${n.toLocaleString("en-US")} in ${vrf}`).join(", ")}. Enter opens the first:`
-                    : body.truncated ? `First ${body.results.length} matches; Enter opens the first:` : "Enter opens the first map:";
+                    ? t("search.free_head", { counts: Object.entries(body.counts).map(([vrf, n]) => t("search.free_count", { n, vrf: vrf === "Global" ? t("vrf.global") : vrf })).join(", ") })
+                    : body.truncated ? t("search.truncated", { n: body.results.length }) : t("search.enter_opens");
                 say([node("div", null, head), list]);
             })
-            .catch((error) => { if (seq === searchSeq) say(`Search failed: ${error.message}`); });
+            .catch((error) => { if (seq === searchSeq) say(t("search.failed_error", { error: error.message })); });
     }
 
     function runSearch(commit) {
@@ -128,7 +133,7 @@ window.PrefixMapTop = (() => {
             }
             if (commit || /^\d+\.\d+\.\d+\.\d+/.test(q)) {
                 ui.bad();
-                say("Enter an IPv4 address or prefix (10.20.0.1, 10.20.36.0/24), or a name or description");
+                say(t("search.hint"));
             } else {
                 say(null);
             }
@@ -147,8 +152,9 @@ window.PrefixMapTop = (() => {
         });
         search.addEventListener("blur", () => setTimeout(() => { msg.hidden = true; }, 200));
         search.addEventListener("focus", () => { if (search.value.trim()) runSearch(false); });
+        // The / key gives "." on the Russian layout
         document.addEventListener("keydown", (e) => {
-            if (e.key === "/" && !(e.target instanceof HTMLInputElement) && !e.ctrlKey && !e.metaKey && !e.altKey) {
+            if ((e.key === "/" || (e.code === "Slash" && e.key === ".")) && !(e.target instanceof HTMLInputElement) && !e.ctrlKey && !e.metaKey && !e.altKey) {
                 e.preventDefault();
                 search.focus();
             }
@@ -157,6 +163,13 @@ window.PrefixMapTop = (() => {
 
     pollHealth();
     setInterval(pollHealth, 60000);
+
+    // Language switch: keep the current query (?focus=, ?tenant=), which the map updates after load
+    document.querySelectorAll(".lang-switch a[data-lang]").forEach((a) => a.addEventListener("click", () => {
+        const url = new URL(window.location.href);
+        url.searchParams.set("lang", a.dataset.lang);
+        a.href = url.href;
+    }));
 
     return {
         setGeneratedAt(seconds) { generatedAt = seconds || null; renderFresh(); },

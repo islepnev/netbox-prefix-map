@@ -1,23 +1,23 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="{{ lang }}">
 <head>
 {% include '_head.html' %}
-    <title>Warnings and errors · Prefix Map</title>
+    <title>{{ t('errors.title') }} · {{ t('app.name') }}</title>
 </head>
 <body class="doc-page">
 {% include '_topbar.html' %}
 <main class="page-main">
     <div class="page-head">
         <div>
-            <h1>Warnings and errors</h1>
-            <div class="sub">Latest first; kept in memory since the process started</div>
+            <h1>{{ t('errors.title') }}</h1>
+            <div class="sub">{{ t('errors.subtitle') }}</div>
         </div>
     </div>
     <div class="card" id="log-container">
         {% for line in logs %}
         <div class="log {{ 'ERROR' if 'ERROR' in line else 'WARNING' if 'WARNING' in line else '' }}">{{ line }}</div>
         {% else %}
-        <div class="empty">No warnings or errors.</div>
+        <div class="empty">{{ t('errors.empty') }}</div>
         {% endfor %}
     </div>
 </main>

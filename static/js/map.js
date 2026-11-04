@@ -24,25 +24,25 @@
         const len = Number(l), start = ipToInt(a), size = 2 ** (32 - len);
         return { start, end: start + size - 1, len, size };
     };
-    const fmt = (n) => n.toLocaleString("en-US");
-    const pct = (u, t) => { const v = Math.min(100, (100 * u) / t); return v === 0 ? "0%" : v < 1 ? "<1%" : `${Math.round(v)}%`; };
+    const { t, fmt } = window.I18N;
+    const pct = (u, total) => { const v = Math.min(100, (100 * u) / total); return v === 0 ? "0%" : v < 1 ? "<1%" : `${Math.round(v)}%`; };
     const vrfKey = (vrf) => (vrf === null || vrf === undefined ? "None" : String(vrf));
     const sanitize = (p) => p.replace(/[./]/g, "_");
     const mapUrl = (vrf, prefix) => `${cfg.basePath}/map/${vrfKey(vrf)}/${sanitize(prefix)}`;
     const capital = (s) => (s ? s[0].toUpperCase() + s.slice(1) : s);
-    const tenantName = (id) => (id ? cfg.names.tenants[String(id)] || `Tenant ${id}` : null);
+    const tenantName = (id) => (id ? cfg.names.tenants[String(id)] || t("insp.tenant_n", { id }) : null);
     const nbLink = (path, text) => el("a", { class: "ext", href: `${NB}${path}`, target: "_blank", rel: "noopener", text });
     const top = window.PrefixMapTop;
 
     // ---------- clipboard: navigator.clipboard needs https or localhost; plain-http LAN hosts use the fallback ----------
     let toastTimer;
     function toast(text) {
-        let t = $("toast");
-        if (!t) { t = el("div", { id: "toast", role: "status" }); document.body.append(t); }
-        t.textContent = text;
-        t.hidden = false;
+        let box = $("toast");
+        if (!box) { box = el("div", { id: "toast", role: "status" }); document.body.append(box); }
+        box.textContent = text;
+        box.hidden = false;
         clearTimeout(toastTimer);
-        toastTimer = setTimeout(() => { t.hidden = true; }, 1600);
+        toastTimer = setTimeout(() => { box.hidden = true; }, 1600);
     }
     function legacyCopy(text) {
         const ta = el("textarea", { style: "position:fixed;top:0;left:0;opacity:0", readonly: "" });
@@ -54,8 +54,8 @@
         if (!ok) throw new Error("copy refused");
     }
     function copyText(text) {
-        const done = () => toast(`Copied ${text}`);
-        const fail = () => toast(`Copy failed: ${text}`);
+        const done = () => toast(t("copy.done", { text }));
+        const fail = () => toast(t("copy.failed", { text }));
         if (navigator.clipboard && window.isSecureContext) {
             navigator.clipboard.writeText(text).then(done, () => { try { legacyCopy(text); done(); } catch { fail(); } });
         } else {
@@ -64,7 +64,7 @@
     }
     const COPY_ICON = '<svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><rect x="3.5" y="3.5" width="7" height="7" rx="1" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M8.5 2V1.5H1.5v7H2" fill="none" stroke="currentColor" stroke-width="1.2"/></svg>';
     function copyBtn(text) {
-        const b = el("button", { type: "button", class: "copy", title: `Copy ${text}`, "aria-label": `Copy ${text}`,
+        const b = el("button", { type: "button", class: "copy", title: t("copy.title", { text }), "aria-label": t("copy.title", { text }),
             onclick: (ev) => { ev.stopPropagation(); copyText(text); } });
         b.innerHTML = COPY_ICON;
         return b;
@@ -297,7 +297,7 @@
         if (dir > 0) return levels.find((l) => l > v + 1e-6) ?? maxC();
         return [...levels].reverse().find((l) => l < v - 1e-6) ?? minC();
     }
-    const scaleText = (v) => `${Number((v / cs).toFixed(2))}×`;
+    const scaleText = (v) => `${fmt(Number((v / cs).toFixed(2)))}×`;
     const mapW = () => (GW * c) / dpr, mapH = () => (GH * c) / dpr;
     function centre() {
         ox = (viewport.clientWidth - mapW()) / 2;
@@ -317,7 +317,7 @@
         document.documentElement.style.setProperty("--hair", `${1 / dpr}px`);
         stage.classList.add("laid-out");
         $("zoom-level").textContent = scaleText(c);
-        $("zoom-level").title = `1 ${layer ? "cell" : "address"} = ${Number(c.toFixed(2))} device px`;
+        $("zoom-level").title = t(layer ? "zoom.scale_cell" : "zoom.scale_address", { px: fmt(Number(c.toFixed(2))) });
         img.classList.toggle("smooth", c < cs);
         $("zoom-out").disabled = c <= minC() + 1e-6;
         $("zoom-in").disabled = c >= maxC() - 1e-6;
@@ -466,15 +466,15 @@
         const ips = list.reduce((s, n) => s + (known ? countIps(n.start, n.end) : 0), 0);
         const size = list.reduce((s, n) => s + n.size, 0);
         const shown = list.slice(0, 12);
-        return sec(`Tenant ${tenantName(tenantHi)}`, known ? `${fmt(ips)} / ${fmt(size)} · ${pct(ips, size)}` : `${fmt(size)} addresses`,
+        return sec(t("insp.tenant", { name: tenantName(tenantHi) }), known ? `${fmt(ips)} / ${fmt(size)} · ${pct(ips, size)}` : t("count.addresses", { n: size }),
             el("table", { class: "free tenant-list" }, el("tbody", null, shown.map((n) => {
                 const u = known ? countIps(n.start, n.end) : null;
                 return el("tr", { onclick: () => outline(n) },
                     el("td", { text: n.p.prefix }),
-                    el("td", { class: "n", text: u === null ? "" : `${fmt(u)} used · ${pct(u, n.size)}` }));
+                    el("td", { class: "n", text: u === null ? "" : t("insp.used_pct", { used: fmt(u), pct: pct(u, n.size) }) }));
             }))),
-            list.length > shown.length ? el("div", { class: "hint", text: `${fmt(list.length - shown.length)} more` }) : null,
-            el("button", { type: "button", class: "linkish", text: "Clear outline", onclick: () => toggleTenant(null) }));
+            list.length > shown.length ? el("div", { class: "hint", text: t("common.more", { n: list.length - shown.length }) }) : null,
+            el("button", { type: "button", class: "linkish", text: t("insp.clear_outline"), onclick: () => toggleTenant(null) }));
     }
 
     // Change shown in the summary and on the map: the last one, or an earlier one picked from the history
@@ -485,11 +485,11 @@
     function changeSummary(ch) {
         const n = (key) => ch[`${key}_count`] ?? (ch[key] || []).length;
         return [
-            n("added") ? `${fmt(n("added"))} IP added` : null,
-            n("removed") ? `${fmt(n("removed"))} removed` : null,
-            n("changed") ? `${fmt(n("changed"))} changed` : null,
-            n("prefixes_added") ? `${fmt(n("prefixes_added"))} prefix${n("prefixes_added") > 1 ? "es" : ""} added` : null,
-            n("prefixes_removed") ? `${fmt(n("prefixes_removed"))} prefix${n("prefixes_removed") > 1 ? "es" : ""} removed` : null,
+            n("added") ? t("changes.ip_added", { n: n("added") }) : null,
+            n("removed") ? t("changes.ip_removed", { n: n("removed") }) : null,
+            n("changed") ? t("changes.ip_changed", { n: n("changed") }) : null,
+            n("prefixes_added") ? t("changes.prefixes_added", { n: n("prefixes_added") }) : null,
+            n("prefixes_removed") ? t("changes.prefixes_removed", { n: n("prefixes_removed") }) : null,
         ].filter(Boolean).join(" · ");
     }
 
@@ -536,20 +536,20 @@
         });
         const pick = (i) => { changeIndex = i; renderSummary(); drawChanges(); };
         const earlier = history.length > 1 ? el("div", { class: "history" },
-            el("div", { class: "hint", text: "History" }),
+            el("div", { class: "hint", text: t("changes.history") }),
             el("table", { class: "free changes history" }, el("tbody", null, history.map((h, i) => el("tr", {
                 class: i === changeIndex ? "current" : null, onclick: () => pick(i),
-                title: i === changeIndex ? null : "Show this change",
-            }, el("td", { text: new Date(h.at * 1000).toLocaleString() }), el("td", { class: "n", text: changeSummary(h) })))))) : null;
-        return sec(changeIndex ? "Earlier change" : "Last change", new Date(ch.at * 1000).toLocaleString(),
+                title: i === changeIndex ? null : t("changes.show_this"),
+            }, el("td", { text: I18N.date(h.at * 1000) }), el("td", { class: "n", text: changeSummary(h) })))))) : null;
+        return sec(changeIndex ? t("changes.earlier") : t("changes.last"), I18N.date(ch.at * 1000),
             el("div", { class: "sub" }, changeSummary(ch)),
             el("table", { class: "free changes" }, el("tbody", null, rows.slice(0, 8).map(([text, cls]) => {
                 const isPrefix = text.includes("/");
                 return el("tr", { onclick: img ? () => (isPrefix ? outline(parsePrefix(text)) : pin(blockStart(ipToInt(text)), true)) : null },
-                    el("td", { text }), el("td", { class: `n ${cls}`, text: cls }));
+                    el("td", { text }), el("td", { class: `n ${cls}`, text: t(`changes.kind.${cls}`) }));
             }))),
-            rows.length > 8 ? el("div", { class: "hint", text: `${fmt(rows.length - 8)} more` }) : null,
-            img ? el("label", { class: "check" }, toggle, " Show on the map") : null,
+            rows.length > 8 ? el("div", { class: "hint", text: t("common.more", { n: rows.length - 8 }) }) : null,
+            img ? el("label", { class: "check" }, toggle, ` ${t("changes.show_on_map")}`) : null,
             earlier);
     }
     // Move the map so that the cells x1..x2, y1..y2 are in the middle of the view
@@ -599,9 +599,9 @@
     // What double-click opens: the child prefix map, else the IP in NetBox
     function openAction(a) {
         const child = childAt(a) || (layer ? inside(a)[0] : null);
-        if (child) return { label: `open map of ${child.p.prefix}`, url: mapUrl(child.p.vrf ?? data.vrf, child.p.prefix) };
+        if (child) return { label: t("action.open_map", { prefix: child.p.prefix }), url: mapUrl(child.p.vrf ?? data.vrf, child.p.prefix) };
         const ip = ipsByAddr.get(a);
-        if (ip && ip.id) return { label: "open the IP in NetBox", url: `${NB}/ipam/ip-addresses/${ip.id}/`, external: true };
+        if (ip && ip.id) return { label: t("action.open_ip"), url: `${NB}/ipam/ip-addresses/${ip.id}/`, external: true };
         return null;
     }
     function navigate(url, external, newTab) {
@@ -618,18 +618,17 @@
     ]));
     // Mirrors IP_STATUS_STYLES in app/plot_map.py
     const IP_KINDS = {
-        role: { color: "#ff0000", svg: ["#ff0000", 1], label: "With role" },
-        active: { color: "#000", svg: ["#000", 1], label: "In use" },
-        dhcp: { color: "rgba(0,0,0,.55)", svg: ["#000", 0.55], label: "DHCP" },
-        reserved: { color: "rgba(0,0,0,.25)", svg: ["#000", 0.25], label: "Reserved, deprecated" },
-        inactive: { color: "rgba(0,0,0,.1)", svg: ["#000", 0.1], label: "Inactive" },
+        role: { color: "#ff0000", svg: ["#ff0000", 1], label: t("kind.role") },
+        active: { color: "#000", svg: ["#000", 1], label: t("kind.active") },
+        dhcp: { color: "rgba(0,0,0,.55)", svg: ["#000", 0.55], label: t("kind.dhcp") },
+        reserved: { color: "rgba(0,0,0,.25)", svg: ["#000", 0.25], label: t("kind.reserved") },
+        inactive: { color: "rgba(0,0,0,.1)", svg: ["#000", 0.1], label: t("kind.inactive") },
     };
     const STRIPED_STATUS = new Set(["reserved", "deprecated"]);  // prefix statuses drawn with stripes
     const STATUS_KIND = { dhcp: "dhcp", slaac: "dhcp", reserved: "reserved", deprecated: "reserved", inactive: "inactive" };
     const ipKind = (ip) => (ip.role ? "role" : STATUS_KIND[ip.status] || "active");
     const ipColor = (ip) => IP_KINDS[ipKind(ip)].color;
-    const STATUS_LABEL = { dhcp: "DHCP", slaac: "SLAAC" };
-    const statusLabel = (s) => STATUS_LABEL[s] || capital(s);
+    const statusLabel = (s) => (s && I18N.has(`status.${s}`) ? t(`status.${s}`) : capital(s));
     const swatchStyle = (c) => `background:linear-gradient(${c},${c}),#fff`;
     const tenantNode = (id) => (id ? el("span", null,
         el("span", { class: "tswatch", style: `background:${tenantColors.get(String(id)) || "transparent"}` }),
@@ -637,8 +636,8 @@
 
     function freeSizeSelect(range) {
         const maxLen = layer ? blockLen : 32;
-        const select = el("select", { "aria-label": "Free block size", title: "Size of the free blocks to list" },
-            el("option", { value: "", text: "largest" }),
+        const select = el("select", { "aria-label": t("free.size_label"), title: t("free.size_title") },
+            el("option", { value: "", text: t("free.largest") }),
             Array.from({ length: Math.max(0, maxLen - range.len) }, (_, i) => range.len + 1 + i)
                 .map((len) => el("option", { value: String(len), text: `/${len}` })));
         select.value = freeSize && freeSize > range.len && freeSize <= maxLen ? String(freeSize) : "";
@@ -652,10 +651,10 @@
     }
 
     function freeSection(range, label) {
-        const title = el("span", null, "Free blocks in ", el("span", { class: "mono", text: label }));
+        const title = el("span", null, ...I18N.nodes("free.title", { prefix: el("span", { class: "mono", text: label }) }));
         if (range.len >= blockLen) {
             return sec(title, null,
-                el("div", { class: "empty", text: `Smaller than a cell of this map; see the map of ${label}.` }));
+                el("div", { class: "empty", text: t("free.smaller_than_cell", { prefix: label }) }));
         }
         const fb = freeBlocks(range);
         const bySize = freeSize && freeSize > range.len && freeSize <= (layer ? blockLen : 32);
@@ -669,40 +668,40 @@
                     onmouseleave: () => { freeHi = null; drawOverlays(); },
                     onclick: img ? () => scrollToBounds(rangeBounds(b.start, b.start + b.size - 1)) : null,
                 }, el("td", { text: prefix }),
-                    el("td", { class: "n", text: b.size === 1 ? "1 address" : `${fmt(b.size)} addr` }),
+                    el("td", { class: "n", text: t("free.block_size", { n: b.size }) }),
                     el("td", { class: "c" }, copyBtn(prefix)));
             })))
-            : el("div", { class: "empty", text: bySize ? `No free /${freeSize}.` : "No free addresses." });
+            : el("div", { class: "empty", text: bySize ? t("free.none_of_size", { len: freeSize }) : t("free.none") });
         const rest = list.count - shown.length;
-        const more = rest > 0 ? el("div", { class: "hint", text: bySize ? `${fmt(rest)} more free /${freeSize}` : `${fmt(rest)} smaller blocks not shown` }) : null;
-        const right = bySize ? `${fmt(list.count)} × /${freeSize}` : `${fmt(fb.total)} free`;
-        return sec(title, right, el("div", { class: "fsize" }, el("label", null, "Size ", freeSizeSelect(range))), body, more);
+        const more = rest > 0 ? el("div", { class: "hint", text: bySize ? t("free.more_of_size", { n: rest, len: freeSize }) : t("free.more_smaller", { n: rest }) }) : null;
+        const right = bySize ? `${fmt(list.count)} × /${freeSize}` : t("free.total", { n: fb.total });
+        return sec(title, right, el("div", { class: "fsize" }, el("label", null, `${t("free.size")} `, freeSizeSelect(range))), body, more);
     }
 
     const vlanName = (id) => {
         const v = id ? (cfg.names.vlans || {})[String(id)] : null;
         return id ? (v ? `VLAN ${v.vid}` : `VLAN #${id}`) : null;
     };
-    const vrfLabel = (vrf) => (vrf === null || vrf === undefined ? "Global" : cfg.vrf && String(cfg.vrf.id) === String(vrf) ? cfg.vrf.name : `VRF #${vrf}`);
+    const vrfLabel = (vrf) => (vrf === null || vrf === undefined ? t("vrf.global") : cfg.vrf && String(cfg.vrf.id) === String(vrf) ? cfg.vrf.name : `VRF #${vrf}`);
     function dupeSection(list) {
-        return sec("All records of this address", `${list.length}`, el("table", { class: "free dupes" }, el("tbody", null, list.map((ip) =>
+        return sec(t("insp.all_records"), `${list.length}`, el("table", { class: "free dupes" }, el("tbody", null, list.map((ip) =>
             el("tr", null,
                 el("td", { text: vrfLabel(ip.vrf) }),
                 el("td", { text: [statusLabel(ip.status), ip.role, ip.dns_name].filter(Boolean).join(" · ") }),
                 el("td", { class: "n" }, ip.id ? nbLink(`/ipam/ip-addresses/${ip.id}/`, "NetBox") : null))))),
-            el("div", { class: "hint", text: "The map shows one: with a role first, then active, reserved, inactive." }));
+            el("div", { class: "hint", text: t("insp.records_hint") }));
     }
-    const roleName = (id) => (id ? cfg.names.roles[String(id)] || `Role ${id}` : null);
+    const roleName = (id) => (id ? cfg.names.roles[String(id)] || t("insp.role_n", { id }) : null);
     function rangeSection(list) {
-        return sec(list.length > 1 ? `IP ranges` : "IP range", list.length > 1 ? `${list.length}` : null, ...list.slice(0, 4).map(({ r }) =>
+        return sec(t("insp.ip_ranges", { n: list.length }), list.length > 1 ? `${list.length}` : null, ...list.slice(0, 4).map(({ r }) =>
             el("div", { class: "range-item" },
                 el("div", { class: "mono" }, `${r.start} – ${r.end}`, copyBtn(`${r.start}-${r.end}`)),
                 kv([
-                    ["NetBox", r.id ? nbLink(`/ipam/ip-ranges/${r.id}/`, "IP range") : null],
-                    ["Size", `${fmt(r.size)} addresses`],
-                    ["Status", statusLabel(r.status)],
-                    ["Role", roleName(r.role)],
-                    ["Description", r.description || null],
+                    ["NetBox", r.id ? nbLink(`/ipam/ip-ranges/${r.id}/`, t("insp.ip_range")) : null],
+                    [t("field.size"), t("count.addresses", { n: r.size })],
+                    [t("field.status"), statusLabel(r.status)],
+                    [t("field.role"), roleName(r.role)],
+                    [t("field.description"), r.description || null],
                 ]))));
     }
 
@@ -714,12 +713,12 @@
             ...chainNodes.map((n) => ({ prefix: n.p.prefix, id: n.p.id, vrf: n.p.vrf ?? data.vrf, desc: n.p.description, tenant: n.p.tenant, pool: n.p.is_pool, vlan: n.p.vlan, status: n.p.status })),
         ];
         const innerPrefix = chain.at(-1).prefix;
-        return sec("Prefix chain", null, el("ol", { class: "chain" }, chain.map((c) => {
-            const desc = [STRIPED_STATUS.has(c.status) ? c.status : null, c.pool ? "pool" : null, c.desc, tenantName(c.tenant), vlanName(c.vlan)].filter(Boolean).join(" · ");
+        return sec(t("insp.chain"), null, el("ol", { class: "chain" }, chain.map((c) => {
+            const desc = [STRIPED_STATUS.has(c.status) ? statusLabel(c.status).toLowerCase() : null, c.pool ? t("insp.pool_lc") : null, c.desc, tenantName(c.tenant), vlanName(c.vlan)].filter(Boolean).join(" · ");
             return el("li", { class: [c.here ? "here" : "", c.prefix === innerPrefix ? "inner" : ""].join(" ").trim() || null },
                 el("span", { class: "p", text: c.prefix }),
                 el("span", { class: "l" },
-                    c.here ? el("span", { text: "this map" }) : el("a", { href: mapUrl(c.vrf, c.prefix), text: "map" }),
+                    c.here ? el("span", { text: t("insp.this_map") }) : el("a", { href: mapUrl(c.vrf, c.prefix), text: t("insp.map") }),
                     c.id ? nbLink(`/ipam/prefixes/${c.id}/`, "NetBox") : null, copyBtn(c.prefix)),
                 desc ? el("span", { class: "d", text: desc, title: desc }) : null);
         })));
@@ -735,19 +734,19 @@
         const out = [el("section", { class: "sec" },
             el("div", { class: "big" }, intToIp(a), el("span", { class: "mask", text: `/${blockLen}` }), copyBtn(`${intToIp(a)}/${blockLen}`)),
             el("div", { class: "sub" },
-                count === null ? el("span", { class: "pill", text: "IPs unknown" })
-                    : count ? el("span", { class: "pill", text: `${fmt(count)} used` }) : el("span", { class: "pill free", text: "No IPs" }),
-                el("span", { class: "mono", text: count === null ? `${fmt(blockSize)} addresses` : `${pct(count, blockSize)} of ${fmt(blockSize)}` })),
-            action ? el("div", { class: "hint", text: `Double-click to ${action.label}` })
-                : el("div", { class: "hint", text: "No prefix in this block" }))];
+                count === null ? el("span", { class: "pill", text: t("block.ips_unknown") })
+                    : count ? el("span", { class: "pill", text: t("block.used", { n: count }) }) : el("span", { class: "pill free", text: t("block.no_ips") }),
+                el("span", { class: "mono", text: count === null ? t("count.addresses", { n: blockSize }) : t("block.pct_of", { pct: pct(count, blockSize), total: fmt(blockSize) }) })),
+            action ? el("div", { class: "hint", text: t("insp.dblclick", { action: action.label }) })
+                : el("div", { class: "hint", text: t("block.no_prefix") }))];
         const blockRanges = rangesAt(a, blockSize);
         if (blockRanges.length) out.push(rangeSection(blockRanges));
         out.push(chainSection(chainNodes));
         if (smaller.length) {
             const shown = smaller.slice(0, 8);
-            out.push(sec("Prefixes in this block", `${fmt(smaller.length)}`, el("ol", { class: "chain" }, shown.map((n) =>
+            out.push(sec(t("block.prefixes_inside"), `${fmt(smaller.length)}`, el("ol", { class: "chain" }, shown.map((n) =>
                 el("li", null, el("span", { class: "p", text: n.p.prefix }),
-                    el("span", { class: "l" }, el("a", { href: mapUrl(n.p.vrf ?? data.vrf, n.p.prefix), text: "map" }),
+                    el("span", { class: "l" }, el("a", { href: mapUrl(n.p.vrf ?? data.vrf, n.p.prefix), text: t("insp.map") }),
                         n.p.id ? nbLink(`/ipam/prefixes/${n.p.id}/`, "NetBox") : null),
                     n.p.description ? el("span", { class: "d", text: n.p.description, title: n.p.description }) : null)))));
         }
@@ -767,14 +766,14 @@
         if (a === null || !data) {
             detail.hidden = true;
             summary.hidden = false;
-            if (img) setBadge(el("span", { class: "badge", text: "hover the map" }));
+            if (img) setBadge(el("span", { class: "badge", text: t("insp.hover_hint") }));
             return;
         }
         setBadge(pinned !== null
-            ? el("span", { class: "pin-badge" }, "Pinned", el("button", {
-                type: "button", title: "Unpin (Esc)", "aria-label": "Unpin", text: "×", onclick: () => pin(null),
+            ? el("span", { class: "pin-badge" }, t("insp.pinned"), el("button", {
+                type: "button", title: `${t("insp.unpin")} (Esc)`, "aria-label": t("insp.unpin"), text: "×", onclick: () => pin(null),
             }))
-            : el("span", { class: "badge", text: "click to pin" }));
+            : el("span", { class: "badge", text: t("insp.click_hint") }));
         if (layer) { renderBlock(a); return; }
         const ip = ipsByAddr.get(a);
         const edge = ip ? null : edgeKind(a);
@@ -789,28 +788,28 @@
             el("div", { class: "big" }, intToIp(a), el("span", { class: "mask", text: `/${mask}` }), copyBtn(intToIp(a))),
             el("div", { class: "sub" },
                 ip ? el("span", { class: "pill" }, el("span", { class: "sw", style: swatchStyle(ipColor(ip)) }), statusLabel(ip.status) || "IP")
-                    : edge ? el("span", { class: "pill", text: `${capital(edge)} address` })
-                        : inRange.length ? el("span", { class: "pill" }, el("span", { class: "sw range" }), "IP range")
-                            : el("span", { class: "pill free", text: "Free" }),
-                dupes.has(a) ? el("span", { class: "pill warn", text: `${dupes.get(a).length} records` }) : null,
-                pool ? el("span", { class: "pill", text: "Pool", title: `${pool} is a pool: all its addresses are usable, network and broadcast included` }) : null,
-                el("span", { class: "mono", text: `offset ${fmt(a - net.start)}` })),
-            action ? el("div", { class: "hint", text: `Double-click to ${action.label}` }) : null));
+                    : edge ? el("span", { class: "pill", text: t(`edge.${edge}`) })
+                        : inRange.length ? el("span", { class: "pill" }, el("span", { class: "sw range" }), t("insp.ip_range"))
+                            : el("span", { class: "pill free", text: t("insp.free") }),
+                dupes.has(a) ? el("span", { class: "pill warn", text: t("insp.records", { n: dupes.get(a).length }) }) : null,
+                pool ? el("span", { class: "pill", text: t("insp.pool"), title: t("insp.pool_title", { prefix: pool }) }) : null,
+                el("span", { class: "mono", text: t("insp.offset", { n: a - net.start }) })),
+            action ? el("div", { class: "hint", text: t("insp.dblclick", { action: action.label }) }) : null));
         if (ip) {
-            out.push(sec("IP address", ip.id ? nbLink(`/ipam/ip-addresses/${ip.id}/`, "NetBox") : null, kv([
-                ["Status", statusLabel(ip.status)],
-                ["Role", capital(ip.role)],
-                ["DNS name", ip.dns_name ? el("span", { class: "mono", text: ip.dns_name }) : null],
-                ["Description", ip.description || null],
-                ["Tenant", tenantNode(ip.tenant)],
+            out.push(sec(t("insp.ip_address"), ip.id ? nbLink(`/ipam/ip-addresses/${ip.id}/`, "NetBox") : null, kv([
+                [t("field.status"), statusLabel(ip.status)],
+                [t("field.role"), capital(ip.role)],
+                [t("field.dns_name"), ip.dns_name ? el("span", { class: "mono", text: ip.dns_name }) : null],
+                [t("field.description"), ip.description || null],
+                [t("field.tenant"), tenantNode(ip.tenant)],
             ])));
         } else if (edge) {
-            out.push(sec("IP address", null, el("div", { class: "empty",
-                text: `${capital(edge)} address of ${(inner ? inner.p.prefix : cfg.prefix)}: not usable for hosts.` })));
+            out.push(sec(t("insp.ip_address"), null, el("div", { class: "empty",
+                text: t(`edge.${edge}_of`, { prefix: inner ? inner.p.prefix : cfg.prefix }) })));
         } else {
             const vrfParam = cfg.vrf ? `&vrf=${encodeURIComponent(cfg.vrf.id)}` : "";
-            out.push(sec("IP address", null, el("div", { class: "empty" }, "No IP record. ",
-                nbLink(`/ipam/ip-addresses/add/?address=${intToIp(a)}/${mask}${vrfParam}`, "Add in NetBox"))));
+            out.push(sec(t("insp.ip_address"), null, el("div", { class: "empty" }, `${t("insp.no_record")} `,
+                nbLink(`/ipam/ip-addresses/add/?address=${intToIp(a)}/${mask}${vrfParam}`, t("insp.add_in_netbox")))));
         }
         if (dupes.has(a)) out.push(dupeSection(dupes.get(a)));
         if (inRange.length) out.push(rangeSection(inRange));
@@ -832,27 +831,28 @@
             el("div", { class: "bigbar" }, Object.keys(counts).map((kind) => seg(counts[kind], barColor[kind], IP_KINDS[kind].label))),
             el("div", { class: "stats" },
                 el("div", { class: "stat" }, el("b", { text: used === null ? "—" : fmt(used) }),
-                    el("span", { text: used === null ? "IPs" : `IPs · ${pct(used, total)}` })),
-                el("div", { class: "stat" }, el("b", { text: fmt((data.child_prefixes || []).length) }), el("span", { text: "child prefixes" })),
-                el("div", { class: "stat" }, el("b", { text: fmt(total) }), el("span", { text: "addresses" }))));
+                    el("span", { text: used === null ? t("summary.ips") : `${t("summary.ips")} · ${pct(used, total)}` })),
+                el("div", { class: "stat" }, el("b", { text: fmt((data.child_prefixes || []).length) }),
+                    el("span", { text: t("summary.child_prefixes", { n: (data.child_prefixes || []).length }) })),
+                el("div", { class: "stat" }, el("b", { text: fmt(total) }), el("span", { text: t("summary.addresses", { n: total }) }))));
         const sections = [tenantSection()];
         if (hasIps || countsKnown) sections.push(freeSection(net, cfg.prefix));
         sections.push(changesSection());
         if (dupes.size) {
             const shown = [...dupes.keys()].sort((x, y) => x - y).slice(0, 8);
-            sections.push(sec("Addresses with several records", `${fmt(dupes.size)}`, el("table", { class: "free" }, el("tbody", null,
+            sections.push(sec(t("insp.several_records"), `${fmt(dupes.size)}`, el("table", { class: "free" }, el("tbody", null,
                 shown.map((a) => el("tr", { onclick: () => pin(a, true) },
                     el("td", { text: intToIp(a) }),
                     el("td", { class: "n", text: dupes.get(a).map((ip) => vrfLabel(ip.vrf)).join(", ") }))))),
-                dupes.size > shown.length ? el("div", { class: "hint", text: `${fmt(dupes.size - shown.length)} more` }) : null));
+                dupes.size > shown.length ? el("div", { class: "hint", text: t("common.more", { n: dupes.size - shown.length }) }) : null));
         }
         $("sum-free").replaceChildren(...sections.filter(Boolean));
         const big = document.querySelector("#insp-summary .big");
         if (big && !big.querySelector(".copy")) big.append(copyBtn(cfg.prefix));
     }
 
-    const usageText = () => (used === null ? `${fmt(net.size)} addresses`
-        : `${fmt(used)} / ${fmt(net.size)} used · ${((100 * used) / net.size).toFixed(used && used < net.size / 1000 ? 2 : 1)}%`);
+    const usageText = () => (used === null ? t("count.addresses", { n: net.size })
+        : t("usage.used_of", { used: fmt(used), total: fmt(net.size), pct: I18N.fixed((100 * used) / net.size, used && used < net.size / 1000 ? 2 : 1) }));
 
     function renderLegend() {
         const sw = (c) => el("span", { class: "sw", style: swatchStyle(c) });
@@ -862,32 +862,32 @@
         }
         const keys = layer
             ? el("span", { class: "lg-group" },
-                el("span", { class: "lg-label", text: "IPs per block" }),
-                el("span", { class: "lg" }, sw("rgba(0,0,0,.25)"), "few"),
+                el("span", { class: "lg-label", text: t("legend.ips_per_block") }),
+                el("span", { class: "lg" }, sw("rgba(0,0,0,.25)"), t("legend.few")),
                 el("span", { class: "lg" }, sw("rgba(0,0,0,.575)"), "25%"),
-                el("span", { class: "lg" }, sw("rgba(0,0,0,.9)"), "all"),
-                el("span", { class: "lg" }, el("span", { class: "sw checker" }), "prefixes inside"))
+                el("span", { class: "lg" }, sw("rgba(0,0,0,.9)"), t("legend.all")),
+                el("span", { class: "lg" }, el("span", { class: "sw checker" }), t("legend.prefixes_inside")))
             : el("span", { class: "lg-group" }, ["active", "dhcp", "reserved", "inactive", "role"]
                 .filter((kind) => !hasIps || kind === "active" || kind === "role" || (data.ip_addresses || []).some((ip) => ipKind(ip) === kind))
                 .map((kind) => el("span", { class: "lg" }, sw(IP_KINDS[kind].color), IP_KINDS[kind].label)),
-                ranges.length ? el("span", { class: "lg" }, el("span", { class: "sw range" }), "IP range") : null);
+                ranges.length ? el("span", { class: "lg" }, el("span", { class: "sw range" }), t("insp.ip_range")) : null);
         const striped = nested.some((n) => STRIPED_STATUS.has(n.p.status) && !(layer && n.len > blockLen))
-            ? el("span", { class: "lg" }, el("span", { class: "sw striped" }), "Reserved, deprecated prefix") : null;
+            ? el("span", { class: "lg" }, el("span", { class: "sw striped" }), t("legend.striped")) : null;
         if (striped) keys.append(striped);
         // replaceChildren() would print null as text
         $("legend").replaceChildren(...[
             keys,
             tenants.size ? el("span", { class: "vsep" }) : null,
-            tenants.size ? el("span", { class: "lg-group tenants" }, el("span", { class: "lg-label", text: "Tenants" }),
+            tenants.size ? el("span", { class: "lg-group tenants" }, el("span", { class: "lg-label", text: t("legend.tenants") }),
                 [...tenants].sort((a, b) => tenantName(a[0]).localeCompare(tenantName(b[0])))
                     .map(([id, c]) => el("span", { class: "lg tenant-toggle", role: "button", tabindex: "0",
                         "data-tenant": String(id), "aria-pressed": String(String(tenantHi) === String(id)),
-                        title: "Click to outline its prefixes",
+                        title: t("legend.tenant_title"),
                         onclick: () => toggleTenant(id), onkeydown: (ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); toggleTenant(id); } } },
                     sw(c), tenantName(id)))) : null,
             el("span", { class: "right", id: "usage-total" },
                 usageText(),
-                img ? el("span", { class: "cellnote", text: layer ? ` · 1 cell = /${blockLen}` : " · 1 cell = 1 address" }) : null),
+                img ? el("span", { class: "cellnote", text: ` · ${layer ? t("legend.cell_block", { len: blockLen }) : t("legend.cell_address")}` }) : null),
         ].filter(Boolean));
     }
 
@@ -910,27 +910,27 @@
         if (len === null && layer) {
             const a = blockStart(addr);
             pin(a, true);
-            const count = countsKnown ? ` · ${fmt(blockCounts.get((a - net.start) / blockSize) || 0)} IPs` : "";
-            ui.say(`${intToIp(addr)} is in block ${intToIp(a)}/${blockLen}${count}`);
+            const count = countsKnown ? ` · ${t("search.block_ips", { n: blockCounts.get((a - net.start) / blockSize) || 0 })}` : "";
+            ui.say(`${t("search.in_block", { ip: intToIp(addr), block: `${intToIp(a)}/${blockLen}` })}${count}`);
             return true;
         }
         if (len === null) {
             const ip = ipsByAddr.get(addr);
             pin(addr, true);
             const edge = ip ? null : edgeKind(addr);
-            ui.say(`${intToIp(addr)} · ${ip ? statusLabel(ip.status) + (ip.dns_name ? ` · ${ip.dns_name}` : "") : edge ? `${edge} address` : "free"}`);
+            ui.say(`${intToIp(addr)} · ${ip ? statusLabel(ip.status) + (ip.dns_name ? ` · ${ip.dns_name}` : "") : edge ? t(`edge.${edge}`).toLowerCase() : t("search.free")}`);
             return true;
         }
         const start = addr - (addr % 2 ** (32 - len));
         const prefix = `${intToIp(start)}/${len}`;
-        if (prefix === cfg.prefix) { ui.say("This map."); return true; }
+        if (prefix === cfg.prefix) { ui.say(t("search.this_map")); return true; }
         const node = nested.find((n) => n.p.prefix === prefix);
         outline(parsePrefix(prefix));
         if (node) {
-            ui.say(`${prefix}${node.p.description ? ` · ${node.p.description}` : ""}. Enter opens its map.`);
+            ui.say(t("search.prefix_found", { prefix: `${prefix}${node.p.description ? ` · ${node.p.description}` : ""}` }));
             if (commit) navigate(mapUrl(node.p.vrf ?? data.vrf, prefix));
         } else {
-            ui.say(`${prefix} is not a NetBox prefix.`);
+            ui.say(t("search.not_a_prefix", { prefix }));
         }
         return true;
     }
@@ -952,18 +952,22 @@
     }
 
     // ---------- events ----------
+    // A non-Latin layout (Russian) gives "с", "х", "ъ" for the c, [, ] keys: fall back to the physical key
+    const CODE_KEY = { KeyC: "c", BracketLeft: "[", BracketRight: "]" };
+    const keyOf = (ev) => (ev.key.length === 1 && ev.key > "~" && CODE_KEY[ev.code]) || ev.key;
     document.addEventListener("keydown", (ev) => {
         if (ev.target.closest?.("input, select, textarea") || ev.ctrlKey || ev.metaKey || ev.altKey) return;
         if (img && img.naturalWidth && data && moveKey(ev)) return;
-        if (ev.key === "Escape") {
+        const key = keyOf(ev);
+        if (key === "Escape") {
             if (pinned !== null) pin(null);
             else if (selected) { selected = null; drawOverlays(); syncUrl(); }
-        } else if (ev.key === "[") setPanel("tree", !panelOpen("tree"));
-        else if (ev.key === "]") setPanel("insp", !panelOpen("insp"));
+        } else if (key === "[") setPanel("tree", !panelOpen("tree"));
+        else if (key === "]") setPanel("insp", !panelOpen("insp"));
         else if (!img || !img.naturalWidth) return;
-        else if (ev.key === "+" || ev.key === "=") setC(zoomStep(c, 1), true);
-        else if (ev.key === "-") setC(zoomStep(c, -1), true);
-        else if (ev.key === "0") setC(fitC(), false);
+        else if (key === "+" || key === "=") setC(zoomStep(c, 1), true);
+        else if (key === "-") setC(zoomStep(c, -1), true);
+        else if (key === "0") setC(fitC(), false);
     });
     // Arrows move the pinned cell (Shift: 16 cells), Enter opens it, c copies it
     const ARROWS = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
@@ -990,7 +994,7 @@
             if (action) navigate(action.url, action.external, ev.shiftKey);
             return true;
         }
-        if (ev.key === "c") {
+        if (keyOf(ev) === "c") {
             const a = pinned ?? hover;
             if (a !== null) copyText(layer ? `${intToIp(a)}/${blockLen}` : intToIp(a));
             else if (selected) copyText(`${intToIp(selected.start)}/${selected.len}`);
@@ -1057,10 +1061,10 @@
         exp.setMono(bw.checked);
         bw.addEventListener("change", () => exp.setMono(bw.checked));
         const action = (text, fn) => el("button", { type: "button", class: "linkish", text, onclick: fn });
-        $("sum-export").replaceChildren(sec("Export", null, el("div", { class: "links" },
-            action("Print map with legend", () => exp.print(bw.checked)),
-            action("Download SVG", () => exp.download(bw.checked)),
-            el("label", { class: "check" }, bw, " Black and white (hatched tenants)"))));
+        $("sum-export").replaceChildren(sec(t("export.title"), null, el("div", { class: "links" },
+            action(t("export.print"), () => exp.print(bw.checked)),
+            action(t("export.download"), () => exp.download(bw.checked)),
+            el("label", { class: "check" }, bw, ` ${t("export.bw")}`))));
     }
 
     const imageReady = !img || img.complete ? Promise.resolve() : new Promise((resolve, reject) => {
@@ -1084,15 +1088,15 @@
                 startMap();
                 // ?tenant=<id>: outline that tenant, when it has prefixes on this map. Read before applying ?focus=,
                 // which rewrites the URL; applied after it, so that both end up in the URL again.
-                const t = new URLSearchParams(window.location.search).get("tenant");
+                const tenant = new URLSearchParams(window.location.search).get("tenant");
                 applyFocus();
-                if (t && tenantPrefixes(t).length) toggleTenant(t);
+                if (tenant && tenantPrefixes(tenant).length) toggleTenant(tenant);
                 initExport();
             }
             document.body.dataset.ready = "1";
         })
         .catch((error) => {
-            $("legend").textContent = `Map data unavailable: ${error.message}`;
+            $("legend").textContent = t("map.data_unavailable", { error: error.message });
             document.body.dataset.ready = "error";
         });
 

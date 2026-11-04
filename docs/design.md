@@ -10,10 +10,12 @@
 | `app/plot_map.py` | Image rendering (matplotlib, Agg backend) |
 | `app/updater_manager.py` | Background update scheduling |
 | `app/webapp.py` | Flask application: pages, data endpoint, webhook, health and metrics |
+| `app/i18n.py` | UI language: message catalogues, language choice, plurals |
 | `static/js/map.js` | Map page: zoom, overlays, inspector, legend, search within the map |
 | `static/js/map_export.js` | SVG export and print sheet of the map |
 | `static/js/prefix_tree.js` | Prefix tree in the map page sidebar |
-| `static/js/topbar.js` | Top bar: freshness indicator, search box |
+| `static/js/topbar.js` | Top bar: freshness indicator, search box, language switch |
+| `static/js/i18n.js` | Messages, plurals, number and date formats in the page scripts |
 
 ## Update run
 
@@ -108,6 +110,19 @@ Layout: top bar (VRF, prefix path, search, freshness), prefix tree on the left, 
 - Clicking a tenant in the legend (or Enter on it) outlines its outermost prefixes on the map and lists them in the inspector summary with usage; a row outlines that prefix. The tenant goes to `?tenant=<id>` next to `?focus=`, so the URL opens with the same outline. Clicking the tenant again, or "Clear outline", clears it.
 - The freshness dot polls `/healthz` and turns amber when the last update failed, the updater stopped or the data is older than 24 h.
 - Colors of the page follow the system light or dark theme; the map keeps its white background.
+
+## Languages
+
+The interface is in English (default) and Russian.
+
+- Language of a request: `?lang=` (stored in the `lang` cookie, path `BASE_PATH`, one year), then the cookie, then `Accept-Language`, then English. HTML responses vary on `Accept-Language` and `Cookie`. URLs, data files and JSON keys do not depend on the language.
+- Messages are in `app/locales/<lang>.json`: a string with `{name}` placeholders, or plural forms (`one`, `other` in English; `one`, `few`, `many` in Russian) chosen by the count `n`. Templates call `t(key, ...)`; a page embeds the catalogue of its language (`#i18n`, English filling missing keys) for `static/js/i18n.js`, which picks plural forms with `Intl.PluralRules`. `{n}` is written with the digit grouping of the language (1,234; 1 234).
+- Numbers, dates and times in the scripts use the browser's variant of the page language (en-GB, ru-RU) when it has one.
+- The help body is one template per language (`templates/_help_<lang>.html`) with the same structure; the Z-order diagram has a Russian copy (`static/img/z-order.ru.svg`).
+- NetBox statuses are shown through `status.<value>` messages; tenant, role, VRF names and descriptions are shown as they are. The Global VRF is named in the page language; `vrf_name` in `/search` results stays `Global`.
+- `/search` errors carry `error` in the request language and `error_code` (`bad_query`, `bad_prefix`, `free_not_ready`). The free-block search also accepts `свободные /26 в 10.20.0.0/16`.
+- Log lines, `/metrics`, `/healthz` and webhook replies stay in English.
+- Keyboard shortcuts `c`, `[`, `]` and `/` also work on the Russian layout, where they give other characters: the physical key counts (`KeyboardEvent.code`).
 
 ## Observability
 
