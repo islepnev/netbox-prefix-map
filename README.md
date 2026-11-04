@@ -1,5 +1,9 @@
 # NetBox Prefix Map
 
+[![CI](https://github.com/islepnev/netbox-prefix-map/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/islepnev/netbox-prefix-map/actions/workflows/ci.yml)
+[![NetBox 4.x](https://img.shields.io/badge/NetBox-4.x-blue)](#requirements)
+[![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
+
 **A world map of your IPv4 space.** Every address is a cell, every subnet is a rectangle, every tenant has its own colour. See at a glance what is used, what is free and who owns it, from a /8 down to a single address.
 
 ![Map of a /17: tenant blocks, used addresses, a pinned free address with its prefix chain and free blocks](docs/img/hero.png)
