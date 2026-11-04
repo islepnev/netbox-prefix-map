@@ -4,12 +4,15 @@ import hmac
 import ipaddress
 from flask import Flask, Blueprint, Response, redirect, request, jsonify, send_from_directory, render_template, url_for
 from dotenv import load_dotenv
+from urllib.parse import quote
+from werkzeug.middleware.proxy_fix import ProxyFix
 import logging
 import os
 import re
 import threading
 import time
 
+from app import auth
 from app.cli import run_update
 from app.free_space import aligned_blocks
 from app import i18n
@@ -32,6 +35,14 @@ app = Flask(
     static_url_path=f"{BASE_PATH}/static",
     template_folder=os.path.join(os.path.dirname(__file__), "..", "templates"),
 )
+
+# NetBox webhook bodies are a few KB
+app.config['MAX_CONTENT_LENGTH'] = 1024 * 1024
+
+# TRUSTED_PROXIES: reverse proxies in front of the app; the client address is taken from X-Forwarded-For
+TRUSTED_PROXIES = int(os.getenv('TRUSTED_PROXIES', 1))
+if TRUSTED_PROXIES > 0:
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=TRUSTED_PROXIES, x_proto=0, x_host=0, x_port=0, x_prefix=0)
 
 bp = Blueprint('app', __name__, url_prefix=BASE_PATH)
 i18n.init_app(app, cookie_path=BASE_PATH or '/')
@@ -222,12 +233,38 @@ def gzip_json(response):
     return response
 
 
+# NETBOX_SESSION_AUTH=1: open the maps only to users signed in to NetBox who may view prefixes there
+NETBOX_SESSION_AUTH = os.getenv('NETBOX_SESSION_AUTH', '0') == '1'
+NETBOX_SESSION_COOKIE = os.getenv('NETBOX_SESSION_COOKIE', 'sessionid')
+NETBOX_LOGIN_URL = os.getenv('NETBOX_LOGIN_URL', '/login/')
+session_auth = auth.NetboxSessionAuth(NETBOX_URL, cache_seconds=float(os.getenv('NETBOX_AUTH_CACHE_SECONDS', 300)))
+if NETBOX_SESSION_AUTH:
+    if not NETBOX_URL:
+        logging.error("NETBOX_SESSION_AUTH needs NETBOX_API_URL: every request is refused.")
+    logging.info("Access is checked through the NetBox session of the user.")
+
+# Open without a NetBox session: assets, monitoring and the signed webhook
+AUTH_EXEMPT_ENDPOINTS = {'static', 'app.healthz', 'app.metrics', 'app.webhook'}
+# Answered with JSON or an image, not a page: no redirect to the login form
+AUTH_API_ENDPOINTS = {'app.serve_data', 'app.search', 'app.serve_image'}
+
+
 @app.before_request
-def log_real_ip():
-    """Middleware to log the real client IP using X-Forwarded-For."""
-    if request.headers.get('X-Forwarded-For'):
-        real_ip = request.headers.get('X-Forwarded-For').split(',')[0].strip()
-        request.environ['REMOTE_ADDR'] = real_ip
+def check_access():
+    if not NETBOX_SESSION_AUTH or request.endpoint in AUTH_EXEMPT_ENDPOINTS:
+        return None
+    result = session_auth.check(NETBOX_SESSION_COOKIE, request.cookies.get(NETBOX_SESSION_COOKIE)) \
+        if NETBOX_URL else auth.UNAVAILABLE
+    if result == auth.ALLOW:
+        return None
+    status, key = {auth.LOGIN: (401, 'auth.login_required'), auth.DENY: (403, 'auth.forbidden'),
+                   auth.UNAVAILABLE: (503, 'auth.unavailable')}[result]
+    if request.endpoint in AUTH_API_ENDPOINTS:
+        return jsonify({'error': i18n.t(key), 'error_code': key.split('.')[1]}), status
+    if result == auth.LOGIN:
+        target = request.full_path.rstrip('?')
+        return redirect(f"{NETBOX_LOGIN_URL}?next={quote(target, safe='/')}", code=302)
+    return render_template('error.html', title=i18n.t('auth.title'), message=i18n.t(key), back=False), status
 
 
 @app.context_processor

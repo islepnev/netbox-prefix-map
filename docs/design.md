@@ -11,6 +11,7 @@
 | `app/plot_map.py` | Image rendering (matplotlib, Agg backend) |
 | `app/updater_manager.py` | Background update scheduling |
 | `app/webapp.py` | Flask application: pages, data endpoint, webhook, health and metrics |
+| `app/auth.py` | Optional access check through the NetBox session of the user |
 | `app/i18n.py` | UI language: message catalogues, language choice, plurals |
 | `static/js/map.js` | Map page: zoom, overlays, inspector, legend, search within the map |
 | `static/js/map_export.js` | SVG export and print sheet of the map |
@@ -139,6 +140,18 @@ The interface is in English (default) and Russian.
 - `/search` errors carry `error` in the request language and `error_code` (`bad_query`, `bad_prefix`, `free_not_ready`). The free-block search also accepts `свободные /26 в 10.20.0.0/16`.
 - Log lines, `/metrics`, `/healthz` and webhook replies stay in English.
 - Keyboard shortcuts `c`, `[`, `]` and `/` also work on the Russian layout, where they give other characters: the physical key counts (`KeyboardEvent.code`).
+
+## Access
+
+With `NETBOX_SESSION_AUTH=1` every request but `static`, `healthz`, `metrics` and `webhook` (by Flask endpoint, so unknown paths are checked too) is checked before it is handled. The app shares the host with NetBox, so the browser sends the NetBox session cookie (`NETBOX_SESSION_COOKIE`) with it:
+
+1. No cookie: the user is not signed in.
+2. `GET /api/ipam/prefixes/?limit=1&brief=1` with the cookie: 200 means the user may view prefixes. NetBox answers 403 both to a stale session and to a user without `ipam.view_prefix`, so then
+3. `GET /api/authentication-check/`: 200 means the session is valid and the user lacks the permission; 403 means not signed in.
+
+Pages of a user who is not signed in redirect to `NETBOX_LOGIN_URL?next=<path>`; `/data`, `/search` and `/images` answer 401 JSON (`error_code` `login_required`). A user without the permission gets 403 (`forbidden`); when NetBox does not answer or gives another status, 503 (`unavailable`), not cached. Results are cached in memory per SHA-256 of the cookie for `NETBOX_AUTH_CACHE_SECONDS`; the cookie is never logged. NetBox decides through its own rules (groups, superusers, `EXEMPT_VIEW_PERMISSIONS`); constraints of object permissions are not applied, since all users share the same data files.
+
+The client address comes from `X-Forwarded-For` through werkzeug `ProxyFix` with `TRUSTED_PROXIES` hops (the address the proxy added, not one the client wrote). Request bodies are limited to 1 MB.
 
 ## Observability
 

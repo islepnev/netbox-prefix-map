@@ -49,6 +49,12 @@
 | `UPDATE_INTERVAL_SECONDS` | `0` | Периодическое полное обновление, если за это время не было другого, не чаще `UPDATE_DEBOUNCE_SECONDS`; `0` — выключено |
 | `INITIAL_UPDATE` | `1` | `0` — не обновлять при запуске |
 | `PORT` | `5000` | Порт |
+| `NETBOX_SESSION_AUTH` | `0` | `1` — открывать карты только пользователям, вошедшим в NetBox и имеющим там право просмотра префиксов; см. «Доступ по учётным записям NetBox» |
+| `NETBOX_SESSION_COOKIE` | `sessionid` | Имя cookie сессии NetBox (`SESSION_COOKIE_NAME` в NetBox) |
+| `NETBOX_LOGIN_URL` | `/login/` | Страница входа NetBox для пользователей без сессии |
+| `NETBOX_AUTH_CACHE_SECONDS` | `300` | Сколько хранится ответ NetBox о сессии |
+| `TRUSTED_PROXIES` | `1` | Число обратных прокси перед приложением; по нему адрес клиента в журнале берётся из `X-Forwarded-For`; `0` — заголовок не учитывается |
+| `PUBLISH_ADDR` | `0.0.0.0` | Docker Compose: адрес хоста, на котором публикуется порт; `127.0.0.1`, если обратный прокси на том же хосте |
 
 ## Запуск
 
@@ -70,7 +76,7 @@ python -m app.webapp    # сервер для разработки
 
 ### Webhook
 
-1. Operations › Integrations › Webhooks › Add: URL `http://<host>:5000/prefix-map/webhook`, метод `POST`, content type `application/json`, секрет как в `WEBHOOK_SECRET`.
+1. Operations › Integrations › Webhooks › Add: URL `http://127.0.0.1:5000/prefix-map/webhook`, если NetBox на том же хосте (иначе адрес, по которому NetBox достаёт до приложения), метод `POST`, content type `application/json`, секрет как в `WEBHOOK_SECRET`.
 2. Operations › Integrations › Event Rules › Add: типы объектов IPAM › Prefix, IPAM › IP Address, IPAM › IP Range, IPAM › VRF, Tenancy › Tenant; при желании IPAM › Role, IPAM › VLAN, DCIM › Site, Location, Region, Site Group, чтобы видеть переименования; события created, updated, deleted; действие — webhook из п. 1.
 
 Если IP-адреса меняются часто и пачками, не включайте IPAM › IP Address в правило событий: NetBox ставит в очередь отдельную задачу webhook на каждый изменённый объект. Вместо этого задайте `UPDATE_INTERVAL_SECONDS` (например, `900`): изменения адресов попадут на карты в пределах этого интервала, а webhook на остальные объекты по-прежнему обновит их сразу.
@@ -88,12 +94,44 @@ Customization › Custom Links › Add, тип объекта IPAM › Prefix:
 
 ## Обратный прокси и доступ
 
-Карты показывают все префиксы, IP-адреса, DNS-имена, арендаторов и описания, доступные токену API. Своего входа у приложения нет: ограничьте доступ на обратном прокси. Apache, в виртуальном хосте NetBox:
+Карты показывают все префиксы, IP-адреса, DNS-имена, арендаторов и описания, доступные токену API. Держите приложение за обратным прокси, а его порт закрытым для сети: в Docker Compose задайте `PUBLISH_ADDR=127.0.0.1` — Docker публикует порты в обход фаервола хоста.
+
+### Доступ по учётным записям NetBox
+
+Если приложение на одном хосте с NetBox (путь `/prefix-map` в виртуальном хосте NetBox), задайте `NETBOX_SESSION_AUTH=1`. Браузер отправляет cookie сессии NetBox и приложению; приложение спрашивает с ней API NetBox, может ли пользователь просматривать префиксы:
+
+- вошёл в NetBox и может просматривать префиксы — карты открываются;
+- не вошёл или сессия истекла — страница входа NetBox, после входа возврат на карту (единый вход работает как в NetBox);
+- вошёл без этого права, например пользователь, созданный единым входом без групп, — «Нет доступа» (403);
+- NetBox не отвечает — 503.
+
+Ответ хранится для сессии `NETBOX_AUTH_CACHE_SECONDS`: выход или смена прав действуют в пределах этого времени. Ограничения объектных прав не применяются: пользователь, которому видна часть префиксов, видит все карты. `/static`, `/healthz`, `/metrics` и `/webhook` открыты без сессии. Написано под API NetBox 4.6.
+
+Apache, в виртуальном хосте NetBox; NetBox отправляет webhook напрямую на `127.0.0.1:5000`:
 
 ```apache
 <Location /prefix-map>
-    ProxyPass http://localhost:5000/prefix-map
-    ProxyPassReverse http://localhost:5000/prefix-map
+    ProxyPass http://127.0.0.1:5000/prefix-map
+    ProxyPassReverse http://127.0.0.1:5000/prefix-map
+</Location>
+<Location /prefix-map/webhook>
+    Require all denied
+</Location>
+<Location /prefix-map/metrics>
+    Require ip 192.0.2.10
+</Location>
+```
+
+`192.0.2.10` — адрес сервера мониторинга.
+
+### Пароль на прокси
+
+Без `NETBOX_SESSION_AUTH` своего входа у приложения нет: ограничьте доступ на обратном прокси. Apache, в виртуальном хосте NetBox:
+
+```apache
+<Location /prefix-map>
+    ProxyPass http://127.0.0.1:5000/prefix-map
+    ProxyPassReverse http://127.0.0.1:5000/prefix-map
     AuthType Basic
     AuthName "Prefix Map"
     AuthUserFile /etc/apache2/prefix-map.htpasswd

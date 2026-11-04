@@ -2,15 +2,15 @@
 <html lang="{{ lang }}">
 <head>
 {% include '_head.html' %}
-    <title>{{ t('error.not_found') }} · {{ t('app.name') }}</title>
+    <title>{{ title or t('error.not_found') }} · {{ t('app.name') }}</title>
 </head>
 <body class="doc-page">
 {% include '_topbar.html' %}
 <main class="page-main">
-    <div class="page-head"><h1>{{ t('error.not_found') }}</h1></div>
+    <div class="page-head"><h1>{{ title or t('error.not_found') }}</h1></div>
     <div class="card"><div class="empty">
         <p>{{ message }}</p>
-        <p><a href="{{ url_for('app.index') }}">{{ t('error.back') }}</a></p>
+        {% if back is not defined or back %}<p><a href="{{ url_for('app.index') }}">{{ t('error.back') }}</a></p>{% endif %}
     </div></div>
 </main>
 </body>
