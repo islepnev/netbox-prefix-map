@@ -176,9 +176,9 @@ def test_click_pins_and_escape_unpins(open_page):
 def test_double_click_drills_down(open_page):
     page = open_page(f'{BASE}/map/1/10_20_48_0_20')
     wait_for_map(page)
-    with page.expect_navigation():
+    # The first click pins and rewrites ?focus= in place; wait for the real navigation
+    with page.expect_navigation(url=f'**{BASE}/map/1/10_20_48_0_24'):
         page.mouse.dblclick(*cell_center(page, *cell_of('10.20.48.0/20', '10.20.48.1')))
-    assert page.url.endswith(f'{BASE}/map/1/10_20_48_0_24')
 
 
 def test_double_click_in_leaf_opens_ip_in_netbox(open_page, dataset):
@@ -350,9 +350,8 @@ def test_layered_map_hover_and_drill_down(open_page):
     assert inside == ['10.20.0.64/26', '10.20.0.192/28']
     page.mouse.move(*cell_center(page, *layer_cell('10.0.0.0/8', 24, '10.99.0.0')))
     assert 'No prefix in this block' in page.inner_text('#insp-detail')
-    with page.expect_navigation():
+    with page.expect_navigation(url=f'**{BASE}/map/1/10_30_0_0_16'):
         page.mouse.dblclick(*cell_center(page, *layer_cell('10.0.0.0/8', 24, '10.30.7.0')))
-    assert page.url.endswith(f'{BASE}/map/1/10_30_0_0_16')
     assert page.errors == []
 
 
@@ -449,7 +448,8 @@ def test_free_block_highlight_cleared_on_rerender(open_page):
     page.hover('#insp-detail table.free tr >> nth=0')
     assert page.is_visible('#ov-free')
     page.keyboard.press('Escape')
-    assert page.is_hidden('#ov-free')
+    # The summary may put another free-block row under the pointer; only that one may be highlighted
+    assert page.is_hidden('#ov-free') or page.locator('#sum-free table.free tr:hover').count() == 1
 
 
 @pytest.mark.parametrize("path", ['/', '/map/1', '/map/None', '/map/1/10_0_0_0_8', '/map/None/172_31_0_0_16',
@@ -507,3 +507,66 @@ def test_map_hidden_until_first_layout(open_page):
     held[0].continue_()
     wait_for_map(page)
     assert page.eval_on_selector('#stage', 'e => getComputedStyle(e).visibility') == 'visible'
+
+
+def test_pin_is_kept_in_url(open_page):
+    page = open_page(f'{BASE}/map/1/10_20_48_0_20')
+    wait_for_map(page)
+    page.mouse.click(*cell_center(page, *cell_of('10.20.48.0/20', '10.20.49.7')))
+    # page.url can lag behind history.replaceState(); read the location itself
+    assert page.evaluate('location.href').endswith('/map/1/10_20_48_0_20?focus=10.20.49.7')
+    page.reload()
+    wait_for_map(page)
+    assert page.inner_text('#insp-detail .big').startswith('10.20.49.7/')
+    page.keyboard.press('Escape')
+    assert page.evaluate('location.href').endswith('/map/1/10_20_48_0_20')
+
+
+def test_arrow_keys_move_pin_and_enter_opens(open_page):
+    page = open_page(f'{BASE}/map/1/10_20_48_0_20')
+    wait_for_map(page)
+    page.mouse.click(*cell_center(page, 0, 0))
+    page.mouse.move(0, 0)
+    page.keyboard.press('ArrowRight')  # Morton order: x=1, y=0 is offset 1
+    assert page.inner_text('#insp-detail .big').startswith('10.20.48.1/')
+    page.keyboard.press('ArrowDown')  # x=1, y=1 is offset 3
+    assert page.inner_text('#insp-detail .big').startswith('10.20.48.3/')
+    page.keyboard.press('Shift+ArrowRight')  # x=17, y=1: the next /24
+    assert page.inner_text('#insp-detail .big').startswith('10.20.49.3/')
+    page.keyboard.press('ArrowLeft')
+    page.keyboard.press('ArrowLeft')
+    assert page.evaluate('location.href').endswith('?focus=10.20.48.87')  # x=15, y=1: back in 10.20.48.0/24
+    with page.expect_navigation(url=f'**{BASE}/map/1/10_20_48_0_24'):
+        page.keyboard.press('Enter')
+
+
+def test_copy_address_and_free_block(open_page):
+    page = open_page(f'{BASE}/map/1/10_20_48_0_24')
+    page.context.grant_permissions(['clipboard-read', 'clipboard-write'])
+    wait_for_map(page)
+    page.mouse.click(*cell_center(page, *cell_of('10.20.48.0/24', '10.20.48.9')))
+    page.keyboard.press('c')
+    assert page.evaluate('navigator.clipboard.readText()') == '10.20.48.9'
+    assert page.inner_text('#toast') == 'Copied 10.20.48.9'
+    first = page.inner_text('#insp-detail table.free tr >> nth=0 >> td >> nth=0')
+    page.click('#insp-detail table.free tr >> nth=0 >> button.copy')
+    assert page.evaluate('navigator.clipboard.readText()') == first
+
+
+def test_free_blocks_of_one_size(open_page, dataset):
+    page = open_page(f'{BASE}/map/1/10_20_0_0_17')
+    wait_for_map(page)
+    page.select_option('#sum-free select', '26')
+    rows = free_block_rows(page)
+    assert rows and all(r.prefixlen == 26 for r in rows)
+    assert rows == sorted(rows)
+    used = {ipaddress.ip_address(ip['address'].split('/')[0]) for ip in dataset['ip_addresses'] if ip['vrf'] == 1}
+    children = [ipaddress.ip_network(p['prefix']) for p in dataset['prefixes'] if p['vrf'] == 1
+                and ':' not in p['prefix'] and ipaddress.ip_network(p['prefix']).prefixlen > 17
+                and ipaddress.ip_network(p['prefix']).subnet_of(ipaddress.ip_network('10.20.0.0/17'))]
+    for r in rows:
+        assert not any(a in r for a in used) and not any(r.overlaps(c) for c in children), r
+    assert '× /26' in page.inner_text('#sum-free h3')
+    page.reload()
+    wait_for_map(page)
+    assert page.input_value('#sum-free select') == '26'
