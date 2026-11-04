@@ -11,6 +11,7 @@ import threading
 import time
 
 from app.cli import run_update
+from app.free_space import aligned_blocks
 from app.logging_config import recent_log_handler, setup_logging
 from app.updater_manager import UpdaterManager
 from app.utils import load_json, resolve_output_dir
@@ -596,9 +597,67 @@ def search_text(query):
     return results[:SEARCH_LIMIT], len(results) > SEARCH_LIMIT
 
 
+# "free /26", "free 26", "free /26 in 10.20.0.0/16"
+FREE_QUERY = re.compile(r'^free\s*/?\s*(\d{1,2})(?:\s+(?:in\s+)?(\d{1,3}(?:\.\d{1,3}){3}/\d{1,2}))?$',
+                        re.IGNORECASE)
+FREE_PER_VRF = 10
+
+
+def search_free(prefix_len, within=None, prefer_vrf=None):
+    """
+    First free aligned blocks of /prefix_len per VRF (at most FREE_PER_VRF each), from free_space.json; within: an
+    IPv4 network that the blocks must lie in; prefer_vrf: VRF key listed first. Returns (results, counts per VRF name), or None before the first update
+    that writes free_space.json.
+    """
+    free_space = load_output_json('free_space.json', None)
+    if free_space is None:
+        return None
+    size = 2 ** (32 - prefix_len)
+    vrf_names = {str(v['id']): v.get('name') for v in load_vrf_data()}
+    results, counts = [], {}
+    for vrf_key, top in free_space.items():
+        vrf_name = 'Global' if vrf_key == 'None' else vrf_names.get(vrf_key, vrf_key)
+        blocks, count = [], 0
+        for prefix, intervals in top:
+            network = ipaddress.ip_network(prefix)
+            if network.prefixlen > prefix_len or (within and not network.overlaps(within)):
+                continue
+            if within:
+                lo, hi = int(within.network_address), int(within.broadcast_address)
+                intervals = [[max(a, lo), min(b, hi)] for a, b in intervals if a <= hi and b >= lo]
+            found, n = aligned_blocks(intervals, prefix_len, FREE_PER_VRF - len(blocks))
+            blocks += [(prefix, b) for b in found]
+            count += n
+        if count:
+            counts[vrf_name] = count
+        for top_prefix, start in blocks:
+            block = f'{ipaddress.IPv4Address(start)}/{prefix_len}'
+            found = innermost_prefix(vrf_key, str(ipaddress.IPv4Address(start)))
+            map_vrf, network = found if found else (vrf_key, ipaddress.ip_network(top_prefix))
+            results.append({
+                'kind': 'free', 'vrf': vrf_key, 'vrf_name': vrf_name, 'prefix': block, 'size': size,
+                'in': str(network), 'top': top_prefix,
+                'url': url_for('app.serve_map', vrf=map_vrf, prefix=sanitize_name(str(network)), focus=block),
+            })
+    results.sort(key=lambda r: (r['vrf'] != prefer_vrf, (r['vrf_name'] or '').lower(),
+                                ipaddress.ip_network(r['prefix'])))
+    return results, counts
+
+
 @bp.route('/search', methods=['GET'])
 def search():
     query = request.args.get('q', '').strip()
+    free = FREE_QUERY.match(query)
+    if free and 0 <= int(free.group(1)) <= 32:
+        try:
+            within = ipaddress.ip_network(free.group(2), strict=False) if free.group(2) else None
+        except ValueError:
+            return jsonify({'error': f'Not an IPv4 prefix: {free.group(2)}'}), 400
+        found = search_free(int(free.group(1)), within, prefer_vrf=request.args.get('vrf'))
+        if found is None:
+            return jsonify({'error': 'Free space is listed after the next update.'}), 503
+        results, counts = found
+        return jsonify({'query': query, 'results': results, 'free': True, 'counts': counts})
     if SEARCH_QUERY.match(query):
         try:
             return jsonify({'query': query, 'results': search_prefixes(query)})

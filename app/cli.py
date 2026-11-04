@@ -8,6 +8,7 @@ import sys
 import time
 from dotenv import load_dotenv
 
+from app.free_space import free_intervals
 from app.logging_config import setup_logging
 from app.netbox_integration import NetboxAddressManager
 from app.plot_map import (
@@ -468,6 +469,27 @@ def process_all_prefixes(prefixes, ip_addresses, cell_size, output_dir, ip_range
     save_prefix_tree(prefixes, output_dir)
     save_search_index(ip_addresses, output_dir)
     save_summary(prefixes, prefix_tree_obj, ip_addresses, ip_counts, tenant_color_map, output_dir)
+    save_free_space(prefix_tree_obj, ip_index, ranges, output_dir)
+
+
+def save_free_space(prefix_tree_obj, ip_index, ranges, output_dir):
+    """Per VRF key: [prefix, free intervals] of each top-level IPv4 prefix, for the free-block search."""
+    result = {}
+    for vrf, trees in prefix_tree_obj.trees.items():
+        tree = trees['ipv4']
+        top = []
+        for prefix in tree:
+            if tree.parent(prefix):
+                continue
+            entry = tree[prefix]
+            global_container = vrf is None and entry.get('status') == 'container'
+            descendants = (prefix_tree_obj.get_descendants_all_vrfs(prefix) if global_container
+                           else prefix_tree_obj.get_descendants(prefix, vrf))
+            own_ranges = [r for r in ranges if global_container or r['vrf'] == vrf]
+            top.append([prefix, free_intervals(entry, descendants, ip_index.lookup(entry), own_ranges)])
+        top.sort(key=lambda item: ipaddress.ip_network(item[0]))
+        result['None' if vrf is None else str(vrf)] = top
+    write_json_atomic(os.path.join(output_dir, 'free_space.json'), result)
 
 
 def run_update(args=None, mgr=None):
