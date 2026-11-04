@@ -648,4 +648,30 @@ def test_free_space_inside_child_containers_counts_as_free(open_page):
     page = open_page(f'{BASE}/map/1/10_20_0_0_16')
     wait_for_map(page)
     assert ipaddress.ip_network('10.20.128.0/17') in free_block_rows(page)
-    assert 'assigned' in page.inner_text('#sum-usage')
+
+
+def test_pool_is_shown_in_inspector(open_page):
+    page = open_page(f'{BASE}/map/1/10_20_36_0_24')
+    wait_for_map(page)
+    page.mouse.move(*cell_center(page, *cell_of('10.20.36.0/24', '10.20.36.128')))
+    pills = page.eval_on_selector_all('#insp-detail .pill', 'els => els.map(e => e.textContent)')
+    assert 'Pool' in pills and 'Network address' not in pills
+    assert 'pool' in page.inner_text('#insp-detail ol.chain li.inner')
+
+
+@pytest.mark.parametrize('path', ['/map/1/10_20_50_0_24', '/map/1/10_20_1_0_27', '/map/1/10_20_0_0_16'])
+def test_svg_export_title_fits_the_map(open_page, path):
+    page = open_page(BASE + path)
+    wait_for_map(page)
+    widths = page.evaluate('''() => {
+        const host = document.createElement("div");
+        host.innerHTML = PrefixMapExport.build({});
+        document.body.append(host);
+        const svg = host.querySelector("svg"), w = svg.viewBox.baseVal.width;
+        const texts = [...svg.querySelectorAll("text")].slice(0, 2).map((t) => t.getComputedTextLength());
+        const map = svg.querySelector("g[transform] > rect").width.baseVal.value;
+        host.remove();
+        return { w, texts, map };
+    }''')
+    assert all(t <= widths['w'] for t in widths['texts']), widths
+    assert widths['map'] <= widths['w']

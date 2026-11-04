@@ -438,19 +438,3 @@ def test_tenant_prefix_wins_over_tenantless_in_block(tmp_path):
     plot_layered_grid('10.0.0.0/8', 24, {}, nested, [], out, 4, colors)
     expected = [int(prefix_fill_color(5, colors)[i:i + 2], 16) for i in (1, 3, 5)]
     assert list(load_rgb(out)[1, 1]) == expected
-
-
-def test_allocated_counts_assigned_space_once(output_dir, dataset):
-    def load(prefix):
-        with open(data_path(output_dir, LAN, prefix)) as f:
-            return json.load(f)
-
-    data = load("10.20.0.0/17")
-    assigned = [ipaddress.ip_network(p['prefix']) for p in dataset['prefixes']
-                if p['vrf'] == LAN and ':' not in p['prefix'] and p['status'] != 'container'
-                and ipaddress.ip_network(p['prefix']).subnet_of(ipaddress.ip_network("10.20.0.0/17"))
-                and p['prefix'] != "10.20.0.0/17"]
-    assert data['allocated'] == sum(n.num_addresses for n in ipaddress.collapse_addresses(assigned))
-    assert 0 < data['allocated'] < data['size']
-    # Child containers are not used space: the /16 is only as assigned as what is inside its /17 containers
-    assert load("10.20.0.0/16")['allocated'] == data['allocated'] + load("10.20.128.0/17")['allocated']

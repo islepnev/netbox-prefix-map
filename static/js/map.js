@@ -442,13 +442,14 @@
 
     function chainSection(chainNodes) {
         const chain = [
-            ...cfg.parents.map((p) => ({ prefix: p.prefix, id: p.id, vrf: cfg.vrfKey, desc: p.description, tenant: p.tenant })),
-            { prefix: cfg.prefix, id: cfg.prefixId, vrf: cfg.vrfKey, desc: cfg.details.description, tenant: cfg.details.tenant_id, here: true },
-            ...chainNodes.map((n) => ({ prefix: n.p.prefix, id: n.p.id, vrf: n.p.vrf ?? data.vrf, desc: n.p.description, tenant: n.p.tenant })),
+            ...cfg.parents.map((p) => ({ prefix: p.prefix, id: p.id, vrf: cfg.vrfKey, desc: p.description, tenant: p.tenant, pool: p.is_pool })),
+            { prefix: cfg.prefix, id: cfg.prefixId, vrf: cfg.vrfKey, desc: cfg.details.description, tenant: cfg.details.tenant_id, here: true,
+                pool: data.is_pool ?? cfg.details.is_pool },
+            ...chainNodes.map((n) => ({ prefix: n.p.prefix, id: n.p.id, vrf: n.p.vrf ?? data.vrf, desc: n.p.description, tenant: n.p.tenant, pool: n.p.is_pool })),
         ];
         const innerPrefix = chain.at(-1).prefix;
         return sec("Prefix chain", `${chain.length} levels`, el("ol", { class: "chain" }, chain.map((c) => {
-            const desc = [c.desc, tenantName(c.tenant)].filter(Boolean).join(" · ");
+            const desc = [c.pool ? "pool" : null, c.desc, tenantName(c.tenant)].filter(Boolean).join(" · ");
             return el("li", { class: [c.here ? "here" : "", c.prefix === innerPrefix ? "inner" : ""].join(" ").trim() || null },
                 el("span", { class: "p", text: c.prefix }),
                 el("span", { class: "l" },
@@ -511,6 +512,7 @@
         const edge = ip ? null : edgeKind(a);
         const chainNodes = containing(a);
         const inner = chainNodes.at(-1);
+        const pool = (inner ? inner.p.is_pool : data.is_pool ?? cfg.details.is_pool) ? (inner ? inner.p.prefix : cfg.prefix) : null;
         const mask = ip ? ip.address.split("/")[1] : inner ? inner.len : net.len;
         const action = openAction(a);
         const out = [];
@@ -520,6 +522,7 @@
                 ip ? el("span", { class: "pill" }, el("span", { class: "sw", style: swatchStyle(ipColor(ip)) }), statusLabel(ip.status) || "IP")
                     : edge ? el("span", { class: "pill", text: `${capital(edge)} address` })
                         : el("span", { class: "pill free", text: "Free" }),
+                pool ? el("span", { class: "pill", text: "Pool", title: `${pool} is a pool: all its addresses are usable, network and broadcast included` }) : null,
                 el("span", { class: "mono", text: `offset ${fmt(a - net.start)}` })),
             action ? el("div", { class: "hint", text: `Double-click to ${action.label}` }) : null));
         if (ip) {
@@ -557,10 +560,7 @@
             el("div", { class: "stats" },
                 el("div", { class: "stat" }, el("b", { text: used === null ? "—" : fmt(used) }),
                     el("span", { text: used === null ? "IPs" : `IPs · ${pct(used, total)}` })),
-                el("div", { class: "stat" }, el("b", { text: fmt((data.child_prefixes || []).length) }),
-                    el("span", { text: typeof data.allocated === "number" && data.child_prefixes?.length
-                        ? `child prefixes · ${pct(data.allocated, total)} assigned` : "child prefixes",
-                        title: typeof data.allocated === "number" ? `${fmt(data.allocated)} of ${fmt(total)} addresses in prefixes that are not containers` : null })),
+                el("div", { class: "stat" }, el("b", { text: fmt((data.child_prefixes || []).length) }), el("span", { text: "child prefixes" })),
                 el("div", { class: "stat" }, el("b", { text: fmt(total) }), el("span", { text: "addresses" }))));
         if (hasIps || countsKnown) $("sum-free").replaceChildren(freeSection(net, cfg.prefix));
         const big = document.querySelector("#insp-summary .big");

@@ -26,9 +26,9 @@ with sync_playwright() as p:
     for name, path in [("level-8", "/map/1/10_0_0_0_8"), ("level-16", "/map/1/10_20_0_0_16"), ("level-24", "/map/1/10_20_50_0_24")]:
         pg.goto(B + path); pg.wait_for_function("document.body.dataset.ready")
         svg = pg.evaluate("PrefixMapExport.build({mono: false})")
-        q = ctx.new_page(); q.set_viewport_size({"width": 380, "height": 520})
+        q = b.new_page(viewport={"width": 380, "height": 520}, device_scale_factor=2)
         q.set_content(f"<html><body style='margin:0;background:#fff'><div style='width:380px'>{svg.replace('<svg ', '<svg style=\"width:380px;height:auto;display:block\" ', 1)}</div></body></html>")
-        h = q.evaluate("document.querySelector('svg').getBoundingClientRect().height")
-        q.screenshot(path=f"docs/img/{name}.png", clip={"x": 0, "y": 0, "width": 380, "height": h})
+        # The element screenshot covers the whole drawing, also when it is taller than the viewport
+        q.locator("svg").screenshot(path=f"docs/img/{name}.png")
         q.close()
     b.close()
