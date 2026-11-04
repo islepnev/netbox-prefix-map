@@ -13,6 +13,7 @@ The maps are drawn from [NetBox](https://github.com/netbox-community/netbox) pre
 - **Find space.** Pick a size such as /26 to list the first free blocks of that size, then copy one with a click. Type `free /26` in the search box to find free blocks in all VRFs at once. Search by address, prefix, DNS name or description across all VRFs. Click a tenant in the legend to outline its prefixes and list them with usage.
 - **Share and print.** The URL keeps the pinned address. Print gives a vector map with title and legend, in colour or black and white with hatched tenants, and "Download SVG" saves the same drawing.
 - **Work from the keyboard.** Arrow keys move the pin, Enter opens the child prefix or the IP in NetBox, `c` copies, `/` searches, `+` `-` `0` zoom. The wheel and pinch zoom about the pointer and dragging moves the map, as in a map app.
+- **English or Russian.** The interface follows the browser language; EN and RU in the top bar switch it, and the choice is kept in a cookie. `?lang=ru` on any page link opens it in Russian. Print and SVG export follow the page language.
 
 ## How to read the map
 
@@ -133,7 +134,7 @@ All paths are relative to `BASE_PATH`.
 | `/` | VRF list with prefix and address counts |
 | `/map/<vrf>` | Top-level prefixes of a VRF with usage |
 | `/map/<vrf>/<prefix>` | Map page; `<vrf>` is the VRF id or `None` for Global, `<prefix>` uses `_` for `.` and `/` |
-| `/search?q=<query>` | Maps showing an IPv4 address or prefix, or matching a name or description, across VRFs; `free /26` lists free blocks (JSON) |
+| `/search?q=<query>` | Maps showing an IPv4 address or prefix, or matching a name or description, across VRFs; `free /26` lists free blocks (JSON). Errors carry `error` in the page language and `error_code` |
 | `/webhook` | NetBox webhook receiver |
 | `/healthz` | Liveness and data age (JSON); used by the container healthcheck |
 | `/metrics` | Prometheus metrics |
@@ -156,6 +157,8 @@ make lint    # flake8, also run in CI
 ```
 
 Tests run offline against a synthetic dataset (`tests/synthetic_data.py`). Design notes: [docs/design.md](docs/design.md).
+
+UI text lives in `app/locales/<lang>.json`, shared by templates and scripts, and in `templates/_help_<lang>.html` for the help page. To add a language, copy `en.json` and `_help_en.html`, translate them and add the code to `LANGUAGES` in `app/i18n.py`. The tests check that every language has the same keys, placeholders, plural forms and help structure as English, and that Russian pages show no English.
 
 ## Contributing
 
