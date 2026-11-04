@@ -264,24 +264,35 @@
     const cellBounds = (a) => { const [x, y] = cellOf(a); return [x, y, x, y]; };
 
     // ---------- state ----------
-    let k = 1, fitMode = true, dpr = window.devicePixelRatio || 1;
+    // Zoom: device pixels per cell. The PNG has cs pixels per cell; scaled so that a cell takes a whole number of device
+    // pixels, nearest-neighbour scaling repeats the same pixel pattern in every cell, so cells stay identical.
+    let c = 0, fitMode = true, dpr = window.devicePixelRatio || 1;
     let hover = null, pinned = null, selected = null, freeHi = null;
     const viewport = $("viewport"), stage = $("stage"), wrap = $("stage-wrap");
     const ov = img && { hover: $("ov-hover"), pin: $("ov-pin"), prefix: $("ov-prefix"), select: $("ov-select"), free: $("ov-free") };
 
-    // ---------- zoom: whole device pixels per image pixel, so the PNG is never resampled ----------
-    const PAD = 16, MAX_K = 16;
-    function fitK() {
+    // ---------- zoom ----------
+    const PAD = 16, MAX_SCALE = 16;
+    const maxC = () => cs * MAX_SCALE;
+    function fitC() {
         const w = (viewport.clientWidth - 2 * PAD) * dpr, h = (viewport.clientHeight - 2 * PAD) * dpr;
-        return Math.max(1, Math.min(MAX_K, Math.floor(w / img.naturalWidth), Math.floor(h / img.naturalHeight)));
+        return Math.max(cs, Math.min(maxC(), Math.floor(w / GW), Math.floor(h / GH)));
     }
+    // Zoom steps grow by about a quarter: 4, 5, 6, 7, 8, 10, 12, 14, 16, 20, ...
+    const stepOf = (v) => Math.max(1, 2 ** (Math.floor(Math.log2(v)) - 2));
+    function zoomStep(v, dir) {
+        if (dir > 0) return Math.min(maxC(), Math.floor(v / stepOf(v)) * stepOf(v) + stepOf(v));
+        const down = v - stepOf(v - 1);
+        return Math.max(cs, Math.ceil(down / stepOf(down)) * stepOf(down));
+    }
+    const scaleText = (v) => `${Number((v / cs).toFixed(2))}×`;
     function layout(keepCenter) {
         if (!img || !img.naturalWidth) return;
         const vw = viewport.clientWidth, vh = viewport.clientHeight;
         const oldW = stage.offsetWidth || 1, oldH = stage.offsetHeight || 1;
         const cx = (viewport.scrollLeft + vw / 2 - stage.offsetLeft) / oldW;
         const cy = (viewport.scrollTop + vh / 2 - stage.offsetTop) / oldH;
-        const w = (img.naturalWidth * k) / dpr, h = (img.naturalHeight * k) / dpr;
+        const w = (GW * c) / dpr, h = (GH * c) / dpr;
         img.style.width = `${w}px`;
         img.style.height = `${h}px`;
         const snap = (v) => Math.floor(v * dpr) / dpr;
@@ -296,15 +307,15 @@
         }
         document.documentElement.style.setProperty("--hair", `${1 / dpr}px`);
         stage.classList.add("laid-out");
-        $("zoom-level").textContent = `${k}×`;
-        $("zoom-level").title = `${k} device px per image px · 1 address = ${cs * k} device px`;
-        $("zoom-out").disabled = k <= 1;
-        $("zoom-in").disabled = k >= MAX_K;
+        $("zoom-level").textContent = scaleText(c);
+        $("zoom-level").title = `1 ${layer ? "cell" : "address"} = ${c} device px`;
+        $("zoom-out").disabled = c <= cs;
+        $("zoom-in").disabled = c >= maxC();
         $("zoom-fit").classList.toggle("active", fitMode);
         drawOverlays();
     }
-    function setK(v, byUser) {
-        k = Math.max(1, Math.min(MAX_K, v));
+    function setC(v, byUser) {
+        c = Math.max(cs, Math.min(maxC(), v));
         fitMode = !byUser;
         layout(true);
     }
@@ -312,7 +323,7 @@
     // ---------- overlays, aligned to cell edges ----------
     function place(box, b) {
         if (!b) { box.hidden = true; return; }
-        const u = (cs * k) / dpr;
+        const u = c / dpr;
         const [x1, y1, x2, y2] = b;
         box.style.left = `${x1 * u}px`;
         box.style.top = `${y1 * u}px`;
@@ -330,9 +341,72 @@
         place(ov.select, selected && !(inner && inner.start === selected.start && inner.len === selected.len)
             ? rangeBounds(selected.start, selected.end) : null);
         place(ov.free, freeHi ? rangeBounds(freeHi.start, freeHi.start + freeHi.size - 1) : null);
+        drawChanges();
+    }
+
+    // ---------- changes of the last update that changed this prefix ----------
+    const CHANGE_KINDS = [["added", "added"], ["removed", "removed"], ["changed", "changed"]];
+    let showChanges = store.get("prefix-map.show-changes") === "1";
+    function drawChanges() {
+        const box = $("ov-changes");
+        const ch = data && data.changes;
+        if (!box || !ch || !showChanges || !img) { if (box) box.hidden = true; return; }
+        const u = c / dpr;
+        const cells = [];
+        const add = (b, cls) => {
+            const [x1, y1, x2, y2] = b;
+            cells.push(el("div", { class: `ov-change ${cls}`,
+                style: `left:${x1 * u}px;top:${y1 * u}px;width:${(x2 - x1 + 1) * u}px;height:${(y2 - y1 + 1) * u}px` }));
+        };
+        for (const [key, cls] of CHANGE_KINDS) {
+            for (const a of ch[key] || []) {
+                const n = ipToInt(a);
+                if (n >= net.start && n <= net.end) add(cellBounds(blockStart(n)), cls);
+            }
+        }
+        for (const [key, cls] of [["prefixes_added", "added prefix"], ["prefixes_removed", "removed prefix"]]) {
+            for (const p of ch[key] || []) {
+                const r = parsePrefix(p);
+                if (r.start >= net.start && r.end <= net.end) add(rangeBounds(r.start, r.end), cls);
+            }
+        }
+        box.replaceChildren(...cells);
+        box.hidden = false;
+    }
+    function changesSection() {
+        const ch = data.changes;
+        if (!ch) return null;
+        const n = (key) => ch[`${key}_count`] ?? (ch[key] || []).length;
+        const parts = [
+            n("added") ? `${fmt(n("added"))} IP added` : null,
+            n("removed") ? `${fmt(n("removed"))} removed` : null,
+            n("changed") ? `${fmt(n("changed"))} changed` : null,
+            n("prefixes_added") ? `${fmt(n("prefixes_added"))} prefix${n("prefixes_added") > 1 ? "es" : ""} added` : null,
+            n("prefixes_removed") ? `${fmt(n("prefixes_removed"))} prefix${n("prefixes_removed") > 1 ? "es" : ""} removed` : null,
+        ].filter(Boolean);
+        const rows = [];
+        for (const [key, cls] of CHANGE_KINDS) for (const a of ch[key] || []) rows.push([a, cls]);
+        for (const p of ch.prefixes_added || []) rows.push([p, "added"]);
+        for (const p of ch.prefixes_removed || []) rows.push([p, "removed"]);
+        const toggle = el("input", { type: "checkbox", id: "show-changes" });
+        toggle.checked = showChanges;
+        toggle.addEventListener("change", () => {
+            showChanges = toggle.checked;
+            store.set("prefix-map.show-changes", showChanges ? "1" : "0");
+            drawChanges();
+        });
+        return sec("Last change", new Date(ch.at * 1000).toLocaleString(),
+            el("div", { class: "sub" }, parts.join(" · ")),
+            el("table", { class: "free changes" }, el("tbody", null, rows.slice(0, 8).map(([text, cls]) => {
+                const isPrefix = text.includes("/");
+                return el("tr", { onclick: img ? () => (isPrefix ? outline(parsePrefix(text)) : pin(blockStart(ipToInt(text)), true)) : null },
+                    el("td", { text }), el("td", { class: `n ${cls}`, text: cls }));
+            }))),
+            rows.length > 8 ? el("div", { class: "hint", text: `${fmt(rows.length - 8)} more` }) : null,
+            img ? el("label", { class: "check" }, toggle, " Show on the map") : null);
     }
     function scrollToBounds([x1, y1, x2, y2]) {
-        const u = (cs * k) / dpr;
+        const u = c / dpr;
         const cx = stage.offsetLeft + ((x1 + x2 + 1) / 2) * u, cy = stage.offsetTop + ((y1 + y2 + 1) / 2) * u;
         viewport.scrollTo({ left: cx - viewport.clientWidth / 2, top: cy - viewport.clientHeight / 2 });
     }
@@ -609,15 +683,18 @@
                     el("span", { text: used === null ? "IPs" : `IPs · ${pct(used, total)}` })),
                 el("div", { class: "stat" }, el("b", { text: fmt((data.child_prefixes || []).length) }), el("span", { text: "child prefixes" })),
                 el("div", { class: "stat" }, el("b", { text: fmt(total) }), el("span", { text: "addresses" }))));
-        if (hasIps || countsKnown) $("sum-free").replaceChildren(freeSection(net, cfg.prefix));
+        const sections = [];
+        if (hasIps || countsKnown) sections.push(freeSection(net, cfg.prefix));
+        sections.push(changesSection());
         if (dupes.size) {
             const shown = [...dupes.keys()].sort((x, y) => x - y).slice(0, 8);
-            $("sum-free").append(sec("Addresses with several records", `${fmt(dupes.size)}`, el("table", { class: "free" }, el("tbody", null,
+            sections.push(sec("Addresses with several records", `${fmt(dupes.size)}`, el("table", { class: "free" }, el("tbody", null,
                 shown.map((a) => el("tr", { onclick: () => pin(a, true) },
                     el("td", { text: intToIp(a) }),
                     el("td", { class: "n", text: dupes.get(a).map((ip) => vrfLabel(ip.vrf)).join(", ") }))))),
                 dupes.size > shown.length ? el("div", { class: "hint", text: `${fmt(dupes.size - shown.length)} more` }) : null));
         }
+        $("sum-free").replaceChildren(...sections.filter(Boolean));
         const big = document.querySelector("#insp-summary .big");
         if (big && !big.querySelector(".copy")) big.append(copyBtn(cfg.prefix));
     }
@@ -725,14 +802,14 @@
         } else if (ev.key === "[") setPanel("tree", !panelOpen("tree"));
         else if (ev.key === "]") setPanel("insp", !panelOpen("insp"));
         else if (!img || !img.naturalWidth) return;
-        else if (ev.key === "+" || ev.key === "=") setK(k + 1, true);
-        else if (ev.key === "-") setK(k - 1, true);
-        else if (ev.key === "0") setK(fitK(), false);
+        else if (ev.key === "+" || ev.key === "=") setC(zoomStep(c, 1), true);
+        else if (ev.key === "-") setC(zoomStep(c, -1), true);
+        else if (ev.key === "0") setC(fitC(), false);
     });
     // Arrows move the pinned cell (Shift: 16 cells), Enter opens it, c copies it
     const ARROWS = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
     function ensureVisible([x1, y1, x2, y2]) {
-        const u = (cs * k) / dpr, m = 24;
+        const u = c / dpr, m = 24;
         const l = stage.offsetLeft + x1 * u, t = stage.offsetTop + y1 * u, r = stage.offsetLeft + (x2 + 1) * u, b = stage.offsetTop + (y2 + 1) * u;
         if (l < viewport.scrollLeft + m) viewport.scrollLeft = l - m;
         else if (r > viewport.scrollLeft + viewport.clientWidth - m) viewport.scrollLeft = r - viewport.clientWidth + m;
@@ -773,15 +850,15 @@
     });
 
     function startMap() {
-        k = fitK();
+        c = fitC();
         layout(false);
-        $("zoom-in").addEventListener("click", () => setK(k + 1, true));
-        $("zoom-out").addEventListener("click", () => setK(k - 1, true));
-        $("zoom-fit").addEventListener("click", () => setK(fitK(), false));
-        new ResizeObserver(() => { if (fitMode) k = fitK(); layout(!fitMode); }).observe(viewport);
+        $("zoom-in").addEventListener("click", () => setC(zoomStep(c, 1), true));
+        $("zoom-out").addEventListener("click", () => setC(zoomStep(c, -1), true));
+        $("zoom-fit").addEventListener("click", () => setC(fitC(), false));
+        new ResizeObserver(() => { if (fitMode) c = fitC(); layout(!fitMode); }).observe(viewport);
         const watchDpr = () => matchMedia(`(resolution: ${dpr}dppx)`).addEventListener("change", () => {
             dpr = window.devicePixelRatio || 1;
-            if (fitMode) k = fitK();
+            if (fitMode) c = fitC();
             layout(false);
             watchDpr();
         }, { once: true });
@@ -850,5 +927,5 @@
             document.body.dataset.ready = "error";
         });
 
-    window.__prefixMap = { get k() { return k; }, get dpr() { return dpr; }, cellToOffset, offsetToCell, freeBlocks: (p) => freeBlocks(parsePrefix(p)), cellOf };
+    window.__prefixMap = { get k() { return c / cs; }, get c() { return c; }, get dpr() { return dpr; }, cellToOffset, offsetToCell, freeBlocks: (p) => freeBlocks(parsePrefix(p)), cellOf };
 })();

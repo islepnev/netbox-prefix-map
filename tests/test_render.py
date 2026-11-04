@@ -456,3 +456,37 @@ def test_ip_ranges_in_data_file_and_image(output_dir, dataset):
     # Containers carry the ranges inside them too
     with open(data_path(output_dir, LAN, "10.20.0.0/17")) as f:
         assert len(json.load(f)['ip_ranges']) == 3
+
+
+def test_prefix_changes():
+    from app.cli import prefix_changes
+    ip = lambda a, status='active', dns='': {'address': f'{a}/24', 'vrf': 1, 'status': status, 'role': None,  # noqa: E731
+                                            'dns_name': dns}
+    previous = {'generated_at': 100.0, 'nested_prefixes': [{'prefix': '10.0.0.0/26'}],
+                'ip_addresses': [ip('10.0.0.1'), ip('10.0.0.2'), ip('10.0.0.3', dns='a')]}
+    now = [ip('10.0.0.1'), ip('10.0.0.3', dns='b'), ip('10.0.0.10'), ip('10.0.0.9')]
+    changes = prefix_changes(previous, now, [{'prefix': '10.0.0.0/26'}, {'prefix': '10.0.0.64/26'}], 200.0)
+    assert changes['added'] == ['10.0.0.9', '10.0.0.10'] and changes['removed'] == ['10.0.0.2']
+    assert changes['changed'] == ['10.0.0.3'] and changes['prefixes_added'] == ['10.0.0.64/26']
+    assert (changes['at'], changes['since'], changes['added_count']) == (200.0, 100.0, 2)
+    assert prefix_changes(previous, previous['ip_addresses'], previous['nested_prefixes'], 200.0) is None
+    assert prefix_changes({}, now, [], 200.0) is None  # first run: nothing to compare with
+
+
+def test_changes_survive_an_update_without_changes(tmp_path, monkeypatch):
+    from app.cli import run_update
+    from tests.synthetic_data import FakeNetboxManager, build_dataset
+    monkeypatch.setenv('OUTPUT_DIR', str(tmp_path))
+    dataset = build_dataset()
+    run_update(mgr=FakeNetboxManager(dataset))
+    path = data_path(str(tmp_path), LAN, "10.20.48.0/24")
+    with open(path) as f:
+        assert json.load(f)['changes'] is None
+    dataset['ip_addresses'] = [ip for ip in dataset['ip_addresses'] if ip['address'] != '10.20.48.1/24']
+    run_update(mgr=FakeNetboxManager(dataset))
+    with open(path) as f:
+        first = json.load(f)['changes']
+    assert first['removed'] == ['10.20.48.1']
+    run_update(mgr=FakeNetboxManager(dataset))
+    with open(path) as f:
+        assert json.load(f)['changes'] == first
