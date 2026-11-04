@@ -67,15 +67,14 @@ def wait_for_map(page):
 
 
 def cell_center(page, x, y):
-    """Viewport coordinates of a cell center, scrolling the map so that the cell is visible."""
+    """Viewport coordinates of a cell center, moving the map so that the cell is visible."""
     box = page.evaluate('''([x, y, cs]) => {
         const img = document.getElementById("map-img"), vp = document.getElementById("viewport");
         let r = img.getBoundingClientRect();
         const k = r.width / img.naturalWidth, v = vp.getBoundingClientRect();
         const cx = r.left + (x * cs + cs / 2) * k, cy = r.top + (y * cs + cs / 2) * k;
         if (cx < v.left + 8 || cx > v.right - 60 || cy < v.top + 8 || cy > v.bottom - 60) {
-            vp.scrollLeft += cx - (v.left + v.width / 2);
-            vp.scrollTop += cy - (v.top + v.height / 2);
+            window.__prefixMap.centreCell(x, y);
             r = img.getBoundingClientRect();
         }
         return {left: r.left, top: r.top, k};
@@ -98,70 +97,98 @@ def free_address(dataset, prefix):
 
 
 @pytest.mark.parametrize("dpr", [1, 2])
-def test_zoom_is_whole_device_pixels_per_cell(open_page, dpr):
-    page = open_page(f'{BASE}/map/1/10_20_48_0_20', device_scale_factor=dpr)
+def test_fit_fills_the_view_and_steps_are_crisp(open_page, dpr):
+    """Fit is fractional: the map fills the view along one axis. + and - go to whole device pixels per cell."""
+    page = open_page(f'{BASE}/map/1/10_20_0_0_17', device_scale_factor=dpr, viewport=(1300, 860))
     wait_for_map(page)
-    natural, css_width = page.eval_on_selector(
-        '#map-img', 'img => [img.naturalWidth, img.getBoundingClientRect().width]')
-    cells = natural / CELL_SIZE
-    c = css_width * dpr / cells  # device pixels per cell
-    assert c == int(c) >= CELL_SIZE
+    img, vp = page.evaluate("""() => ["map-img", "viewport"].map(id => {
+        const r = document.getElementById(id).getBoundingClientRect(); return [r.width, r.height]; })""")
+    pad = 2 * 16
+    assert abs(img[0] - (vp[0] - pad)) < 1 or abs(img[1] - (vp[1] - pad)) < 1, (img, vp)
+    assert img[0] <= vp[0] - pad + 1 and img[1] <= vp[1] - pad + 1
     page.click('#zoom-in')
-    c2 = page.eval_on_selector('#map-img', 'img => img.getBoundingClientRect().width') * dpr / cells
-    assert c2 == int(c2) > c
-    assert page.inner_text('#zoom-level') == f'{float(f"{c2 / CELL_SIZE:.2f}"):g}×'
+    c = page.evaluate('window.__prefixMap.c')
+    assert c == int(c), "a crisp level"
+    assert page.inner_text('#zoom-level') == f'{float(f"{c / CELL_SIZE:.2f}"):g}×'
     assert page.errors == []
 
 
 def test_zoom_steps(open_page):
-    """Zoom out to 0.25 x, then in: 1, 2, 4, 5, 6, 7, 8, 10, 12 device pixels per cell, and back down the same way."""
+    """+ and - step through crisp levels: 1, 2, 4, 5, 6, 7, 8, 10, 12 device pixels per cell, and back down."""
     page = open_page(f'{BASE}/map/1/10_20_48_0_20', viewport=(1400, 900))
     wait_for_map(page)
     for _ in range(30):
         page.keyboard.press('-')
     assert page.is_disabled('#zoom-out')
-    seen = [page.evaluate('window.__prefixMap.c')]
-    for _ in range(8):
+    low = page.evaluate('window.__prefixMap.c')
+    assert low <= 1
+    seen = []
+    for _ in range(9):
         page.keyboard.press('+')
         seen.append(page.evaluate('window.__prefixMap.c'))
     assert seen == [1, 2, 4, 5, 6, 7, 8, 10, 12] if CELL_SIZE == 4 else seen == sorted(set(seen))
-    assert seen[0] == 1
-    for _ in range(8):
+    assert all(v == int(v) for v in seen)
+    for _ in range(9):
         page.keyboard.press('-')
-    assert page.evaluate('window.__prefixMap.c') == seen[0]
+    assert page.evaluate('window.__prefixMap.c') == low
 
 
 @pytest.mark.parametrize("dpr", [1, 2])
-def test_ctrl_wheel_zooms_about_the_pointer(open_page, dpr):
-    """Once the map overflows the view, the cell under the pointer stays under it (a centred map stays centred)."""
+def test_wheel_and_pinch_zoom_about_the_pointer(open_page, dpr):
+    """The wheel zooms continuously; ctrl + wheel (a touchpad pinch) too. The cell under the pointer stays under it,
+    also while the whole map is in view."""
     page = open_page(f'{BASE}/map/1/10_20_48_0_20', device_scale_factor=dpr, viewport=(1200, 800))
     wait_for_map(page)
-    for _ in range(4):
-        page.keyboard.press('+')
-    addr = '10.20.60.0'  # the middle cell of the /20
+    addr = '10.20.53.77'
     x, y = cell_center(page, *cell_of('10.20.48.0/20', addr))
-    page.mouse.move(x, y)
-    assert page.inner_text('#insp-detail .big').startswith(addr + '/')
+
+    def under_pointer():
+        page.mouse.move(x + 1, y)
+        page.mouse.move(x, y)
+        return page.inner_text('#insp-detail .big')
+
+    assert under_pointer().startswith(addr + '/')
     c0 = page.evaluate('window.__prefixMap.c')
-    page.keyboard.down('Control')
-    for _ in range(3):
-        page.mouse.wheel(0, -100)
-    page.keyboard.up('Control')
+    page.mouse.wheel(0, -100)
     c1 = page.evaluate('window.__prefixMap.c')
-    assert c1 > c0
-    page.mouse.move(x + 1, y)
-    page.mouse.move(x, y)
-    assert page.inner_text('#insp-detail .big').startswith(addr + '/'), "the cell under the pointer stays"
+    assert c1 > c0 and c1 != int(c1), "continuous, not a step"
+    assert under_pointer().startswith(addr + '/')
     page.keyboard.down('Control')
-    page.mouse.wheel(0, 100)
+    for _ in range(5):
+        page.mouse.wheel(0, -10)
     page.keyboard.up('Control')
-    c2 = page.evaluate('window.__prefixMap.c')
-    assert c2 < c1
-    page.mouse.move(x + 1, y)
-    page.mouse.move(x, y)
-    assert page.inner_text('#insp-detail .big').startswith(addr + '/')
-    page.mouse.wheel(0, 100)
-    assert page.evaluate('window.__prefixMap.c') == c2, "the plain wheel scrolls, it does not zoom"
+    assert page.evaluate('window.__prefixMap.c') > c1
+    assert under_pointer().startswith(addr + '/')
+    page.mouse.wheel(0, 300)
+    assert page.evaluate('window.__prefixMap.c') < c1
+    assert under_pointer().startswith(addr + '/')
+    assert 'active' not in page.get_attribute('#zoom-fit', 'class')
+    assert page.errors == []
+
+
+def test_touch_pinch_and_safari_gesture_zoom(open_page):
+    page = open_page(f'{BASE}/map/1/10_20_48_0_20', viewport=(1200, 800))
+    wait_for_map(page)
+    c0 = page.evaluate('window.__prefixMap.c')
+    page.evaluate("""() => {
+        const vp = document.getElementById("viewport"), r = vp.getBoundingClientRect();
+        const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+        const send = (type, id, x) => vp.dispatchEvent(new PointerEvent(type, {pointerId: id, pointerType: "touch",
+            isPrimary: id === 1, clientX: x, clientY: cy, bubbles: true}));
+        send("pointerdown", 1, cx - 50); send("pointerdown", 2, cx + 50);
+        send("pointermove", 1, cx - 100); send("pointermove", 2, cx + 100);
+        send("pointerup", 1, cx - 100); send("pointerup", 2, cx + 100);
+    }""")
+    c1 = page.evaluate('window.__prefixMap.c')
+    assert abs(c1 / c0 - 2) < 0.01, "fingers twice as far apart: twice the zoom"
+    page.evaluate("""() => {
+        const vp = document.getElementById("viewport");
+        const fire = (type, scale) => { const e = new Event(type, {bubbles: true, cancelable: true});
+            Object.assign(e, {scale, clientX: 600, clientY: 400}); vp.dispatchEvent(e); };
+        fire("gesturestart", 1); fire("gesturechange", 0.5); fire("gestureend", 0.5);
+    }""")
+    assert abs(page.evaluate('window.__prefixMap.c') / c1 - 0.5) < 0.01
+    assert 'focus=' not in page.url, "a pinch does not pin"
     assert page.errors == []
 
 
@@ -170,7 +197,7 @@ def test_drag_pans_and_does_not_pin(open_page):
     wait_for_map(page)
     for _ in range(6):
         page.keyboard.press('+')
-    before = page.eval_on_selector('#viewport', 'v => [v.scrollLeft, v.scrollTop]')
+    before = page.evaluate('window.__prefixMap.camera')
     vp = page.locator('#viewport').bounding_box()
     x, y = vp['x'] + vp['width'] / 2, vp['y'] + vp['height'] / 2
     page.mouse.move(x, y)
@@ -178,8 +205,8 @@ def test_drag_pans_and_does_not_pin(open_page):
     page.mouse.move(x - 60, y - 40, steps=5)
     assert 'dragging' in page.get_attribute('#viewport', 'class')
     page.mouse.up()
-    after = page.eval_on_selector('#viewport', 'v => [v.scrollLeft, v.scrollTop]')
-    assert [round(a - b) for a, b in zip(after, before)] == [60, 40]
+    after = page.evaluate('window.__prefixMap.camera')
+    assert [round(a - b) for a, b in zip(after, before)] == [-60, -40], "the map follows the pointer"
     assert 'focus=' not in page.url and 'dragging' not in (page.get_attribute('#viewport', 'class') or '')
     page.mouse.click(x, y)
     assert 'focus=' in page.evaluate('location.href'), "a click still pins"
@@ -419,7 +446,7 @@ def test_search_pins_address_in_map(open_page):
     page.keyboard.press('/')
     page.keyboard.type('10.20.48.1')
     assert page.is_visible('#ov-pin')
-    assert 'pinned' in page.inner_text('#search-msg')
+    assert 'pinned' not in page.inner_text('#search-msg')
     page.fill('#search', '10.20.49.0/24')
     assert page.is_visible('#ov-select')
     with page.expect_navigation():
@@ -745,19 +772,19 @@ def retenant(mapping):
     return handle
 
 
-def test_legend_marks_tenants_sharing_a_colour(open_page):
-    """Colours repeat every 16 tenant ids; the legend names tenants that look the same on this map."""
+def test_legend_does_not_describe_shared_colours(open_page):
+    """Tenants 16 ids apart share a colour; the legend lists both by name and adds nothing about it."""
     route = retenant({'10.20.0.64/26': (17, '#8fbbd9')})  # colour of tenant 1, Core
     page = open_page(f'{BASE}/map/1/10_20_0_0_17', route=(f'**{BASE}/data/1/10_20_0_0_17', route))
     wait_for_map(page)
-    marked = page.eval_on_selector_all('#legend .lg.same-color', 'els => els.map(e => [e.textContent, e.title])')
-    assert [m[0] for m in marked] == ['Core=', 'Tenant 17=']
-    assert marked[0][1].startswith('Same colour as Tenant 17.') and marked[1][1].startswith('Same colour as Core.')
-    assert page.locator('#legend .lg:not(.same-color):has-text("Office")').count() == 1
-    svg, _ = export_svg(page)
-    assert 'Core (same colour as Tenant 17)' in svg
-    _, root = export_svg(page, mono=True)
-    assert not any('same pattern' in (t.text or '') for t in root.iter(SVG_NS + 'text'))
+    names = page.eval_on_selector_all('#legend .tenant-toggle', 'els => els.map(e => e.textContent)')
+    assert 'Core' in names and 'Tenant 17' in names
+    assert 'same' not in page.inner_text('#legend').lower()
+    titles = page.eval_on_selector_all('#legend [title]', 'els => els.map(e => e.title)')
+    assert all('same' not in t.lower() for t in titles)
+    for mono in (False, True):
+        _, root = export_svg(page, mono=mono)
+        assert not any('same' in (t.text or '').lower() for t in root.iter(SVG_NS + 'text'))
     assert page.errors == []
 
 
@@ -770,8 +797,6 @@ def test_svg_export_black_and_white_has_16_distinct_hatches(open_page, output_di
     _, root = export_svg(page, mono=True)
     hatches = hatches_of(root)
     assert set(hatches.values()) == set(range(16)), "17 tenants use all 16 hatches"
-    same = [t.text for t in root.iter(SVG_NS + 'text') if 'same pattern' in (t.text or '')]
-    assert len(same) == 2, same
 
 
 def test_reserved_prefix_in_legend_chain_and_svg(open_page):
@@ -801,7 +826,7 @@ def test_legend_tenant_outlines_its_prefixes(open_page, output_dir):
     assert office.get_attribute('aria-pressed') == 'true'
     titles = page.eval_on_selector_all('#ov-tenant .ov-tenant', 'els => els.map(e => e.title)')
     assert set(titles) == outermost and len(titles) == len(outermost) > 1
-    assert f'Office: {len(outermost)} prefixes outlined' in page.inner_text('#toast')
+    assert page.is_hidden('#toast'), "the outline is the feedback"
     page.keyboard.press('+')
     box = page.eval_on_selector('#ov-tenant .ov-tenant', 'e => e.getBoundingClientRect().width')
     assert box > 0

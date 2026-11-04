@@ -12,7 +12,7 @@ The maps are drawn from [NetBox](https://github.com/netbox-community/netbox) pre
 - **Inspect any address.** Hover or click a cell to see its IP record or "free", the chain of prefixes around it with links to NetBox, and the free blocks of the innermost prefix. Network and broadcast addresses are marked as such.
 - **Find space.** Pick a size such as /26 to list the first free blocks of that size, then copy one with a click. Type `free /26` in the search box to find free blocks in all VRFs at once. Search by address, prefix, DNS name or description across all VRFs. Click a tenant in the legend to outline its prefixes and list them with usage.
 - **Share and print.** The URL keeps the pinned address. Print gives a vector map with title and legend, in colour or black and white with hatched tenants, and "Download SVG" saves the same drawing.
-- **Work from the keyboard.** Arrow keys move the pin, Enter opens the child prefix or the IP in NetBox, `c` copies, `/` searches, `+` `-` `0` zoom; Ctrl + wheel zooms about the pointer and dragging pans.
+- **Work from the keyboard.** Arrow keys move the pin, Enter opens the child prefix or the IP in NetBox, `c` copies, `/` searches, `+` `-` `0` zoom. The wheel and pinch zoom about the pointer and dragging moves the map, as in a map app.
 
 ## How to read the map
 
@@ -140,7 +140,7 @@ All paths are relative to `BASE_PATH`.
 ## Limitations
 
 - IPv4 only; IPv6 prefixes are skipped.
-- 16 tenant colours, by tenant id: tenants 16 ids apart share a colour. The legend marks such tenants on a map.
+- 16 tenant colours, by tenant id: tenants 16 ids apart share a colour.
 - Prefixes of /16 and longer get one cell per address. Shorter prefixes get a layered map with one cell per aligned block (/24 for a /8, at most 65,536 cells), shaded by the number of IP addresses in it.
 - The updater runs inside the web process; run a single web worker.
 - No authentication of its own; see [Access control](#access-control).

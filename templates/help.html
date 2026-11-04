@@ -21,7 +21,7 @@
     <h2>Colours</h2>
     <ul>
         <li>Fill: the tenant of the innermost child prefix. White: no child prefix, or one without a tenant. Dotted lines are prefix boundaries.</li>
-        <li>There are 16 tenant colours, by tenant id. Tenants that share a colour on one map are marked <b>=</b> in the legend; hover it for the other names. The inspector always names the tenant.</li>
+        <li>There are 16 tenant colours, by tenant id, so tenants 16 ids apart share one. The inspector names the tenant.</li>
         <li>IP addresses: black in use; dark grey DHCP or SLAAC; light grey reserved or deprecated; faint grey inactive; red with a role (anycast, VIP, …).</li>
         <li>Diagonal stripes: a reserved or deprecated prefix. The prefix chain in the inspector names the status.</li>
         <li>A small dark dot: an address without an IP record inside a NetBox IP range (a DHCP scope, a planned block).</li>
@@ -53,9 +53,9 @@
             <tr><td><kbd>c</kbd></td><td>Copy the pinned address</td></tr>
             <tr><td><kbd>Esc</kbd></td><td>Unpin</td></tr>
             <tr><td><kbd>/</kbd></td><td>Search an address or prefix in all VRFs, or text in DNS names, descriptions, tenant and role names; <code>free /26</code> lists free /26 blocks in all VRFs, <code>free /26 in 10.20.0.0/16</code> within a prefix</td></tr>
-            <tr><td><kbd>+</kbd> <kbd>−</kbd> <kbd>0</kbd></td><td>Zoom in, out, fit; below 1× a large map is scaled down smoothly to fit the window</td></tr>
-            <tr><td><kbd>Ctrl</kbd> + wheel, pinch</td><td>Zoom about the pointer</td></tr>
-            <tr><td>Drag</td><td>Pan the map; a drag does not pin</td></tr>
+            <tr><td><kbd>+</kbd> <kbd>−</kbd> <kbd>0</kbd></td><td>Zoom in, out to the next sharp level; fit the map to the window</td></tr>
+            <tr><td>Wheel, pinch</td><td>Zoom about the pointer</td></tr>
+            <tr><td>Drag</td><td>Move the map; a drag does not pin</td></tr>
             <tr><td><kbd>[</kbd> <kbd>]</kbd></td><td>Show or hide the prefix tree and the inspector</td></tr>
             <tr><td>Click a tenant in the legend</td><td>Outline its prefixes on the map and list them with usage in the inspector; the URL keeps it; click again to clear</td></tr>
             <tr><td>Print</td><td>Prints the map alone, as vector graphics with title and legend; "Download SVG" in the inspector saves the same drawing</td></tr>
