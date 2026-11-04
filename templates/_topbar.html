@@ -25,6 +25,11 @@
         <div id="search-msg" role="status" hidden></div>
     </div>
     <a class="help-link" href="{{ url_for('app.help_page') }}" title="How to read the map" aria-label="Help">?</a>
+    <nav class="lang-switch" aria-label="{{ t('topbar.language') }}">
+        {%- for code in languages %}
+        <a href="?lang={{ code }}" hreflang="{{ code }}" lang="{{ code }}" data-lang="{{ code }}" title="{{ language_names[code] }}"{% if code == lang %} aria-current="true"{% endif %}>{{ code | upper }}</a>
+        {%- endfor %}
+    </nav>
     <span class="vsep"></span>
     <div id="fresh" data-health-url="{{ url_for('app.healthz') }}" data-generated-at="{{ generated_at or '' }}"><span class="dot"></span><span id="fresh-text"></span></div>
 </header>
