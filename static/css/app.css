@@ -302,6 +302,19 @@ kbd { font: 11px var(--mono); border: 1px solid var(--line); border-radius: 3px;
 /* Document pages: VRF list, VRF, errors */
 body.doc-page { min-height: 100vh; display: flex; flex-direction: column; }
 body.doc-page #top { position: sticky; top: 0; z-index: 10; }
+.help-link {
+  display: grid; place-items: center; width: 22px; height: 22px; flex: none; margin-left: 10px; border-radius: 50%;
+  border: 1px solid var(--line); color: var(--muted); font-size: 12px; font-weight: 600; text-decoration: none;
+}
+.help-link:hover { color: var(--text); background: var(--hover-row); text-decoration: none; }
+.page-main.prose { max-width: 792px; line-height: 1.55; }
+.prose h1 { font-size: 20px; font-weight: 600; margin: 0 0 12px; }
+.prose h2 { font-size: 15px; font-weight: 600; margin: 24px 0 8px; }
+.prose ul { padding-left: 20px; margin: 8px 0; }
+.prose li { margin: 4px 0; }
+.prose .diagram { display: block; max-width: 100%; height: auto; margin: 12px 0; border: 1px solid var(--line); border-radius: 6px; }
+.prose table.keys { border: 1px solid var(--line); border-radius: 8px; margin-top: 8px; }
+.prose table.keys td:first-child { white-space: nowrap; color: var(--muted); }
 .page-main { width: 100%; max-width: 1080px; margin: 0 auto; padding: 24px 16px 48px; }
 .page-head { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; }
 .page-head h1 { font-size: 20px; font-weight: 600; margin: 0; letter-spacing: -.01em; }

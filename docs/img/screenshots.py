@@ -5,7 +5,7 @@ Regenerate the README screenshots (docs/img/*.png) from the synthetic dataset.
     OUTPUT_DIR=/tmp/pm INITIAL_UPDATE=0 NETBOX_API_URL=https://netbox.example.com python -m app.webapp &
     python docs/img/screenshots.py      # set PLAYWRIGHT_CHROMIUM_EXECUTABLE if needed
 
-docs/img/z-order.svg is drawn by hand and not regenerated here.
+static/img/z-order.svg is drawn by hand and not regenerated here.
 """
 import os
 import time
