@@ -705,3 +705,20 @@ def test_text_search_opens_the_address(open_page):
         page.press('#search', 'Enter')
     wait_for_map(page)
     assert page.inner_text('#insp-detail .big').startswith('10.20.93.1/')
+
+
+def test_addresses_with_several_records(open_page):
+    def inject(route):
+        data = route.fetch().json()
+        if 'ip_addresses' in data and data['prefix'] == '10.20.48.0/24':
+            first = data['ip_addresses'][0]
+            data['ip_addresses'].append(dict(first, id=99999, vrf=None, status='reserved'))
+        route.fulfill(json=data)
+
+    page = open_page(f'{BASE}/map/1/10_20_48_0_24', route=(f'**{BASE}/data/**', inject))
+    wait_for_map(page)
+    assert 'addresses with several records' in page.inner_text('#sum-free').lower()
+    page.click('#sum-free section:has-text("several records") tr >> nth=0')
+    assert '2 records' in page.inner_text('#insp-detail .sub')
+    detail = page.inner_text('#insp-detail')
+    assert 'all records of this address' in detail.lower() and 'Global' in detail and 'LAN' in detail

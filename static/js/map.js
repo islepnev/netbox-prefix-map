@@ -103,6 +103,8 @@
     let countsKnown = false;
     const blockStart = (a) => a - ((a - net.start) % blockSize);
     let ipsByAddr = new Map();
+    // Addresses with more than one IP record (several VRFs under a Global container, or NetBox duplicates)
+    let dupes = new Map();
     let ipSorted = new Float64Array(0);
     let nested = [];
     let children = [];
@@ -196,6 +198,13 @@
         hasIps = data.rendered ?? net.len >= 16;
         used = data.ip_count ?? (hasIps ? ips.length : null);
         ipsByAddr = new Map(ips.map((ip) => [ipToInt(ip.address.split("/")[0]), ip]));
+        dupes = new Map();
+        for (const ip of ips) {
+            const a = ipToInt(ip.address.split("/")[0]);
+            if (!dupes.has(a)) dupes.set(a, []);
+            dupes.get(a).push(ip);
+        }
+        for (const [a, list] of dupes) if (list.length < 2) dupes.delete(a);
         ipSorted = Float64Array.from(ipsByAddr.keys()).sort();
         const list = data.nested_prefixes || data.child_prefixes || [];
         nested = list.map((p) => ({ ...parsePrefix(p.prefix), p })).sort((a, b) => a.start - b.start || a.len - b.len);
@@ -448,6 +457,15 @@
         const v = id ? (cfg.names.vlans || {})[String(id)] : null;
         return id ? (v ? `VLAN ${v.vid}` : `VLAN #${id}`) : null;
     };
+    const vrfLabel = (vrf) => (vrf === null || vrf === undefined ? "Global" : cfg.vrf && String(cfg.vrf.id) === String(vrf) ? cfg.vrf.name : `VRF #${vrf}`);
+    function dupeSection(list) {
+        return sec("All records of this address", `${list.length}`, el("table", { class: "free dupes" }, el("tbody", null, list.map((ip) =>
+            el("tr", null,
+                el("td", { text: vrfLabel(ip.vrf) }),
+                el("td", { text: [statusLabel(ip.status), ip.role, ip.dns_name].filter(Boolean).join(" · ") }),
+                el("td", { class: "n" }, ip.id ? nbLink(`/ipam/ip-addresses/${ip.id}/`, "NetBox") : null))))),
+            el("div", { class: "hint", text: "The map shows one: with a role first, then active, reserved, inactive." }));
+    }
     const roleName = (id) => (id ? cfg.names.roles[String(id)] || `Role ${id}` : null);
     function rangeSection(list) {
         return sec(list.length > 1 ? `IP ranges` : "IP range", list.length > 1 ? `${list.length}` : null, ...list.slice(0, 4).map(({ r }) =>
@@ -548,6 +566,7 @@
                     : edge ? el("span", { class: "pill", text: `${capital(edge)} address` })
                         : inRange.length ? el("span", { class: "pill" }, el("span", { class: "sw range" }), "IP range")
                             : el("span", { class: "pill free", text: "Free" }),
+                dupes.has(a) ? el("span", { class: "pill warn", text: `${dupes.get(a).length} records` }) : null,
                 pool ? el("span", { class: "pill", text: "Pool", title: `${pool} is a pool: all its addresses are usable, network and broadcast included` }) : null,
                 el("span", { class: "mono", text: `offset ${fmt(a - net.start)}` })),
             action ? el("div", { class: "hint", text: `Double-click to ${action.label}` }) : null));
@@ -567,6 +586,7 @@
             out.push(sec("IP address", null, el("div", { class: "empty" }, "No IP record. ",
                 nbLink(`/ipam/ip-addresses/add/?address=${intToIp(a)}/${mask}${vrfParam}`, "Add in NetBox"))));
         }
+        if (dupes.has(a)) out.push(dupeSection(dupes.get(a)));
         if (inRange.length) out.push(rangeSection(inRange));
         out.push(chainSection(chainNodes));
         const innerPrefix = inner ? inner.p.prefix : cfg.prefix;
@@ -590,6 +610,14 @@
                 el("div", { class: "stat" }, el("b", { text: fmt((data.child_prefixes || []).length) }), el("span", { text: "child prefixes" })),
                 el("div", { class: "stat" }, el("b", { text: fmt(total) }), el("span", { text: "addresses" }))));
         if (hasIps || countsKnown) $("sum-free").replaceChildren(freeSection(net, cfg.prefix));
+        if (dupes.size) {
+            const shown = [...dupes.keys()].sort((x, y) => x - y).slice(0, 8);
+            $("sum-free").append(sec("Addresses with several records", `${fmt(dupes.size)}`, el("table", { class: "free" }, el("tbody", null,
+                shown.map((a) => el("tr", { onclick: () => pin(a, true) },
+                    el("td", { text: intToIp(a) }),
+                    el("td", { class: "n", text: dupes.get(a).map((ip) => vrfLabel(ip.vrf)).join(", ") }))))),
+                dupes.size > shown.length ? el("div", { class: "hint", text: `${fmt(dupes.size - shown.length)} more` }) : null));
+        }
         const big = document.querySelector("#insp-summary .big");
         if (big && !big.querySelector(".copy")) big.append(copyBtn(cfg.prefix));
     }
