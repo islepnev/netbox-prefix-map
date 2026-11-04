@@ -26,7 +26,7 @@ MAX_PREFIX_LEN = 32
 # Shorter prefixes (e.g. a sparse /8) would need a 4096x4096+ grid; they get a layered map of blocks instead.
 MIN_RENDER_PREFIX_LEN = 16
 # Bump when drawing code changes, to redraw unchanged prefixes
-RENDER_VERSION = 4
+RENDER_VERSION = 5
 
 # Override via the CELL_SIZE environment variable or the --cell-size CLI flag.
 DEFAULT_CELL_SIZE = 4
@@ -243,7 +243,8 @@ def render_fingerprint(prefix, nested_prefixes, ip_addresses, cell_size, tenant_
         'prefix': prefix,
         'cell_size': cell_size,
         'nested': sorted(
-            (p['prefix'], get_tenant_color(p.get('tenant'), tenant_color_map)) for p in nested_prefixes
+            (p['prefix'], get_tenant_color(p.get('tenant'), tenant_color_map), choice_value(p.get('status')) or '')
+            for p in nested_prefixes
         ),
         'ips': sorted(
             (ip.get('address', ''), choice_value(ip.get('status')) or '', choice_value(ip.get('role')) or '')
