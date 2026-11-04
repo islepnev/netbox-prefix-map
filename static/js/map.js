@@ -130,8 +130,11 @@
         for (const c of children) if (addr >= c.start && addr + blockSize - 1 <= c.end && (!best || c.len > best.len)) best = c;
         return best;
     };
+    // Prefixes that take space from a range: the outermost non-container ones inside it. Child containers are
+    // transparent, so the free space inside them counts as free.
     const childrenOf = (range) => {
-        const inside = nested.filter((n) => n.start >= range.start && n.end <= range.end && n.len > range.len);
+        const inside = nested.filter((n) => n.start >= range.start && n.end <= range.end && n.len > range.len
+            && n.p.status !== "container");
         return inside.filter((n) => !inside.some((m) => m.len < n.len && n.start >= m.start && n.end <= m.end));
     };
 
@@ -554,7 +557,10 @@
             el("div", { class: "stats" },
                 el("div", { class: "stat" }, el("b", { text: used === null ? "—" : fmt(used) }),
                     el("span", { text: used === null ? "IPs" : `IPs · ${pct(used, total)}` })),
-                el("div", { class: "stat" }, el("b", { text: fmt((data.child_prefixes || []).length) }), el("span", { text: "child prefixes" })),
+                el("div", { class: "stat" }, el("b", { text: fmt((data.child_prefixes || []).length) }),
+                    el("span", { text: typeof data.allocated === "number" && data.child_prefixes?.length
+                        ? `child prefixes · ${pct(data.allocated, total)} assigned` : "child prefixes",
+                        title: typeof data.allocated === "number" ? `${fmt(data.allocated)} of ${fmt(total)} addresses in prefixes that are not containers` : null })),
                 el("div", { class: "stat" }, el("b", { text: fmt(total) }), el("span", { text: "addresses" }))));
         if (hasIps || countsKnown) $("sum-free").replaceChildren(freeSection(net, cfg.prefix));
         const big = document.querySelector("#insp-summary .big");

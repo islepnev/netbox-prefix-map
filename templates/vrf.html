@@ -35,8 +35,8 @@
                     <td class="desc hide-narrow">{{ p.description or '' }}</td>
                     <td class="hide-narrow">{% if p.tenant %}{{ tenants.get(p.tenant | string) or p.tenant }}{% endif %}</td>
                     <td class="hide-narrow">{% if p.status %}<span class="pill">{{ p.status | capitalize }}</span>{% endif %}</td>
-                    <td class="num">{{ count(p.ip_count) }} / {{ count(p.size) }}</td>
-                    <td class="num"><span class="usage-cell">{{ usage(p, wide=True) }}<span class="pct">{{ percent(p.ip_count, p.size) }}</span></span></td>
+                    <td class="num">{{ count(p.ip_count) }} / {{ count(p.size) }}{% if p.usage_kind == 'allocated' %}<div class="sub-num">{{ count(p.used) }} assigned</div>{% endif %}</td>
+                    <td class="num"><span class="usage-cell">{{ usage(p, wide=True) }}<span class="pct">{{ percent(p.used, p.size) }}</span></span></td>
                 </tr>
                 {% endfor %}
             </tbody>
