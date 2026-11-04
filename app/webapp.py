@@ -504,16 +504,77 @@ def search_prefixes(query):
     return results[:SEARCH_LIMIT]
 
 
+# Digits, dots and a slash, or IPv6: meant as an address, so it must parse as IPv4
+ADDRESS_LIKE = re.compile(r'^[\d./]+$|^[0-9a-fA-F]*:[0-9a-fA-F:./]*$')
+
+
+def innermost_prefix(vrf_key, address):
+    """The longest prefix of a VRF containing an address; Global containers span all VRFs."""
+    target = ipaddress.ip_address(address)
+    index = prefix_index()
+    best = None
+    for key in (vrf_key, 'None') if vrf_key != 'None' else ('None',):
+        for network, entry in index.get(key, []):
+            if target in network and (key == vrf_key or entry.get('status') == 'container') \
+                    and (best is None or network.prefixlen > best[1].prefixlen):
+                best = (key, network)
+        if best:
+            break
+    return best
+
+
+def search_text(query):
+    """Prefixes by description, tenant or role name; IP addresses by DNS name or description. Case-insensitive."""
+    q = query.lower()
+    vrf_names = {str(v['id']): v.get('name') for v in load_vrf_data()}
+    vrf_name = lambda key: 'Global' if key == 'None' else vrf_names.get(key, key)  # noqa: E731
+    tenants, roles = load_names()
+    prefixes = []
+    for vrf_key, networks in prefix_index().items():
+        for network, entry in networks:
+            tenant = tenants.get(str(entry.get('tenant'))) if entry.get('tenant') else ''
+            role = roles.get(str(entry.get('role'))) if entry.get('role') else ''
+            if any(q in (text or '').lower() for text in (entry.get('description'), tenant, role)):
+                prefixes.append({
+                    'kind': 'prefix', 'vrf': vrf_key, 'vrf_name': vrf_name(vrf_key), 'prefix': str(network),
+                    'description': ' · '.join(filter(None, (entry.get('description'), tenant))), 'match': 'exact',
+                    'url': url_for('app.serve_map', vrf=vrf_key, prefix=sanitize_name(str(network))),
+                })
+    prefixes.sort(key=lambda r: (ipaddress.ip_network(r['prefix']).prefixlen, ipaddress.ip_network(r['prefix'])))
+    ips = []
+    for address, vrf, dns_name, description, ip_id in load_output_json('search_index.json', {}).get('ips', []):
+        if q not in dns_name.lower() and q not in description.lower():
+            continue
+        vrf_key = 'None' if vrf is None else str(vrf)
+        found = innermost_prefix(vrf_key, address)
+        if not found:
+            continue
+        map_vrf, network = found
+        ips.append({
+            'kind': 'ip', 'vrf': vrf_key, 'vrf_name': vrf_name(vrf_key), 'prefix': str(network), 'address': address,
+            'ip': {'id': ip_id, 'dns_name': dns_name, 'description': description},
+            'url': url_for('app.serve_map', vrf=map_vrf, prefix=sanitize_name(str(network)), focus=address),
+        })
+        if len(ips) > SEARCH_LIMIT:
+            break
+    ips.sort(key=lambda r: (r['vrf'], ipaddress.ip_address(r['address'])))
+    results = prefixes + ips
+    return results[:SEARCH_LIMIT], len(results) > SEARCH_LIMIT
+
+
 @bp.route('/search', methods=['GET'])
 def search():
     query = request.args.get('q', '').strip()
-    try:
-        if not SEARCH_QUERY.match(query):
-            raise ValueError
-        results = search_prefixes(query)
-    except ValueError:
-        return jsonify({'error': 'Expected an IPv4 address or prefix, e.g. 10.20.0.1 or 10.20.36.0/24.'}), 400
-    return jsonify({'query': query, 'results': results})
+    if SEARCH_QUERY.match(query):
+        try:
+            return jsonify({'query': query, 'results': search_prefixes(query)})
+        except ValueError:
+            pass
+    elif len(query) >= 2 and not ADDRESS_LIKE.match(query):
+        results, truncated = search_text(query)
+        return jsonify({'query': query, 'results': results, 'text': True, 'truncated': truncated})
+    return jsonify({'error': 'Expected an IPv4 address or prefix (10.20.0.1, 10.20.36.0/24), '
+                             'or at least 2 characters of a name or description.'}), 400
 
 
 @bp.route('/data/<vrf>/<path:prefix>', methods=['GET'])
