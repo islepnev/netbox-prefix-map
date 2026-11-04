@@ -34,6 +34,11 @@ class NetboxAddressManager:
         self.vrf_list = self._fetch_data(self.nb.ipam.vrfs.all, "vrfs")
         self.vrfs = {item["id"]: item for item in self.vrf_list}
         try:
+            self.ip_ranges = self._fetch_data(self.nb.ipam.ip_ranges.all, "IP ranges")
+        except RuntimeError:
+            logging.warning("IP ranges unavailable (token needs ipam.view_iprange); ranges are not shown.")
+            self.ip_ranges = []
+        try:
             self.roles_list = self._fetch_data(self.nb.ipam.roles.all, "prefix roles")
         except RuntimeError:
             logging.warning("Prefix roles unavailable (token needs ipam.view_role); role names are not shown.")
@@ -83,6 +88,9 @@ class NetboxAddressManager:
 
     def get_vrfs(self) -> list:
         return self.vrf_list
+
+    def get_ip_ranges(self) -> list:
+        return self.ip_ranges
 
     def get_tenants(self) -> list:
         return self.tenants_list

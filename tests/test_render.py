@@ -438,3 +438,21 @@ def test_tenant_prefix_wins_over_tenantless_in_block(tmp_path):
     plot_layered_grid('10.0.0.0/8', 24, {}, nested, [], out, 4, colors)
     expected = [int(prefix_fill_color(5, colors)[i:i + 2], 16) for i in (1, 3, 5)]
     assert list(load_rgb(out)[1, 1]) == expected
+
+
+def test_ip_ranges_in_data_file_and_image(output_dir, dataset):
+    prefix = "10.20.16.0/24"
+    with open(data_path(output_dir, LAN, prefix)) as f:
+        data = json.load(f)
+    assert [(r['start'], r['end'], r['size']) for r in data['ip_ranges']] == [('10.20.16.100', '10.20.16.199', 100)]
+    rgb = load_rgb(image_path(output_dir, LAN, prefix))
+    used = {ip['address'].split('/')[0] for ip in dataset['ip_addresses']}
+    inside = next(f'10.20.16.{h}' for h in range(100, 200) if f'10.20.16.{h}' not in used)
+    outside = next(f'10.20.16.{h}' for h in range(2, 100) if f'10.20.16.{h}' not in used)
+    x0, y0, x1, y1 = cell_box(prefix, inside)
+    assert rgb[y0:y1, x0:x1].min() < 120, "free address in a range carries a mark"
+    x0, y0, x1, y1 = cell_box(prefix, outside)
+    assert rgb[y0:y1, x0:x1].min() > 120, "free address outside ranges is unmarked"
+    # Containers carry the ranges inside them too
+    with open(data_path(output_dir, LAN, "10.20.0.0/17")) as f:
+        assert len(json.load(f)['ip_ranges']) == 3

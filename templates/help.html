@@ -22,12 +22,13 @@
     <ul>
         <li>Fill: the tenant of the innermost child prefix. White: no child prefix, or one without a tenant. Dotted lines are prefix boundaries.</li>
         <li>IP addresses: black in use; dark grey DHCP or SLAAC; light grey reserved or deprecated; faint grey inactive; red with a role (anycast, VIP, …).</li>
+        <li>A small dark dot: an address without an IP record inside a NetBox IP range (a DHCP scope, a planned block).</li>
         <li>Usage bars: addresses with an IP record out of all addresses, counted through any nested prefixes, containers included. Over 80% is drawn in orange.</li>
     </ul>
 
     <h2>Free space</h2>
     <ul>
-        <li>An address is free when it has no IP record and no child prefix covers it.</li>
+        <li>An address is free when it has no IP record, no child prefix covers it and it is in no IP range.</li>
         <li>The network and broadcast addresses of a subnet are not free. In pools, containers, /31 and /32 they are, as in NetBox.</li>
         <li>Child containers are transparent: space not assigned inside them counts as free in their parent.</li>
         <li>Free blocks are aligned: the inspector lists the largest ones, or the first ones of a chosen size by address.</li>

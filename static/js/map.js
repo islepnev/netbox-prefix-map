@@ -106,6 +106,9 @@
     let ipSorted = new Float64Array(0);
     let nested = [];
     let children = [];
+    // NetBox IP ranges overlapping this prefix (DHCP scopes and the like)
+    let ranges = [];
+    const rangesAt = (a, size = 1) => ranges.filter((r) => r.start <= a + size - 1 && r.end >= a);
     const tenantColors = new Map();
 
     const lowerBound = (v) => {
@@ -166,7 +169,7 @@
             if (len >= blockLen) return;
             walk(start, len + 1, overlap);
             walk(start + size / 2, len + 1, overlap);
-        })(range.start, range.len, childrenOf(range));
+        })(range.start, range.len, [...childrenOf(range), ...ranges.filter((r) => r.start <= range.end && r.end >= range.start)]);
         blocks.sort((a, b) => b.size - a.size || a.start - b.start);
         const res = { blocks, total: blocks.reduce((s, b) => s + b.size, 0) };
         freeCache.set(key, res);
@@ -197,6 +200,7 @@
         const list = data.nested_prefixes || data.child_prefixes || [];
         nested = list.map((p) => ({ ...parsePrefix(p.prefix), p })).sort((a, b) => a.start - b.start || a.len - b.len);
         children = (data.child_prefixes || []).map((p) => ({ ...parsePrefix(p.prefix), p }));
+        ranges = (data.ip_ranges || []).map((r) => ({ start: ipToInt(r.start), end: ipToInt(r.end), r }));
         for (const p of [data, ...(data.child_prefixes || []), ...(data.nested_prefixes || [])]) {
             if (p.tenant && p.color && !tenantColors.has(String(p.tenant))) tenantColors.set(String(p.tenant), p.color);
         }
@@ -440,6 +444,20 @@
         return sec(title, right, el("div", { class: "fsize" }, el("label", null, "Size ", freeSizeSelect(range))), body, more);
     }
 
+    const roleName = (id) => (id ? cfg.names.roles[String(id)] || `Role ${id}` : null);
+    function rangeSection(list) {
+        return sec(list.length > 1 ? `IP ranges` : "IP range", list.length > 1 ? `${list.length}` : null, ...list.slice(0, 4).map(({ r }) =>
+            el("div", { class: "range-item" },
+                el("div", { class: "mono" }, `${r.start} – ${r.end}`, copyBtn(`${r.start}-${r.end}`)),
+                kv([
+                    ["NetBox", r.id ? nbLink(`/ipam/ip-ranges/${r.id}/`, "IP range") : null],
+                    ["Size", `${fmt(r.size)} addresses`],
+                    ["Status", statusLabel(r.status)],
+                    ["Role", roleName(r.role)],
+                    ["Description", r.description || null],
+                ]))));
+    }
+
     function chainSection(chainNodes) {
         const chain = [
             ...cfg.parents.map((p) => ({ prefix: p.prefix, id: p.id, vrf: cfg.vrfKey, desc: p.description, tenant: p.tenant, pool: p.is_pool })),
@@ -474,6 +492,8 @@
                 el("span", { class: "mono", text: count === null ? `${fmt(blockSize)} addresses` : `${pct(count, blockSize)} of ${fmt(blockSize)}` })),
             action ? el("div", { class: "hint", text: `Double-click to ${action.label}` })
                 : el("div", { class: "hint", text: "No prefix in this block" }))];
+        const blockRanges = rangesAt(a, blockSize);
+        if (blockRanges.length) out.push(rangeSection(blockRanges));
         out.push(chainSection(chainNodes));
         if (smaller.length) {
             const shown = smaller.slice(0, 8);
@@ -510,6 +530,7 @@
         if (layer) { renderBlock(a); return; }
         const ip = ipsByAddr.get(a);
         const edge = ip ? null : edgeKind(a);
+        const inRange = rangesAt(a);
         const chainNodes = containing(a);
         const inner = chainNodes.at(-1);
         const pool = (inner ? inner.p.is_pool : data.is_pool ?? cfg.details.is_pool) ? (inner ? inner.p.prefix : cfg.prefix) : null;
@@ -521,7 +542,8 @@
             el("div", { class: "sub" },
                 ip ? el("span", { class: "pill" }, el("span", { class: "sw", style: swatchStyle(ipColor(ip)) }), statusLabel(ip.status) || "IP")
                     : edge ? el("span", { class: "pill", text: `${capital(edge)} address` })
-                        : el("span", { class: "pill free", text: "Free" }),
+                        : inRange.length ? el("span", { class: "pill" }, el("span", { class: "sw range" }), "IP range")
+                            : el("span", { class: "pill free", text: "Free" }),
                 pool ? el("span", { class: "pill", text: "Pool", title: `${pool} is a pool: all its addresses are usable, network and broadcast included` }) : null,
                 el("span", { class: "mono", text: `offset ${fmt(a - net.start)}` })),
             action ? el("div", { class: "hint", text: `Double-click to ${action.label}` }) : null));
@@ -541,6 +563,7 @@
             out.push(sec("IP address", null, el("div", { class: "empty" }, "No IP record. ",
                 nbLink(`/ipam/ip-addresses/add/?address=${intToIp(a)}/${mask}${vrfParam}`, "Add in NetBox"))));
         }
+        if (inRange.length) out.push(rangeSection(inRange));
         out.push(chainSection(chainNodes));
         const innerPrefix = inner ? inner.p.prefix : cfg.prefix;
         out.push(freeSection(inner || net, innerPrefix));
@@ -585,7 +608,8 @@
                 el("span", { class: "lg" }, el("span", { class: "sw checker" }), "prefixes inside"))
             : el("span", { class: "lg-group" }, ["active", "dhcp", "reserved", "inactive", "role"]
                 .filter((kind) => !hasIps || kind === "active" || kind === "role" || (data.ip_addresses || []).some((ip) => ipKind(ip) === kind))
-                .map((kind) => el("span", { class: "lg" }, sw(IP_KINDS[kind].color), IP_KINDS[kind].label)));
+                .map((kind) => el("span", { class: "lg" }, sw(IP_KINDS[kind].color), IP_KINDS[kind].label)),
+                ranges.length ? el("span", { class: "lg" }, el("span", { class: "sw range" }), "IP range") : null);
         // replaceChildren() would print null as text
         $("legend").replaceChildren(...[
             keys,
@@ -750,7 +774,7 @@
         const exp = window.PrefixMapExport;
         if (!exp) return;
         exp.init({
-            cfg, data, net, layer, blockLen, blockSize, blockCounts, GW, GH, nested, children,
+            cfg, data, net, layer, blockLen, blockSize, blockCounts, GW, GH, nested, children, ranges, ipsByAddr,
             cellOf, rangeBounds, intToIp, ipToInt, ipKind, IP_KINDS, tenantName, usageText,
         });
         const bw = el("input", { type: "checkbox", id: "export-bw" });
