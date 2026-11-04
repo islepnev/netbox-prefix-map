@@ -1,6 +1,7 @@
 import ipaddress
 import json
 import os
+import re
 import socket
 import threading
 
@@ -1138,3 +1139,74 @@ def test_language_switch_keeps_the_pin(open_page):
     page.reload()
     wait_for_map(page)
     assert page.evaluate('document.documentElement.lang') == 'ru', "kept in the cookie"
+
+
+# Latin words a Russian page may show: acronyms, key names, product names
+LATIN_ALLOWED = {'IP', 'IPs', 'IPv4', 'VRF', 'NetBox', 'DNS', 'DHCP', 'SLAAC', 'SVG', 'RD', 'VLAN', 'Enter', 'Esc',
+                 'Shift', 'Prefix', 'Map', 'EN', 'RU', 'English', 'px', 'Z'}
+VISIBLE_TEXT = '''() => {
+    // Log lines on /errors stay in English
+    let text = document.body.innerText;
+    for (const e of document.querySelectorAll(".log")) text = text.replace(e.innerText, "");
+    const parts = [document.title, text];
+    for (const e of document.querySelectorAll("[title], [aria-label], [placeholder], img[alt]"))
+        if (e.offsetParent !== null || e.closest("#top"))
+            parts.push(e.title, e.getAttribute("aria-label"), e.placeholder, e.alt);
+    return parts.filter(Boolean).join("\\n");
+}'''
+
+
+def data_words(dataset):
+    """Words of the synthetic NetBox data (names, descriptions, DNS names), shown as they are in any language."""
+    words = set()
+
+    def walk(v):
+        if isinstance(v, str):
+            words.update(re.findall(r'[A-Za-z]+', v))
+        elif isinstance(v, dict):
+            for x in v.values():
+                walk(x)
+        elif isinstance(v, (list, tuple)):
+            for x in v:
+                walk(x)
+    walk(dataset)
+    return words
+
+
+def latin_words(page, allowed):
+    text = page.evaluate(VISIBLE_TEXT)
+    allowed = {w.lower() for w in allowed}  # innerText follows text-transform: uppercase
+    return sorted({w for w in re.findall(r'[A-Za-z]{2,}', text) if w.lower() not in allowed})
+
+
+def test_russian_pages_have_no_english(open_page, dataset):
+    allowed = LATIN_ALLOWED | data_words(dataset)
+    found = {}
+    for path in ('/', '/map/1', '/map/None', '/errors', '/map/999'):
+        page = open_page(f'{BASE}{path}?lang=ru')
+        found[path] = latin_words(page, allowed)
+    page = open_page(f'{BASE}/map/1/10_20_0_0_17?lang=ru')
+    wait_for_map(page)
+    found['map'] = latin_words(page, allowed)
+    page.mouse.click(*cell_center(page, *cell_of('10.20.0.0/17', '10.20.48.9')))
+    found['pinned ip'] = latin_words(page, allowed)
+    page.mouse.click(*cell_center(page, *cell_of('10.20.0.0/17', free_address(dataset, '10.20.0.0/17'))))
+    found['pinned free'] = latin_words(page, allowed)
+    page.keyboard.press('Escape')
+    page.locator('#legend .tenant-toggle').first.click()
+    found['tenant'] = latin_words(page, allowed)
+    page.fill('#search', 'свободные /26')
+    page.wait_for_selector('#search-msg li')
+    found['free search'] = latin_words(page, allowed)
+    page.fill('#search', 'office')
+    page.wait_for_selector('#search-msg li')
+    found['text search'] = latin_words(page, allowed)
+    page.fill('#search', 'zzzz')
+    page.wait_for_function('document.getElementById("search-msg").innerText.includes("zzzz:")')
+    found['no match'] = latin_words(page, allowed | {'zzzz'})
+    page = open_page(f'{BASE}/map/1/10_0_0_0_8?lang=ru')
+    wait_for_map(page)
+    page.mouse.click(*cell_center(page, 0, 0))
+    found['layered'] = latin_words(page, allowed)
+    assert not {k: v for k, v in found.items() if v}
+    assert not page.errors

@@ -9,9 +9,10 @@
     const sanitize = (prefix) => prefix.replace(/[./]/g, "_");
     const mapUrl = (vrf, prefix) => `${cfg.basePath}/map/${vrfKey(vrf)}/${sanitize(prefix)}`;
     const navUrl = (vrf, prefix) => `${cfg.basePath}/data/${vrfKey(vrf)}/${sanitize(prefix)}?nav=1`;
-    const fmt = (n) => n.toLocaleString("en-US");
-    const pct = (u, t) => { const v = Math.min(100, (100 * u) / t); return v === 0 ? "0%" : v < 1 ? "<1%" : `${Math.round(v)}%`; };
-    const tenantName = (id) => (id ? cfg.names.tenants[String(id)] || `Tenant ${id}` : null);
+    const { t, fmt } = window.I18N;
+    const pct = (u, total) => { const v = Math.min(100, (100 * u) / total); return v === 0 ? "0%" : v < 1 ? "<1%" : `${Math.round(v)}%`; };
+    const tenantName = (id) => (id ? cfg.names.tenants[String(id)] || t("insp.tenant_n", { id }) : null);
+    const statusLabel = (s) => (s && window.I18N.has(`status.${s}`) ? t(`status.${s}`) : s);
     const rows = new Map();
 
     function fetchNav(vrf, prefix) {
@@ -50,7 +51,7 @@
         label.className = "pct";
         if (!node.size || node.ip_count === undefined || node.ip_count === null) {
             bar.classList.add("na");
-            bar.title = "No usage data";
+            bar.title = t("usage.no_data");
             return [bar, label];
         }
         const ratio = Math.min(1, node.ip_count / node.size);
@@ -58,7 +59,7 @@
         const fill = document.createElement("i");
         fill.style.width = `${Math.max(ratio > 0 ? 6 : 0, ratio * 100).toFixed(1)}%`;
         bar.append(fill);
-        bar.title = `${fmt(node.ip_count)} of ${fmt(node.size)} addresses`;
+        bar.title = t("usage.of_addresses", { used: fmt(node.ip_count), n: node.size });
         label.textContent = pct(node.ip_count, node.size);
         return [bar, label];
     }
@@ -70,7 +71,7 @@
         row.className = prefix === cfg.prefix ? "row current" : "row";
         row.setAttribute("role", "treeitem");
         row.dataset.prefix = prefix;
-        row.title = [prefix, node.description, tenantName(node.tenant), node.status].filter(Boolean).join(" · ");
+        row.title = [prefix, node.description, tenantName(node.tenant), statusLabel(node.status)].filter(Boolean).join(" · ");
 
         const toggle = document.createElement("button");
         toggle.type = "button";
@@ -95,7 +96,7 @@
             toggle.tabIndex = -1;
             return item;
         }
-        toggle.setAttribute("aria-label", `Expand ${prefix}`);
+        toggle.setAttribute("aria-label", t("tree.expand", { prefix }));
         const list = document.createElement("ul");
         list.setAttribute("role", "group");
         let loaded = false;
@@ -108,12 +109,12 @@
             setOpen(open);
             if (!open || loaded) return;
             loaded = true;
-            list.replaceChildren(message("Loading…"));
+            list.replaceChildren(message(t("common.loading")));
             fetchNav(vrf, prefix)
                 .then((data) => renderChildren(list, vrf, data.child_prefixes || []))
                 .catch((error) => {
                     loaded = false;
-                    list.replaceChildren(message(`Failed: ${error.message}`));
+                    list.replaceChildren(message(t("tree.failed", { error: error.message })));
                 });
         });
         if (preloaded) {
@@ -162,7 +163,7 @@
         const current = rows.get(cfg.prefix);
         if (current) current.scrollIntoView({ block: "center" });
     }).catch((error) => {
-        container.replaceChildren(message(`Failed to load prefix tree: ${error.message}`));
+        container.replaceChildren(message(t("tree.load_failed", { error: error.message })));
     });
 
     let traced = null;
