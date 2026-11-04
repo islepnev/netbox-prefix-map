@@ -27,14 +27,50 @@ The same space at three levels, as printed:
 - **Print.** Ctrl+P prints the map alone as vector graphics with title and legend; in black and white, tenants are hatched.
 - **Data problems.** Each update flags records that NetBox accepts but that are most likely wrong: an IP mask that differs from its subnet, IPs in a container outside its subnets, network and broadcast addresses recorded as IPs, prefixes recorded twice in a VRF. The prefix summary lists them, the map outlines them, the VRF page counts them.
 
-## Requirements
+## Install
 
-- NetBox 4.x and an API token with read access to IPAM (prefixes, IP addresses, VRFs; roles, IP ranges and VLANs optional), Tenancy (tenants) and optionally DCIM (sites, locations, regions, site groups)
-- Docker with Compose, or Python 3.13
+On the NetBox host, with Docker:
 
-## Configuration
+1. Create a read-only API token in NetBox and write `.env` in the project directory:
 
-Settings are read from the environment or from a `.env` file in the project directory.
+   ```ini
+   NETBOX_API_URL=https://netbox.example.com
+   NETBOX_API_TOKEN=<token>
+   WEBHOOK_SECRET=<any random string>
+   PUBLISH_ADDR=127.0.0.1
+   NETBOX_SESSION_AUTH=1
+   ```
+
+2. Start it: `make up`.
+3. Apache, in the NetBox virtual host:
+
+   ```apache
+   ProxyPass        /prefix-map http://127.0.0.1:5000/prefix-map
+   ProxyPassReverse /prefix-map http://127.0.0.1:5000/prefix-map
+   ```
+
+4. NetBox, Operations › Integrations:
+   - Webhooks › Add: URL `http://127.0.0.1:5000/prefix-map/webhook`, secret from `.env`.
+   - Event Rules › Add: object types Prefix, IP Address, IP Range, VRF, Tenant; events created, updated, deleted; action: that webhook.
+
+Open `https://netbox.example.com/prefix-map/`. The maps appear when the first update ends. They open to users signed in to NetBox who may view prefixes there; others get the NetBox login page or "Access Denied".
+
+Optional: a Map button on prefix pages. Customization › Custom Links › Add, object type IPAM › Prefix, link text `Map`, link URL:
+
+```
+/prefix-map/map/{{ object.vrf.pk if object.vrf else 'None' }}/{{ (object.prefix | string).replace('.', '_').replace('/', '_') }}
+```
+
+## Details
+
+### Requirements
+
+- NetBox 4.x (access through NetBox accounts: written against 4.6). The token reads IPAM (prefixes, IP addresses, VRFs; roles, IP ranges and VLANs optional), Tenancy (tenants) and optionally DCIM (sites, locations, regions, site groups); objects it cannot read are skipped with a warning.
+- Docker with Compose, or Python 3.13.
+
+### Settings
+
+Read from the environment or from `.env` in the project directory.
 
 | Variable | Default | Description |
 |---|---|---|
@@ -49,22 +85,30 @@ Settings are read from the environment or from a `.env` file in the project dire
 | `UPDATE_INTERVAL_SECONDS` | `0` | Periodic full update when none has run for this long, at most once per `UPDATE_DEBOUNCE_SECONDS`; `0` turns it off |
 | `INITIAL_UPDATE` | `1` | Set to `0` to skip the update at startup |
 | `PORT` | `5000` | Listening port |
-| `NETBOX_SESSION_AUTH` | `0` | `1`: open the maps only to users signed in to NetBox who may view prefixes there; see "Access through NetBox accounts" |
+| `NETBOX_SESSION_AUTH` | `0` | `1`: open the maps only to users signed in to NetBox who may view prefixes there |
 | `NETBOX_SESSION_COOKIE` | `sessionid` | Name of the NetBox session cookie (`SESSION_COOKIE_NAME` in NetBox) |
 | `NETBOX_LOGIN_URL` | `/login/` | NetBox login page for users without a session |
 | `NETBOX_AUTH_CACHE_SECONDS` | `300` | How long the answer of NetBox about a session is kept |
 | `TRUSTED_PROXIES` | `1` | Reverse proxies in front of the app; the client address in the logs is taken from `X-Forwarded-For` accordingly; `0` ignores the header |
-| `PUBLISH_ADDR` | `0.0.0.0` | Docker Compose: host address the port is published on; `127.0.0.1` when the reverse proxy runs on the same host |
+| `PUBLISH_ADDR` | `0.0.0.0` | Docker Compose: host address the port is published on |
 
-## Running
+### Access
 
-```bash
-make up
-```
+The maps show every prefix, IP address, DNS name, tenant and description that the API token can read.
 
-The container serves requests at once and draws the maps in the background; they appear when the first update ends. Generated files are kept in the `output` volume.
+- Keep port 5000 closed to the network (`PUBLISH_ADDR=127.0.0.1`): Docker publishes ports past the host firewall, and the port bypasses the reverse proxy.
+- `NETBOX_SESSION_AUTH=1` needs the app on the NetBox host, so that the browser sends it the NetBox session cookie. The app asks the NetBox API with that cookie whether the user may view prefixes, and keeps the answer per session for `NETBOX_AUTH_CACHE_SECONDS`. Constraints of object permissions are not applied: a user who may view some prefixes sees all maps. `/static`, `/healthz`, `/metrics` and `/webhook` are open without a session. When NetBox does not answer, pages give 503.
+- Without it, the app has no login of its own: restrict `/prefix-map` at the reverse proxy, e.g. Apache `AuthType Basic` with `Require valid-user`, and let the NetBox host reach `/prefix-map/webhook`.
+- Without `WEBHOOK_SECRET`, anyone who can reach `/webhook` can trigger a full refetch from NetBox (at most one per `UPDATE_DEBOUNCE_SECONDS`).
+- `/healthz` and `/metrics` carry no inventory data; `/errors` shows log lines.
 
-Without Docker:
+### Webhook
+
+Optionally add IPAM › Role, IPAM › VLAN, DCIM › Site, Location, Region, Site Group to the event rule, so that renames show up at once. When NetBox runs on another host, use an address where it reaches the app.
+
+Where IP addresses change often and in batches, leave IP Address out of the event rule: NetBox queues one webhook job per changed object. Set `UPDATE_INTERVAL_SECONDS` (e.g. `900`) instead; the maps then pick up address changes within that interval, and webhooks for the other objects still update them at once.
+
+### Without Docker
 
 ```bash
 pip install -r requirements.txt
@@ -72,77 +116,7 @@ python -m app.cli       # one-off update
 python -m app.webapp    # development server
 ```
 
-## NetBox setup
-
-### Webhook
-
-1. Operations › Integrations › Webhooks › Add: URL `http://127.0.0.1:5000/prefix-map/webhook` when NetBox runs on the same host (otherwise an address where NetBox reaches the app), method `POST`, content type `application/json`, secret as in `WEBHOOK_SECRET`.
-2. Operations › Integrations › Event Rules › Add: object types IPAM › Prefix, IPAM › IP Address, IPAM › IP Range, IPAM › VRF, Tenancy › Tenant; optionally IPAM › Role, IPAM › VLAN, DCIM › Site, Location, Region, Site Group, so that renames show up; events created, updated, deleted; action: the webhook above.
-
-Where IP addresses change often and in batches, leave IPAM › IP Address out of the event rule: NetBox queues one webhook job per changed object. Set `UPDATE_INTERVAL_SECONDS` (e.g. `900`) instead; the maps then pick up address changes within that interval, and webhooks for the other objects still update them at once.
-
-### Map button on prefix pages
-
-Customization › Custom Links › Add, object type IPAM › Prefix:
-
-- Link text: `Map`
-- Link URL:
-
-  ```
-  /prefix-map/map/{{ object.vrf.pk if object.vrf else 'None' }}/{{ (object.prefix | string).replace('.', '_').replace('/', '_') }}
-  ```
-
-## Reverse proxy and access control
-
-The maps show every prefix, IP address, DNS name, tenant and description that the API token can read. Keep the app behind the reverse proxy and its port closed to the network: with Docker Compose set `PUBLISH_ADDR=127.0.0.1`, since Docker publishes ports past the host firewall.
-
-### Access through NetBox accounts
-
-When the app shares the host with NetBox (the `/prefix-map` path in the NetBox virtual host), set `NETBOX_SESSION_AUTH=1`. The browser sends the NetBox session cookie to the app too; the app asks the NetBox API with it whether the user may view prefixes:
-
-- signed in to NetBox and may view prefixes: the maps open;
-- not signed in, or the session expired: the NetBox login page, which returns to the map (single sign-on works as in NetBox);
-- signed in without the permission, e.g. a user created by single sign-on without groups: "Access Denied" (403);
-- NetBox does not answer: 503.
-
-The answer is kept per session for `NETBOX_AUTH_CACHE_SECONDS`: a logout or a change of permissions takes effect within that time. Constraints of object permissions are not applied: a user who may view some prefixes sees all maps. `/static`, `/healthz`, `/metrics` and `/webhook` are open without a session. Written against the API of NetBox 4.6.
-
-Apache, in the NetBox virtual host, with NetBox sending the webhook to `127.0.0.1:5000` directly:
-
-```apache
-<Location /prefix-map>
-    ProxyPass http://127.0.0.1:5000/prefix-map
-    ProxyPassReverse http://127.0.0.1:5000/prefix-map
-</Location>
-<Location /prefix-map/webhook>
-    Require all denied
-</Location>
-<Location /prefix-map/metrics>
-    Require ip 192.0.2.10
-</Location>
-```
-
-`192.0.2.10` stands for the monitoring server.
-
-### Password at the proxy
-
-Without `NETBOX_SESSION_AUTH`, the app has no login of its own: restrict it at the reverse proxy. Apache, in the NetBox virtual host:
-
-```apache
-<Location /prefix-map>
-    ProxyPass http://127.0.0.1:5000/prefix-map
-    ProxyPassReverse http://127.0.0.1:5000/prefix-map
-    AuthType Basic
-    AuthName "Prefix Map"
-    AuthUserFile /etc/apache2/prefix-map.htpasswd
-    Require valid-user
-</Location>
-<Location /prefix-map/webhook>
-    Require ip 127.0.0.1 ::1
-</Location>
-```
-
-The webhook must stay reachable for NetBox: put the address of the NetBox host in `Require ip` when it is not localhost. Without `WEBHOOK_SECRET`, anyone who can reach `/webhook` can trigger a full refetch from NetBox (at most one per `UPDATE_DEBOUNCE_SECONDS`). `/healthz` and `/metrics` carry no inventory data; `/errors` shows log lines, so keep it behind the same rule as the maps.
+The container serves requests at once and draws the maps in the background. Generated files are kept in the `output` volume.
 
 ## Endpoints
 
