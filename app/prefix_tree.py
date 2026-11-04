@@ -152,7 +152,7 @@ class PrefixTree:
         subtree = self.get_subtree(prefix, vrf)
         if not subtree:
             return []
-        
+
         children = set()
 
         def traverse(node):

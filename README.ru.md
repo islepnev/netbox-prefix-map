@@ -134,6 +134,7 @@ Apache, в виртуальном хосте NetBox:
 
 ```bash
 make test
+make lint    # flake8, также в CI
 ```
 
 Тесты работают без NetBox на синтетических данных (`tests/synthetic_data.py`). Устройство приложения: [docs/design.md](docs/design.md).

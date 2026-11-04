@@ -149,6 +149,7 @@ All paths are relative to `BASE_PATH`.
 
 ```bash
 make test
+make lint    # flake8, also run in CI
 ```
 
 Tests run offline against a synthetic dataset (`tests/synthetic_data.py`). Design notes: [docs/design.md](docs/design.md).

@@ -10,13 +10,14 @@ from matplotlib.patches import Rectangle  # noqa: E402
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 
-from app.color_design import TABLEAU10_PALETTE, blend_colors, design_color_palette  # noqa: E402
+from app.color_design import BACKGROUND_COLOR, GRID_LINE_COLOR, TABLEAU10_PALETTE, blend_colors  # noqa: E402
 from app.utils import choice_value, expand_ip_entry, extract_ip_details  # noqa: E402
 
 
 Z_DEPTH_PREFIX_LABEL = 100
 Z_DEPTH_PREFIX_PATCH = 20  # add 0 to 31
 Z_DEPTH_AXES = 10  # on bottom
+
 
 def morton_decode(z, max_bits):
     x = y = 0
@@ -42,7 +43,8 @@ def decode_offset(offset, max_bits, grid_width, grid_height):
             x, y = morton_decode(offset_adj, max_bits)
             x += grid_width // 2
     else:
-        raise NotImplementedError("Unsupported grid dimensions. grid_width must be equal to grid_height or twice the grid_width.")
+        raise NotImplementedError("Unsupported grid dimensions. grid_width must be equal to grid_height "
+                                  "or twice the grid_width.")
     return x, y
 
 
@@ -130,7 +132,7 @@ def calculate_bounding_box(sub_prefix: ipaddress.IPv4Network, top_network: ipadd
 
     Returns:
         tuple: Bounding box coordinates (x1, y1, x2, y2).
-    """    
+    """
     offset_start = int(sub_prefix.network_address) - int(top_network.network_address)
     offset_end = int(sub_prefix.broadcast_address) - int(top_network.network_address)
     x_start, y_start = morton_decode(offset_start, max_bits)
@@ -199,17 +201,6 @@ def get_tenant_color(tenant_id, tenant_color_map):
     return tenant_color_map.get(tenant_id, 'none')
 
 
-def _unused_get_tenant_color(tenant, tenant_color_map):
-    """
-    Retrieve the color for a given tenant from the pre-built mapping.
-    """
-    # Normalize tenant name: lowercase and remove non-alphanumeric characters
-    normalized = ''.join(filter(str.isalnum, str(tenant).lower()))
-
-    # Return the assigned color or default if tenant is unknown
-    return tenant_color_map.get(normalized, 'none')
-
-
 def ip_display_rank(details):
     """Higher wins when several IP records share one cell: role > in use > reserved > inactive."""
     if details.get('role'):
@@ -231,7 +222,7 @@ IP_STATUS_STYLES = {
 IP_DEFAULT_STYLE = ('black', 1.0)
 
 
-def determine_ip_color(details, palette=None):
+def determine_ip_color(details):
     """
     Determine the color and opacity for an IP address based on its details.
     Returns a tuple of (color, alpha).
@@ -316,15 +307,15 @@ def draw_prefix_rectangles(ax, rectangles, cell_size, tenant_color_map):
         )
 
 
-def draw_sparse_grid(ax, cell_size, grid_width, grid_height, palette):
+def draw_sparse_grid(ax, cell_size, grid_width, grid_height):
     """
     Draw a sparse 16x16 grid with low-contrast dotted lines.
     """
     # Inner lines only: on the image edges a dotted line becomes a row of dashes when zoomed in
     for i in range(16, grid_height, 16):
-        ax.axhline(i * cell_size, color=palette['grid_lines'], linestyle=':', linewidth=1, zorder=Z_DEPTH_AXES, aa=False)
+        ax.axhline(i * cell_size, color=GRID_LINE_COLOR, linestyle=':', linewidth=1, zorder=Z_DEPTH_AXES, aa=False)
     for i in range(16, grid_width, 16):
-        ax.axvline(i * cell_size, color=palette['grid_lines'], linestyle=':', linewidth=1, zorder=Z_DEPTH_AXES, aa=False)
+        ax.axvline(i * cell_size, color=GRID_LINE_COLOR, linestyle=':', linewidth=1, zorder=Z_DEPTH_AXES, aa=False)
 
 
 # IP ranges (DHCP scopes and the like): a dot in the middle of each address cell; IP cells are painted over it
@@ -413,15 +404,13 @@ def plot_allocation_grid(top_level_prefix_entry, child_prefixes, relevant_ips, o
 
     rectangles = get_prefix_rectangles(top_level_prefix, child_prefixes, max_bits)
 
-    palette = design_color_palette()
-
     image_width = grid_width * cell_size
     image_height = grid_height * cell_size
     fig, ax = plt.subplots(figsize=(image_width / 100, image_height / 100), dpi=100)
 
-    ax.set_facecolor(palette['background'])
+    ax.set_facecolor(BACKGROUND_COLOR)
 
-    draw_sparse_grid(ax, cell_size, grid_width, grid_height, palette)
+    draw_sparse_grid(ax, cell_size, grid_width, grid_height)
 
     draw_prefix_rectangles(ax, rectangles, cell_size, tenant_color_map)
 
@@ -434,7 +423,8 @@ def plot_allocation_grid(top_level_prefix_entry, child_prefixes, relevant_ips, o
     paint_status_stripes(image, striped_cells(
         [(r['x1'], r['y1'], r['x2'], r['y2'], ipaddress.ip_network(r['prefix']).prefixlen, r['status'], r['tenant'])
          for r in rectangles], grid_width, grid_height), cell_size)
-    range_cells = range_cell_coords(ipaddress.ip_network(top_level_prefix), ip_ranges, max_bits, grid_width, grid_height)
+    range_cells = range_cell_coords(ipaddress.ip_network(top_level_prefix), ip_ranges, max_bits,
+                                    grid_width, grid_height)
     # Only on addresses without an IP record: a dot would show through the lighter IP shades
     range_cells -= set(ip_details)
     paint_range_marks(image, range_cells, cell_size)
@@ -443,7 +433,7 @@ def plot_allocation_grid(top_level_prefix_entry, child_prefixes, relevant_ips, o
     for x, y in range_cells:
         occupied[y, x] = True
     for (x, y), details in ip_details.items():
-        occupied[y, x] = determine_ip_color(details, palette)[0] != 'none'
+        occupied[y, x] = determine_ip_color(details)[0] != 'none'
     paint_labels(image, block_labels(ipaddress.ip_network(top_level_prefix), 32, occupied, cell_size))
     save_png(image, output_file)
     logging.debug(f"Prefix map {top_level_prefix} saved to {output_file}")

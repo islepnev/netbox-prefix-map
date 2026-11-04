@@ -38,6 +38,7 @@
 
 # This project
 
+- Lint: `make lint` (flake8, also in CI).
 - Tests: `make test`, or `.venv/bin/python -m pytest -q`. Browser tests need Chromium; set `PLAYWRIGHT_CHROMIUM_EXECUTABLE` when it is not where Playwright looks. Tests run offline on `tests/synthetic_data.py`.
 - Demo data: `OUTPUT_DIR=<dir> .venv/bin/python -c "from app.cli import full_update; from tests.synthetic_data import FakeNetboxManager; full_update(mgr=FakeNetboxManager())"`, then `OUTPUT_DIR=<dir> INITIAL_UPDATE=0 NETBOX_API_URL=https://netbox.example.com .venv/bin/python -m app.webapp` (port 5000, base path /prefix-map). The server caches templates: restart it after template changes.
 - Bump `RENDER_VERSION` in `app/cli.py` when drawing code changes.

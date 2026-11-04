@@ -94,6 +94,10 @@ run: venv ## Run the web application locally
 test: venv ## Run the test suite
 	@$(VENV_DIR)/bin/python -m pytest -q
 
+.PHONY: lint
+lint: venv ## Check code style (flake8, as in CI)
+	@$(VENV_DIR)/bin/python -m flake8 app tests
+
 # Run the update application locally
 .PHONY: update
 update: venv ## Run the update application locally
