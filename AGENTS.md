@@ -24,14 +24,13 @@
 
 # From corrections in this session
 
-## Commits and PRs
-- Commit message: short subject, terse bullets, then `Assisted-by: Claude Opus 5.5` as the only trailer. The owner is the author and committer; never `Co-Authored-By` with an agent, no session links, no "Generated with" lines.
-- PR: short title; body of terse bullets grouped under plain labels (Map, Search, Other); no headings, footers, links or emojis.
-- After posting a PR or comment, read it back and remove anything a tool appended.
-- Keep history linear: branch from the current default branch, no merge commits.
+## Commits
+- Commit message: short subject, terse bullets, then one `Assisted-by:` trailer naming the agent and model in use. The owner is the author and committer; never `Co-Authored-By` with an agent, no session links, no "Generated with" lines.
+- No pull requests: branch from master, then fast-forward master to the branch (`git merge --ff-only`) and push. No merge commits.
+- After posting a comment, read it back and remove anything a tool appended.
 - One commit per development cycle; run the test suite before each commit.
 - No breaking changes without asking: new settings optional, data formats only gain fields.
-- Rewriting history or force-pushing needs explicit approval.
+- Force-pushing is allowed.
 
 ## Domain
 - Do not adopt upstream conventions blindly: when a reference tool's semantics look wrong (e.g. container utilization), ask or follow the owner's definition.
