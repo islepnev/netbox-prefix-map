@@ -63,4 +63,5 @@ repomix-output.*
 
 # Application output files
 *.png
+!docs/img/*.png
 output/
