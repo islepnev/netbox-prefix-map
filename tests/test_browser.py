@@ -640,14 +640,43 @@ def test_svg_export_has_a_cell_per_ip_and_a_legend(open_page, dataset):
     assert 'url(#t0)' not in svg
 
 
-def test_svg_export_black_and_white_hatches_tenants(open_page):
+def hatches_of(root):
+    """Hatch number of each hatched prefix rectangle: the hatch paths follow their rectangle."""
+    out, last = {}, None
+    body = next(g for g in root.iter(SVG_NS + 'g') if (g.get('transform') or '').startswith('translate'))
+    for e in body.iter():
+        if e.tag == SVG_NS + 'rect' and e.find(SVG_NS + 'title') is not None:
+            last = e.find(SVG_NS + 'title').text
+        elif e.tag == SVG_NS + 'path' and (e.get('class') or '').startswith('hatch-') and last:
+            out[last] = int(e.get('class').split('-')[1])
+    return out
+
+
+def test_svg_export_black_and_white_hatches_tenants(open_page, dataset):
+    """Tenants get vector hatches, no SVG patterns: Chromium prints patterns as bitmaps."""
     page = open_page(f'{BASE}/map/1/10_20_0_0_17')
     wait_for_map(page)
-    _, root = export_svg(page, mono=True)
-    patterns = root.findall(f'.//{SVG_NS}pattern')
-    assert len(patterns) >= 8
-    fills = {r.get('fill') for r in root.iter(SVG_NS + 'rect') if r.find(SVG_NS + 'title') is not None}
-    assert fills <= {f'url(#t{i})' for i in range(len(patterns))} | {'none'}
+    svg, root = export_svg(page, mono=True)
+    assert '<pattern' not in svg
+    hatches = hatches_of(root)
+    tenants = {p['prefix']: p['tenant'] for p in dataset['prefixes'] if p['vrf'] == 1}
+    by_tenant = {}
+    for prefix, n in hatches.items():
+        by_tenant.setdefault(tenants[prefix], set()).add(n)
+    assert len(by_tenant) == 8 and all(len(v) == 1 for v in by_tenant.values()), "one hatch per tenant"
+    assert len({min(v) for v in by_tenant.values()}) == 8, "eight tenants, eight hatches"
+    untenanted = [r for r in root.iter(SVG_NS + 'rect') if r.find(SVG_NS + 'title') is not None
+                  and not tenants.get(r.find(SVG_NS + 'title').text)]
+    assert untenanted and all(r.get('fill') == 'none' for r in untenanted)
+
+
+def test_svg_export_has_no_patterns(open_page):
+    for path in ('10_0_0_0_8', '10_20_0_0_17'):
+        page = open_page(f'{BASE}/map/1/{path}')
+        wait_for_map(page)
+        for mono in (False, True):
+            svg, _ = export_svg(page, mono=mono)
+            assert '<pattern' not in svg and 'url(#' not in svg, (path, mono)
 
 
 def retenant(mapping):
@@ -683,16 +712,10 @@ def test_svg_export_black_and_white_has_16_distinct_hatches(open_page, output_di
     page = open_page(f'{BASE}/map/1/10_20_0_0_17', route=(f'**{BASE}/data/1/10_20_0_0_17', retenant(mapping)))
     wait_for_map(page)
     _, root = export_svg(page, mono=True)
-    patterns = [''.join(ET_tostring(c) for c in p if c.tag != SVG_NS + 'rect') for p in root.findall(f'.//{SVG_NS}pattern[@id]')
-                if p.get('id').startswith('t')]
-    assert len(patterns) == 17 and len(set(patterns)) == 16
+    hatches = hatches_of(root)
+    assert set(hatches.values()) == set(range(16)), "17 tenants use all 16 hatches"
     same = [t.text for t in root.iter(SVG_NS + 'text') if 'same pattern' in (t.text or '')]
     assert len(same) == 2, same
-
-
-def ET_tostring(e):
-    import xml.etree.ElementTree as ET
-    return ET.tostring(e, encoding='unicode')
 
 
 def test_svg_export_of_layered_map(open_page):

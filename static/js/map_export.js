@@ -6,25 +6,76 @@ window.PrefixMapExport = (() => {
     const GAP = 1.5;       // gap at the left and top of a cell, as on the PNG
     const BODY = U - GAP;
     const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-    // Black-and-white hatches for tenants, in order of first appearance on the map
+    // Black-and-white hatches for tenants, in order of first appearance on the map. They are drawn as vector lines and
+    // dots clipped to each prefix rectangle, not as SVG patterns: Chromium prints patterns as bitmaps. Each hatch is a set
+    // of line families on a lattice of pitch P (about 1.6 mm on paper) and dots; "2" halves the pitch.
     const HATCHES = [
-        '<path d="M0 8L8 0" stroke="#000" stroke-width=".9"/>',
-        '<path d="M0 0L8 8" stroke="#000" stroke-width=".9"/>',
-        '<path d="M0 4H8" stroke="#000" stroke-width=".9"/>',
-        '<path d="M4 0V8" stroke="#000" stroke-width=".9"/>',
-        '<circle cx="4" cy="4" r="1.1" fill="#000"/>',
-        '<path d="M0 8L8 0M0 0L8 8" stroke="#000" stroke-width=".6"/>',
-        '<path d="M0 4H8M4 0V8" stroke="#000" stroke-width=".6"/>',
-        '<circle cx="2" cy="2" r=".9" fill="#000"/><circle cx="6" cy="6" r=".9" fill="#000"/>',
-        '<path d="M0 4L4 0M0 8L8 0M4 8L8 4" stroke="#000" stroke-width=".6"/>',
-        '<path d="M0 4L4 8M0 0L8 8M4 0L8 4" stroke="#000" stroke-width=".6"/>',
-        '<path d="M0 2H8M0 6H8" stroke="#000" stroke-width=".6"/>',
-        '<path d="M2 0V8M6 0V8" stroke="#000" stroke-width=".6"/>',
-        '<circle cx="4" cy="4" r="2" fill="#000"/>',
-        '<circle cx="4" cy="4" r="2.2" fill="none" stroke="#000" stroke-width=".8"/>',
-        '<path d="M0 6L2 2L4 6L6 2L8 6" fill="none" stroke="#000" stroke-width=".8"/>',
-        '<path d="M0 8L8 0M0 4H8" stroke="#000" stroke-width=".6"/>',
+        ["d1"], ["d2"], ["h"], ["v"], ["dots"], ["d1", "d2"], ["h", "v"], ["dots2"],
+        ["d1/2"], ["d2/2"], ["h/2"], ["v/2"], ["bigdots"], ["rings"], ["d1", "h"], ["d2", "v"],
     ];
+    const r2 = (v) => Math.round(v * 100) / 100;
+    // Path data of one line family or dot lattice inside the rectangle (x0, y0)-(x1, y1); the lattice is anchored at 0,
+    // so neighbouring rectangles of one tenant continue each other
+    function hatchPart(kind, x0, y0, x1, y1, P) {
+        const [name, half] = kind.split("/");
+        const p = half ? P / 2 : P;
+        const d = [];
+        if (name === "h" || name === "v") {
+            const [a0, a1, b0, b1] = name === "h" ? [y0, y1, x0, x1] : [x0, x1, y0, y1];
+            for (let a = Math.ceil((a0 - p / 2) / p) * p + p / 2; a < a1; a += p) {
+                if (a <= a0) continue;
+                d.push(name === "h" ? `M${r2(b0)} ${r2(a)}H${r2(b1)}` : `M${r2(a)} ${r2(b0)}V${r2(b1)}`);
+            }
+        } else if (name === "d1") {  // x + y = c
+            for (let c = Math.ceil((x0 + y0) / p) * p; c < x1 + y1; c += p) {
+                const xa = Math.max(x0, c - y1), xb = Math.min(x1, c - y0);
+                if (xb > xa) d.push(`M${r2(xa)} ${r2(c - xa)}L${r2(xb)} ${r2(c - xb)}`);
+            }
+        } else if (name === "d2") {  // x - y = c
+            for (let c = Math.ceil((x0 - y1) / p) * p; c < x1 - y0; c += p) {
+                const xa = Math.max(x0, y0 + c), xb = Math.min(x1, y1 + c);
+                if (xb > xa) d.push(`M${r2(xa)} ${r2(xa - c)}L${r2(xb)} ${r2(xb - c)}`);
+            }
+        } else {
+            const q = name === "dots2" ? P / 2 : P;
+            const r = { dots: 0.12, dots2: 0.08, bigdots: 0.24, rings: 0.26 }[name] * P;
+            for (let cy = Math.ceil((y0 - q / 2) / q) * q + q / 2; cy < y1; cy += q) {
+                for (let cx = Math.ceil((x0 - q / 2) / q) * q + q / 2; cx < x1; cx += q) {
+                    if (cx - r < x0 || cy - r < y0 || cx + r > x1 || cy + r > y1) continue;
+                    d.push(`M${r2(cx - r)} ${r2(cy)}a${r2(r)} ${r2(r)} 0 1 0 ${r2(2 * r)} 0a${r2(r)} ${r2(r)} 0 1 0 ${r2(-2 * r)} 0`);
+                }
+            }
+        }
+        return d.join("");
+    }
+    // Checkerboard of squares of side s anchored at 0, clipped to the rectangle; a path, not a pattern, for the same reason
+    function checkerPath(x0, y0, x1, y1, s) {
+        const d = [];
+        for (let b = Math.floor(y0 / s); b * s < y1; b++) {
+            for (let a = Math.floor(x0 / s); a * s < x1; a++) {
+                if ((a + b) % 2) continue;
+                const xa = Math.max(x0, a * s), xb = Math.min(x1, (a + 1) * s), ya = Math.max(y0, b * s), yb = Math.min(y1, (b + 1) * s);
+                if (xb > xa && yb > ya) d.push(`M${r2(xa)} ${r2(ya)}h${r2(xb - xa)}v${r2(yb - ya)}h${r2(xa - xb)}z`);
+            }
+        }
+        return d.join("");
+    }
+    // SVG of hatch number n over the rectangle: lines are stroked, dots filled, rings stroked
+    // A rectangle too small for the pitch gets a finer one, so that a small prefix is not left looking untenanted.
+    function hatchSvg(n, x, y, w, h, P) {
+        let svg = "";
+        for (let p = P; !svg && p >= Math.min(w, h) / 8; p /= 2) svg = hatchAt(n, x, y, w, h, p);
+        return svg;
+    }
+    function hatchAt(n, x, y, w, h, P) {
+        return HATCHES[n].map((kind) => {
+            const d = hatchPart(kind, x, y, x + w, y + h, P);
+            if (!d) return "";
+            if (kind === "dots" || kind === "dots2" || kind === "bigdots") return `<path class="hatch-${n}" d="${d}" fill="#000"/>`;
+            const sw = kind === "rings" ? 0.09 * P : kind.endsWith("/2") ? 0.07 * P : 0.1 * P;
+            return `<path class="hatch-${n}" d="${d}" fill="none" stroke="#000" stroke-width="${r2(sw)}"/>`;
+        }).join("");
+    }
     let ctx = null;
 
     function init(context) { ctx = context; }
@@ -48,19 +99,20 @@ window.PrefixMapExport = (() => {
         const box = (start, end) => { const [x1, y1, x2, y2] = rangeBounds(start, end); return [x1 * U, y1 * U, (x2 - x1 + 1) * U, (y2 - y1 + 1) * U]; };
 
         // Tenant fills: color, or one hatch per tenant in black and white
-        const tenantFill = new Map();
-        const tenantLook = new Map();  // colour, or hatch number in black and white: equal looks are named in the legend
+        const tenantFill = new Map();  // colour, or hatch number in black and white
+        const tenantLook = new Map();  // equal looks are named in the legend
         const tenantOrder = [];
+        // Hatch pitch: about 1.6 mm with the drawing printed 190 mm wide (A4 portrait). A pitch close to the cell size
+        // would read as the cell grid.
+        const P = (1.6 * SW) / 190;
         const fillOf = (p) => {
             if (!p.tenant || !p.color) return null;
             const key = String(p.tenant);
             if (!tenantFill.has(key)) {
                 tenantOrder.push(key);
                 if (mono) {
-                    const id = `t${tenantFill.size}`;
-                    defs.push(`<pattern id="${id}" width="8" height="8" patternUnits="userSpaceOnUse"><rect width="8" height="8" fill="#fff"/>${HATCHES[tenantFill.size % HATCHES.length]}</pattern>`);
                     tenantLook.set(key, tenantFill.size % HATCHES.length);
-                    tenantFill.set(key, `url(#${id})`);
+                    tenantFill.set(key, tenantFill.size % HATCHES.length);
                 } else {
                     tenantLook.set(key, p.color);
                     tenantFill.set(key, p.color);
@@ -88,7 +140,9 @@ window.PrefixMapExport = (() => {
             }
             const fill = fillOf(n.p);
             const [x, y, w, h] = box(n.start, n.end);
-            body.push(`<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="${fill || "none"}" stroke="#000" stroke-width="${U / 16}" stroke-dasharray="${U / 5} ${U / 5}"><title>${esc(n.p.prefix)}</title></rect>`);
+            const hatched = mono && fill !== null;
+            body.push(`<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="${hatched ? "#fff" : fill || "none"}" stroke="#000" stroke-width="${U / 16}" stroke-dasharray="${U / 5} ${U / 5}"><title>${esc(n.p.prefix)}</title></rect>`);
+            if (hatched) body.push(hatchSvg(fill, x, y, w, h, P));
         }
 
         // Labels: the octet that tells the 16 x 16-cell groups apart; mirrors block_labels() in app/plot_map.py
@@ -107,19 +161,14 @@ window.PrefixMapExport = (() => {
         if (layer) {
             // Blocks with smaller prefixes inside: checkerboard in the tenant color, gray without one
             const checks = new Map();
-            const checkOf = (color) => {
-                const c = mono ? "#999" : color || "#b0b0b0";
-                if (!checks.has(c)) {
-                    const id = `c${checks.size}`;
-                    defs.push(`<pattern id="${id}" width="${U / 4}" height="${U / 4}" patternUnits="userSpaceOnUse"><rect width="${U / 4}" height="${U / 4}" fill="#fff"/><rect width="${U / 8}" height="${U / 8}" fill="${c}"/><rect x="${U / 8}" y="${U / 8}" width="${U / 8}" height="${U / 8}" fill="${c}"/></pattern>`);
-                    checks.set(c, `url(#${id})`);
-                }
-                return checks.get(c);
-            };
             for (const [first, color] of partial) {
+                const c = mono ? "#999" : color || "#b0b0b0";
                 const [x, y] = cellOf(first);
-                body.push(`<rect x="${x * U + GAP}" y="${y * U + GAP}" width="${BODY}" height="${BODY}" fill="${checkOf(color)}"/>`);
+                const x0 = x * U + GAP, y0 = y * U + GAP;
+                if (!checks.has(c)) checks.set(c, []);
+                checks.get(c).push(`<rect x="${x0}" y="${y0}" width="${BODY}" height="${BODY}"/>`, `<path d="${checkerPath(x0, y0, x0 + BODY, y0 + BODY, U / 8)}" fill="${c}"/>`);
             }
+            for (const items of checks.values()) body.push(`<g fill="#fff">${items.join("")}</g>`);
             const cells = [];
             for (const [index, count] of ctx.blockCounts) {
                 const [x, y] = cellOf(net.start + index * blockSize);
@@ -181,7 +230,8 @@ window.PrefixMapExport = (() => {
             const same = tenantOrder.filter((o) => o !== key && tenantLook.get(o) === tenantLook.get(key)).map(ctx.tenantName);
             return same.length ? ` (same ${mono ? "pattern" : "colour"} as ${same.join(", ")})` : "";
         };
-        const tenantItems = tenantOrder.map((key) => ({ fill: tenantFill.get(key), opacity: 1, label: ctx.tenantName(key) + sameAs(key), name: ctx.tenantName(key), outline: true }))
+        const tenantItems = tenantOrder.map((key) => ({ ...(mono ? { fill: "#fff", hatch: tenantFill.get(key) } : { fill: tenantFill.get(key) }),
+            opacity: 1, label: ctx.tenantName(key) + sameAs(key), name: ctx.tenantName(key), outline: true }))
             .sort((a, b) => a.name.localeCompare(b.name));
         const rows = [];
         let row = [], used = 0;
@@ -199,13 +249,13 @@ window.PrefixMapExport = (() => {
             const text = `<text x="${it.x + (it.heading ? 0 : sw + fs * 0.5)}" y="${y + sw * 0.85}">${esc(it.label)}</text>`;
             if (it.heading) return text;
             const swatch = it.check
-                ? `<rect x="${it.x}" y="${y}" width="${sw}" height="${sw}" fill="url(#legend-check)" stroke="#999" stroke-width="${fs / 12}"/>`
+                ? `<rect x="${it.x}" y="${y}" width="${sw}" height="${sw}" fill="#fff" stroke="#999" stroke-width="${fs / 12}"/><path d="${checkerPath(it.x, y, it.x + sw, y + sw, sw / 8)}" fill="#999"/>`
                 : `<rect x="${it.x}" y="${y}" width="${sw}" height="${sw}" fill="${it.fill}" fill-opacity="${it.opacity}" stroke="#999" stroke-width="${fs / 12}"/>`
+                    + (it.hatch !== undefined ? hatchSvg(it.hatch, it.x, y, sw, sw, P) : "")
                     + (it.hollow ? `<rect x="${it.x + sw / 3}" y="${y + sw / 3}" width="${sw / 3}" height="${sw / 3}" fill="#fff"/>` : "")
                     + (it.dot ? `<rect x="${it.x + sw / 3}" y="${y + sw / 3}" width="${sw / 3}" height="${sw / 3}" fill="#555"/>` : "");
             return swatch + text;
         }));
-        if (layer) defs.push(`<pattern id="legend-check" width="${sw / 4}" height="${sw / 4}" patternUnits="userSpaceOnUse"><rect width="${sw / 4}" height="${sw / 4}" fill="#fff"/><rect width="${sw / 8}" height="${sw / 8}" fill="#999"/><rect x="${sw / 8}" y="${sw / 8}" width="${sw / 8}" height="${sw / 8}" fill="#999"/></pattern>`);
         const totalH = legendY + rows.length * fs * 1.7 + pad / 2;
 
         return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${SW} ${Math.ceil(totalH)}" width="${SW}" height="${Math.ceil(totalH)}" shape-rendering="crispEdges">`
