@@ -242,7 +242,7 @@ def test_vrf_page_lists_top_level_prefixes_with_usage(client):
     assert f'href="{BASE}/map/None/172_31_0_0_16"' in html
     assert f'href="{BASE}/map/None/192_168_0_0_24"' in html
     assert '172_31_4_0_24' not in html, "nested prefixes are reached through maps"
-    assert 'Management' in html and 'title="7 of 256 addresses with an IP record"' in html
+    assert 'Management' in html and 'title="7 of 256 addresses"' in html
 
 
 def test_vrf_page_without_summary_file(client, webapp, monkeypatch):
@@ -287,7 +287,7 @@ def test_search_global_and_misses(client):
     _, body = search(client, '192.168.0.5')
     assert [(r['vrf'], r['prefix']) for r in body['results']] == [('None', '192.168.0.0/24')]
     assert search(client, '8.8.8.8') == (200, {'query': '8.8.8.8', 'results': []})
-    for bad in ('', 'foo', '300.1.1.1', '10.0.0.0/33', '2001:db8::1', '010.0.0.1'):
+    for bad in ('', 'f', '300.1.1.1', '10.0.0.0/33', '2001:db8::1', '010.0.0.1', '10.20'):
         status, body = search(client, bad)
         assert status == 400 and 'error' in body, bad
 
@@ -324,6 +324,47 @@ def test_search_ip_record_unknown_without_ip_list(client):
     assert body['results'][0]['ip']['dns_name'] == 'gw-48.example.test'
 
 
-def test_vrf_page_shows_container_usage_as_allocation(client):
-    html = client.get(f'{BASE}/map/1').get_data(as_text=True)
-    assert 'assigned to prefixes (not containers)' in html and 'assigned</div>' in html
+def test_help_page_is_linked_from_every_page(client):
+    page = client.get(f'{BASE}/help')
+    assert page.status_code == 200 and 'Z-order' in page.get_data(as_text=True)
+    for path in ('/', '/map/1', '/map/1/10_20_0_0_17', '/help'):
+        assert f'href="{BASE}/help"' in client.get(BASE + path).get_data(as_text=True), path
+    assert client.get(f'{BASE}/static/img/z-order.svg').status_code == 200
+
+
+def test_search_text_finds_ips_and_prefixes(client):
+    status, body = search(client, 'GW-50.example')
+    assert status == 200 and body['text']
+    ips = [r for r in body['results'] if r['kind'] == 'ip']
+    assert [(r['address'], r['prefix'], r['vrf']) for r in ips] == [('10.20.50.1', '10.20.50.0/25', '1')]
+    assert ips[0]['url'] == f'{BASE}/map/1/10_20_50_0_25?focus=10.20.50.1'
+    _, body = search(client, 'storage')
+    prefixes = [r['prefix'] for r in body['results'] if r['kind'] == 'prefix']
+    assert prefixes[0] == '10.20.48.0/20' and '10.20.50.0/24' in prefixes  # tenant name matches too
+    _, body = search(client, 'host-')
+    assert body['truncated'] and len(body['results']) == 50
+    assert search(client, 'no such name') == (200, {'query': 'no such name', 'results': [], 'text': True,
+                                                     'truncated': False})
+
+
+def test_map_page_shows_vlan_and_scope(client):
+    html = client.get(f'{BASE}/map/1/10_20_50_0_24').get_data(as_text=True)
+    assert 'VLAN 2050 (lan-50)' in html and '/ipam/vlans/150/' in html
+    html = client.get(f'{BASE}/map/1/10_20_48_0_20').get_data(as_text=True)
+    assert 'Building Storage' in html and '/dcim/locations/4/' in html
+    html = client.get(f'{BASE}/map/1/10_20_32_0_20').get_data(as_text=True)
+    assert 'Lab site' in html and '/dcim/sites/1/' in html
+
+
+def test_prefix_scope_of_older_netbox():
+    from app.cli import prefix_scope
+    assert prefix_scope({'site': 33}) == 'dcim.site:33'
+    assert prefix_scope({'scope_type': 'dcim.location', 'scope_id': 5, 'site': 33}) == 'dcim.location:5'
+    assert prefix_scope({}) is None
+
+
+def test_search_text_matches_vlan_and_scope(client):
+    _, body = search(client, 'vlan 2050')
+    assert [r['prefix'] for r in body['results']] == ['10.20.50.0/24']
+    _, body = search(client, 'building storage')
+    assert body['results'][0]['prefix'] == '10.20.48.0/20'

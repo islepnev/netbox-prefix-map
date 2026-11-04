@@ -1,11 +1,9 @@
-{# p.used: addresses assigned to prefixes (not containers) for containers (usage_kind 'allocated'), IP addresses otherwise #}
 {% macro usage(p, wide=False) -%}
-{% set used = p.used if p.used is defined else p.ip_count %}
-{% if used is none or not p.size %}
+{% if p.ip_count is none or not p.size %}
 <span class="usage{{ ' wide' if wide }} na" title="No usage data"></span>
 {%- else %}
-{% set ratio = [used / p.size, 1] | min %}
-<span class="usage{{ ' wide' if wide }}{{ ' hot' if ratio > 0.8 }}{{ ' alloc' if p.usage_kind == 'allocated' }}" title="{{ '{:,}'.format(used) }} of {{ '{:,}'.format(p.size) }} addresses {{ 'assigned to prefixes (not containers)' if p.usage_kind == 'allocated' else 'with an IP record' }}"><i style="width:{{ '%.1f' | format([6 if ratio > 0 else 0, ratio * 100] | max) }}%"></i></span>
+{% set ratio = [p.ip_count / p.size, 1] | min %}
+<span class="usage{{ ' wide' if wide }}{{ ' hot' if ratio > 0.8 }}" title="{{ '{:,}'.format(p.ip_count) }} of {{ '{:,}'.format(p.size) }} addresses"><i style="width:{{ '%.1f' | format([6 if ratio > 0 else 0, ratio * 100] | max) }}%"></i></span>
 {%- endif %}
 {%- endmacro %}
 {% macro percent(used, total) -%}

@@ -17,10 +17,10 @@
 
 ## Update run
 
-1. Fetch all objects from NetBox. Records are flattened with pynetbox `serialize()`: nested objects become ids, choice fields become their value (`"active"`, `"reserved"`).
+1. Fetch all objects from NetBox: prefixes, IP addresses, VRFs, tenants; optionally prefix roles, IP ranges, VLANs, sites, locations, regions and site groups (names only; skipped with a warning when the token cannot read them). Records are flattened with pynetbox `serialize()`: nested objects become ids, choice fields become their value (`"active"`, `"reserved"`).
 2. Build one prefix tree per VRF.
 3. For every IPv4 prefix write `data-<vrf>-<prefix>.json` and `address_map-<vrf>-<prefix>.png`: an address map for /16 and longer, a layered map for shorter prefixes.
-4. Write `vrf.json`, `names.json` (tenant and role names), `prefix_tree.json` (prefix list per VRF) and `summary.json` (per VRF: IPv4 prefix and address counts, top-level prefixes with usage). Until the first update writes `summary.json`, the VRF pages derive the top-level prefixes from `prefix_tree.json` without usage.
+4. Write `vrf.json`, `names.json` (tenant and role names), `prefix_tree.json` (prefix list per VRF), `search_index.json` (IPv4 addresses with a DNS name or description) and `summary.json` (per VRF: IPv4 prefix and address counts, top-level prefixes with usage). Until the first update writes `summary.json`, the VRF pages derive the top-level prefixes from `prefix_tree.json` without usage.
 
 `<vrf>` is the VRF id or `None`; in `<prefix>`, `.` and `/` are replaced with `_`. All files are written to a temporary name and renamed, so readers never see partial files.
 
@@ -45,6 +45,7 @@ Each cell is `CELL_SIZE` pixels: a 1 px gap followed by the cell body. The axes 
 | DHCP or SLAAC IP | Black at 55% opacity |
 | Reserved or deprecated IP | Black at 25% opacity |
 | Inactive IP | Black at 10% opacity |
+| Address in an IP range, without an IP record | Dark gray dot in the middle of the cell |
 | Other IP | Black |
 | Grid | Dotted lines every 16 cells, inner lines only |
 
@@ -89,9 +90,12 @@ Layout: top bar (VRF, prefix path, search, freshness), prefix tree on the left, 
 - The free-block list has a size picker: "largest" lists the largest free blocks; `/N` lists the first free aligned /N blocks by address, as NetBox "first available prefix" would. The choice is kept in local storage.
 - Hovering shows the address, its IP record or "free", the prefix chain and the free blocks of the innermost prefix in the inspector; the cell and the prefix are outlined. Clicking pins the cell; clicking it again or Esc unpins.
 - Double-clicking opens the child prefix that contains the cell, otherwise the IP address in NetBox.
-- Usage of a container is the share of its addresses assigned to nested prefixes that are not containers (`allocated` in the data files and `summary.json`; any depth, overlaps counted once); other prefixes show the share of addresses with an IP record. The tree and the VRF page draw container usage striped.
+- Usage of every prefix, containers included, is the share of its addresses with an IP record, counted through any nested prefixes.
+- NetBox IP ranges overlapping a prefix (of its VRF; of all VRFs for a Global container) are stored in its data file (`ip_ranges`). The inspector shows the ranges of an address or block. Ranges take space like child prefixes: their addresses are never free. Without `ipam.view_iprange` on the token, ranges are skipped with a warning.
+- Addresses with several IP records (several VRFs under a Global container, or NetBox duplicates) get a "N records" pill and the list of records in the inspector; the prefix summary lists them.
 - Free blocks are the largest aligned blocks with no IP record and no child prefix. Child containers are transparent: what is not assigned inside them is free. As in NetBox, the network and broadcast addresses of a prefix are not free unless it is a container, a pool, a /31 or a /32; the inspector labels them. Data files of prefixes without an image carry no IP list, so their free blocks are not shown.
 - The prefix tree shows the path from the outermost parent to the current prefix; other branches load on expand from `/data/...?nav=1`, which omits addresses and nested prefixes. Tree rows and the map highlight each other.
+- Text search: other queries of 2 characters or more go to `/search` as text, matched case-insensitively against IP DNS names and descriptions (`search_index.json`) and prefix descriptions, tenant and role names; IP results link to the innermost prefix map with `?focus=`. At most 50 results.
 - Search: an address or prefix inside the map is pinned or outlined in place; other queries go to `/search`, which returns, per VRF, the prefix itself or the innermost prefix containing the query, with the IP record if any. Result links carry `?focus=<query>`, which pins or outlines it when the map opens.
 - Export and print (`static/js/map_export.js`): an SVG is drawn in the browser from the data file, with the same layout as the PNG: one rect per IP (per block with its usage darkness on layered maps), nested prefixes with tenant fills and dotted outlines, the octet labels as text, a title and a legend. "Download SVG" saves it; on print (`beforeprint`, Ctrl+P included) it replaces the page through the print stylesheet, so the browser prints a vector map with legend and no UI, landscape for 2:1 maps. In black and white, tenants get hatch patterns instead of colors and IPs with a role become hollow black cells.
 - The freshness dot polls `/healthz` and turns amber when the last update failed, the updater stopped or the data is older than 24 h.

@@ -99,9 +99,13 @@ def build_dataset(seed: int = 20):
 
     prefixes = []
 
-    def add_prefix(prefix, vrf, tenant=None, status="active", description="", role=None, is_pool=False):
+    def add_prefix(prefix, vrf, tenant=None, status="active", description="", role=None, is_pool=False, vlan=None,
+                   scope=None):
         prefixes.append({
             "is_pool": is_pool,
+            "vlan": vlan,
+            "scope_type": scope[0] if scope else None,
+            "scope_id": scope[1] if scope else None,
             "id": len(prefixes) + 1,
             "prefix": prefix,
             "vrf": vrf,
@@ -117,7 +121,9 @@ def build_dataset(seed: int = 20):
     add_prefix("10.20.128.0/17", LAN_VRF_ID, status="container", description="Campus B")
     add_prefix("10.30.0.0/16", LAN_VRF_ID, status="reserved", description="Future site")
     for prefix, tenant, status in TENANT_BLOCKS:
-        add_prefix(prefix, LAN_VRF_ID, tenant, status, description=f"{TENANTS[tenant]} block", role=1)
+        # Tenant blocks sit in a building (a location); the Lab block in a site
+        scope = ("dcim.site", 1) if tenant == 3 else ("dcim.location", tenant)
+        add_prefix(prefix, LAN_VRF_ID, tenant, status, description=f"{TENANTS[tenant]} block", role=1, scope=scope)
 
     block_tenant = {}
     for prefix, tenant, _ in TENANT_BLOCKS:
@@ -174,7 +180,35 @@ def build_dataset(seed: int = 20):
         add_ip(f"192.168.0.{host}/24", None, status="active", role="vip" if host == 1 else None)
     add_ip("2001:db8::1/64", LAN_VRF_ID)
 
-    return {"vrfs": vrfs, "tenants": tenants, "roles": roles, "prefixes": prefixes, "ip_addresses": ip_addresses}
+    ip_ranges = []
+
+    def add_range(start, end, vrf, status="active", description="", role=None, mark_utilized=False):
+        first, last = (ipaddress.ip_interface(a).ip for a in (start, end))
+        ip_ranges.append({
+            "id": len(ip_ranges) + 1, "start_address": start, "end_address": end,
+            "size": int(last) - int(first) + 1, "vrf": vrf, "tenant": None, "status": status, "role": role,
+            "description": description, "mark_utilized": mark_utilized,
+        })
+
+    add_range("10.20.16.100/24", "10.20.16.199/24", LAN_VRF_ID, description="Office DHCP", role=1)
+    add_range("10.20.37.10/24", "10.20.37.250/24", LAN_VRF_ID, description="Lab DHCP", mark_utilized=True)
+    add_range("10.20.20.0/24", "10.20.20.63/24", LAN_VRF_ID, status="reserved", description="Printers, planned")
+
+    # VLAN per /24 of the tenant blocks: VLAN id 2000 + third octet
+    vlans = []
+    for p in prefixes:
+        net = ipaddress.ip_network(p["prefix"])
+        if net.version == 4 and net.prefixlen == 24 and p["vrf"] == LAN_VRF_ID and str(net).startswith("10.20."):
+            third = int(str(net.network_address).split(".")[2])
+            vlans.append({"id": 100 + third, "vid": 2000 + third, "name": f"lan-{third}"})
+            p["vlan"] = 100 + third
+    scope_objects = {
+        "dcim.site": [{"id": 1, "name": "Lab site"}],
+        "dcim.location": [{"id": tid, "name": f"Building {name}"} for tid, name in TENANTS.items()],
+    }
+
+    return {"vrfs": vrfs, "tenants": tenants, "roles": roles, "prefixes": prefixes, "ip_addresses": ip_addresses,
+            "ip_ranges": ip_ranges, "vlans": vlans, "scope_objects": scope_objects}
 
 
 class FakeNetboxManager:
@@ -191,6 +225,15 @@ class FakeNetboxManager:
 
     def get_vrfs(self):
         return self.dataset["vrfs"]
+
+    def get_ip_ranges(self):
+        return self.dataset.get("ip_ranges", [])
+
+    def get_vlans(self):
+        return self.dataset.get("vlans", [])
+
+    def get_scope_objects(self):
+        return self.dataset.get("scope_objects", {})
 
     def get_tenants(self):
         return self.dataset["tenants"]

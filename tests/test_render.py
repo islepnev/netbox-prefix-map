@@ -440,17 +440,19 @@ def test_tenant_prefix_wins_over_tenantless_in_block(tmp_path):
     assert list(load_rgb(out)[1, 1]) == expected
 
 
-def test_allocated_counts_assigned_space_once(output_dir, dataset):
-    def load(prefix):
-        with open(data_path(output_dir, LAN, prefix)) as f:
-            return json.load(f)
-
-    data = load("10.20.0.0/17")
-    assigned = [ipaddress.ip_network(p['prefix']) for p in dataset['prefixes']
-                if p['vrf'] == LAN and ':' not in p['prefix'] and p['status'] != 'container'
-                and ipaddress.ip_network(p['prefix']).subnet_of(ipaddress.ip_network("10.20.0.0/17"))
-                and p['prefix'] != "10.20.0.0/17"]
-    assert data['allocated'] == sum(n.num_addresses for n in ipaddress.collapse_addresses(assigned))
-    assert 0 < data['allocated'] < data['size']
-    # Child containers are not used space: the /16 is only as assigned as what is inside its /17 containers
-    assert load("10.20.0.0/16")['allocated'] == data['allocated'] + load("10.20.128.0/17")['allocated']
+def test_ip_ranges_in_data_file_and_image(output_dir, dataset):
+    prefix = "10.20.16.0/24"
+    with open(data_path(output_dir, LAN, prefix)) as f:
+        data = json.load(f)
+    assert [(r['start'], r['end'], r['size']) for r in data['ip_ranges']] == [('10.20.16.100', '10.20.16.199', 100)]
+    rgb = load_rgb(image_path(output_dir, LAN, prefix))
+    used = {ip['address'].split('/')[0] for ip in dataset['ip_addresses']}
+    inside = next(f'10.20.16.{h}' for h in range(100, 200) if f'10.20.16.{h}' not in used)
+    outside = next(f'10.20.16.{h}' for h in range(2, 100) if f'10.20.16.{h}' not in used)
+    x0, y0, x1, y1 = cell_box(prefix, inside)
+    assert rgb[y0:y1, x0:x1].min() < 120, "free address in a range carries a mark"
+    x0, y0, x1, y1 = cell_box(prefix, outside)
+    assert rgb[y0:y1, x0:x1].min() > 120, "free address outside ranges is unmarked"
+    # Containers carry the ranges inside them too
+    with open(data_path(output_dir, LAN, "10.20.0.0/17")) as f:
+        assert len(json.load(f)['ip_ranges']) == 3

@@ -38,7 +38,8 @@ WEBHOOK_SECRET = os.getenv('WEBHOOK_SECRET', '')
 if not WEBHOOK_SECRET:
     logging.warning("WEBHOOK_SECRET is not set: webhook requests are not authenticated.")
 
-WEBHOOK_MODELS = {'prefix', 'ipaddress', 'vrf', 'tenant', 'iprange'}
+WEBHOOK_MODELS = {'prefix', 'ipaddress', 'vrf', 'tenant', 'iprange', 'role', 'vlan', 'site', 'location', 'region',
+                  'sitegroup'}
 
 updater_manager = UpdaterManager(run_update, debounce_interval=float(os.getenv('UPDATE_DEBOUNCE_SECONDS', 60)))
 if os.getenv('INITIAL_UPDATE', '1') != '0':
@@ -111,6 +112,31 @@ def load_names():
     return names.get('tenants', {}), names.get('roles', {})
 
 
+SCOPE_PATHS = {'dcim.site': 'dcim/sites', 'dcim.location': 'dcim/locations', 'dcim.region': 'dcim/regions',
+               'dcim.sitegroup': 'dcim/site-groups'}
+
+
+def vlan_label(vlan_id):
+    """'VLAN 1812 (name)' from names.json; the id when the VLAN name is unknown."""
+    if not vlan_id:
+        return None
+    vlan = load_output_json('names.json', {}).get('vlans', {}).get(str(vlan_id))
+    if not vlan:
+        return f"VLAN #{vlan_id}"
+    name = vlan.get('name')
+    return f"VLAN {vlan.get('vid')}" + (f" ({name})" if name and str(name) != str(vlan.get('vid')) else '')
+
+
+def scope_info(scope):
+    """Name and NetBox path of a prefix scope '<object type>:<id>'."""
+    if not scope:
+        return None, None
+    kind, _, object_id = scope.partition(':')
+    name = load_output_json('names.json', {}).get('scopes', {}).get(scope)
+    path = f"/{SCOPE_PATHS[kind]}/{object_id}/" if kind in SCOPE_PATHS else None
+    return name or f"{kind.split('.')[-1].capitalize()} #{object_id}", path
+
+
 def prefix_details(prefix_entry):
     if not prefix_entry:
         return {}
@@ -124,6 +150,10 @@ def prefix_details(prefix_entry):
         'tenant_name': tenants.get(str(tenant_id)) if tenant_id else None,
         'role_id': role_id,
         'role_name': roles.get(str(role_id)) if role_id else None,
+        'vlan_id': prefix_entry.get('vlan'),
+        'vlan_label': vlan_label(prefix_entry.get('vlan')),
+        'scope_name': scope_info(prefix_entry.get('scope'))[0],
+        'scope_path': scope_info(prefix_entry.get('scope'))[1],
     }
 
 
@@ -154,6 +184,8 @@ def find_parents(vrf, display_prefix):
         'id': entry.get('id'),
         'tenant': entry.get('tenant'),
         'status': entry.get('status'),
+        'is_pool': bool(entry.get('is_pool')),
+        'vlan': entry.get('vlan'),
         'description': entry.get('description') or '',
     } for p, entry in sorted(parents.items(), key=lambda item: item[0].prefixlen)]
 
@@ -335,15 +367,8 @@ def vrf_summary(vrf_key, summary=None):
             'top_prefixes': [dict(entry, prefix=str(network), ip_count=None, size=network.num_addresses)
                              for network, entry in top_level_prefixes(entries)],
         }
-    result['top_prefixes'] = [dict(p, sanitized=sanitize_name(p['prefix']), **usage_of(p)) for p in result['top_prefixes']]
+    result['top_prefixes'] = [dict(p, sanitized=sanitize_name(p['prefix'])) for p in result['top_prefixes']]
     return result
-
-
-def usage_of(p):
-    """Usage shown for a prefix: containers by addresses in child prefixes, others by IP addresses."""
-    if p.get('status') == 'container' and p.get('allocated') is not None:
-        return {'used': p['allocated'], 'usage_kind': 'allocated'}
-    return {'used': p.get('ip_count'), 'usage_kind': 'ips'}
 
 
 @bp.route('/')
@@ -364,6 +389,11 @@ def index():
             'ip_count': counts['ip_count'],
         })
     return render_template('index.html', rows=rows, netbox_url=get_netbox_url())
+
+
+@bp.route('/help')
+def help_page():
+    return render_template('help.html')
 
 
 @bp.route('/map/<vrf>', methods=['GET'])
@@ -399,7 +429,9 @@ def serve_map(vrf, prefix):
     prefix_entry = find_prefix_entry(vrf, display_prefix)
     details = prefix_details(prefix_entry)
     parents = find_parents(vrf, display_prefix)
-    names = dict(zip(('tenants', 'roles'), load_names()))
+    all_names = load_output_json('names.json', {})
+    names = {'tenants': all_names.get('tenants', {}), 'roles': all_names.get('roles', {}),
+             'vlans': all_names.get('vlans', {})}
     netbox_url = get_netbox_url()
     image_url = url_for('app.serve_image', filename=image_filename) if image_exists else None
     config = {
@@ -505,16 +537,78 @@ def search_prefixes(query):
     return results[:SEARCH_LIMIT]
 
 
+# Digits, dots and a slash, or IPv6: meant as an address, so it must parse as IPv4
+ADDRESS_LIKE = re.compile(r'^[\d./]+$|^[0-9a-fA-F]*:[0-9a-fA-F:./]*$')
+
+
+def innermost_prefix(vrf_key, address):
+    """The longest prefix of a VRF containing an address; Global containers span all VRFs."""
+    target = ipaddress.ip_address(address)
+    index = prefix_index()
+    best = None
+    for key in (vrf_key, 'None') if vrf_key != 'None' else ('None',):
+        for network, entry in index.get(key, []):
+            if target in network and (key == vrf_key or entry.get('status') == 'container') \
+                    and (best is None or network.prefixlen > best[1].prefixlen):
+                best = (key, network)
+        if best:
+            break
+    return best
+
+
+def search_text(query):
+    """Prefixes by description, tenant or role name; IP addresses by DNS name or description. Case-insensitive."""
+    q = query.lower()
+    vrf_names = {str(v['id']): v.get('name') for v in load_vrf_data()}
+    vrf_name = lambda key: 'Global' if key == 'None' else vrf_names.get(key, key)  # noqa: E731
+    tenants, roles = load_names()
+    prefixes = []
+    for vrf_key, networks in prefix_index().items():
+        for network, entry in networks:
+            tenant = tenants.get(str(entry.get('tenant'))) if entry.get('tenant') else ''
+            role = roles.get(str(entry.get('role'))) if entry.get('role') else ''
+            vlan, scope = vlan_label(entry.get('vlan')), scope_info(entry.get('scope'))[0]
+            if any(q in (text or '').lower() for text in (entry.get('description'), tenant, role, vlan, scope)):
+                prefixes.append({
+                    'kind': 'prefix', 'vrf': vrf_key, 'vrf_name': vrf_name(vrf_key), 'prefix': str(network),
+                    'description': ' · '.join(filter(None, (entry.get('description'), tenant))), 'match': 'exact',
+                    'url': url_for('app.serve_map', vrf=vrf_key, prefix=sanitize_name(str(network))),
+                })
+    prefixes.sort(key=lambda r: (ipaddress.ip_network(r['prefix']).prefixlen, ipaddress.ip_network(r['prefix'])))
+    ips = []
+    for address, vrf, dns_name, description, ip_id in load_output_json('search_index.json', {}).get('ips', []):
+        if q not in dns_name.lower() and q not in description.lower():
+            continue
+        vrf_key = 'None' if vrf is None else str(vrf)
+        found = innermost_prefix(vrf_key, address)
+        if not found:
+            continue
+        map_vrf, network = found
+        ips.append({
+            'kind': 'ip', 'vrf': vrf_key, 'vrf_name': vrf_name(vrf_key), 'prefix': str(network), 'address': address,
+            'ip': {'id': ip_id, 'dns_name': dns_name, 'description': description},
+            'url': url_for('app.serve_map', vrf=map_vrf, prefix=sanitize_name(str(network)), focus=address),
+        })
+        if len(ips) > SEARCH_LIMIT:
+            break
+    ips.sort(key=lambda r: (r['vrf'], ipaddress.ip_address(r['address'])))
+    results = prefixes + ips
+    return results[:SEARCH_LIMIT], len(results) > SEARCH_LIMIT
+
+
 @bp.route('/search', methods=['GET'])
 def search():
     query = request.args.get('q', '').strip()
-    try:
-        if not SEARCH_QUERY.match(query):
-            raise ValueError
-        results = search_prefixes(query)
-    except ValueError:
-        return jsonify({'error': 'Expected an IPv4 address or prefix, e.g. 10.20.0.1 or 10.20.36.0/24.'}), 400
-    return jsonify({'query': query, 'results': results})
+    if SEARCH_QUERY.match(query):
+        try:
+            return jsonify({'query': query, 'results': search_prefixes(query)})
+        except ValueError:
+            pass
+    elif len(query) >= 2 and not ADDRESS_LIKE.match(query):
+        results, truncated = search_text(query)
+        return jsonify({'query': query, 'results': results, 'text': True, 'truncated': truncated})
+    return jsonify({'error': 'Expected an IPv4 address or prefix (10.20.0.1, 10.20.36.0/24), '
+                             'or at least 2 characters of a name or description.'}), 400
 
 
 @bp.route('/data/<vrf>/<path:prefix>', methods=['GET'])
