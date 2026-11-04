@@ -181,6 +181,7 @@ body.no-tree #tree-panel, body.no-insp #insp-panel { display: none; }
 /* Hidden until the first layout sets the zoom, so the image never shows at its natural size */
 #stage:not(.laid-out) { visibility: hidden; }
 #map-img { display: block; image-rendering: pixelated; user-select: none; -webkit-user-drag: none; }
+#map-img.smooth { image-rendering: auto; }
 .ov { position: absolute; pointer-events: none; }
 #ov-prefix { box-shadow: inset 0 0 0 var(--hair) #1f5fe0; background: rgba(31, 95, 224, .045); }
 #ov-select { box-shadow: inset 0 0 0 var(--hair) #1f5fe0; outline: var(--hair) dashed rgba(255, 255, 255, .9); background: rgba(31, 95, 224, .08); }

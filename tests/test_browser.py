@@ -114,19 +114,44 @@ def test_zoom_is_whole_device_pixels_per_cell(open_page, dpr):
 
 
 def test_zoom_steps(open_page):
-    """Zoom out to 1 x, then in: 4, 5, 6, 7, 8, 10, 12 device pixels per cell, and back down the same way."""
+    """Zoom out to 0.25 x, then in: 1, 2, 4, 5, 6, 7, 8, 10, 12 device pixels per cell, and back down the same way."""
     page = open_page(f'{BASE}/map/1/10_20_48_0_20', viewport=(1400, 900))
     wait_for_map(page)
     for _ in range(30):
         page.keyboard.press('-')
+    assert page.is_disabled('#zoom-out')
     seen = [page.evaluate('window.__prefixMap.c')]
-    for _ in range(6):
+    for _ in range(8):
         page.keyboard.press('+')
         seen.append(page.evaluate('window.__prefixMap.c'))
-    assert seen == [CELL_SIZE * 1, 5, 6, 7, 8, 10, 12] if CELL_SIZE == 4 else seen == sorted(set(seen))
-    for _ in range(6):
+    assert seen == [1, 2, 4, 5, 6, 7, 8, 10, 12] if CELL_SIZE == 4 else seen == sorted(set(seen))
+    assert seen[0] == 1
+    for _ in range(8):
         page.keyboard.press('-')
-    assert page.evaluate('window.__prefixMap.c') == CELL_SIZE
+    assert page.evaluate('window.__prefixMap.c') == seen[0]
+
+
+@pytest.mark.parametrize("dpr", [1, 2])
+def test_fit_goes_below_1x(open_page, dpr):
+    """A /8 layered map (256 x 256 cells, 1024 device px at 1 x) fits a small window."""
+    page = open_page(f'{BASE}/map/1/10_0_0_0_8', device_scale_factor=dpr, viewport=(1000, 700))
+    wait_for_map(page)
+    c = page.evaluate('window.__prefixMap.c')
+    img, vp = page.evaluate("""() => ["map-img", "viewport"].map(id => {
+        const r = document.getElementById(id).getBoundingClientRect();
+        return [r.left, r.top, r.right, r.bottom];
+    })""")
+    assert img[0] >= vp[0] and img[1] >= vp[1] and img[2] <= vp[2] and img[3] <= vp[3], "the map is inside the view"
+    assert c < CELL_SIZE
+    assert page.inner_text('#zoom-level') == f'{float(f"{c / CELL_SIZE:.2f}"):g}×'
+    assert page.eval_on_selector('#map-img', 'i => getComputedStyle(i).imageRendering') == 'auto'
+    page.mouse.move(*cell_center(page, *layer_cell('10.0.0.0/8', 24, '10.20.0.0')))
+    assert '10.20.0.0/24' in page.inner_text('#insp-detail')
+    page.keyboard.press('+')
+    while page.evaluate('window.__prefixMap.c') < CELL_SIZE:
+        page.keyboard.press('+')
+    assert page.eval_on_selector('#map-img', 'i => getComputedStyle(i).imageRendering') == 'pixelated'
+    assert page.errors == []
 
 
 @pytest.mark.parametrize("dpr", [1, 2])
@@ -777,6 +802,8 @@ def test_fractional_zoom_keeps_cells_identical(open_page, output_dir, dpr, press
     wait_for_map(page)
     for _ in range(30):
         page.keyboard.press('-')
+    while page.evaluate('window.__prefixMap.c') < CELL_SIZE:
+        page.keyboard.press('+')
     for _ in range(presses):
         page.keyboard.press('+')
     c = page.evaluate('window.__prefixMap.c')
