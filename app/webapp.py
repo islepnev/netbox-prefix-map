@@ -360,6 +360,11 @@ def index():
     return render_template('index.html', rows=rows, netbox_url=get_netbox_url())
 
 
+@bp.route('/help')
+def help_page():
+    return render_template('help.html')
+
+
 @bp.route('/map/<vrf>', methods=['GET'])
 def vrf_view(vrf):
     vrf_info = next((v for v in load_vrf_data() if str(v['id']) == vrf), None)

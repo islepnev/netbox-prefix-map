@@ -18,7 +18,7 @@ The maps are drawn from [NetBox](https://github.com/netbox-community/netbox) pre
 
 Addresses run along a Z-order (Morton) curve: the first half of a prefix is the top or left half of its map, the first quarter is the top-left quarter, and so on. Every aligned subnet is therefore a rectangle: a /24 is a 16 × 16 square on a /16 map, and a /25 is half of it. The grey numbers on the map are the octets that tell these squares apart, e.g. the third octet of each /24.
 
-![Z-order layout of a /27: addresses 0 to 31, with a /30, a /29 and a /28 as rectangles](docs/img/z-order.svg)
+![Z-order layout of a /27: addresses 0 to 31, with a /30, a /29 and a /28 as rectangles](static/img/z-order.svg)
 
 The same space at three levels, as printed:
 
@@ -134,6 +134,7 @@ All paths are relative to `BASE_PATH`.
 | `/webhook` | NetBox webhook receiver |
 | `/healthz` | Liveness and data age (JSON); used by the container healthcheck |
 | `/metrics` | Prometheus metrics |
+| `/help` | How to read the map |
 | `/errors` | Recent warnings and errors |
 
 ## Limitations

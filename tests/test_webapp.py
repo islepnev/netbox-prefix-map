@@ -322,3 +322,11 @@ def test_search_ip_record_unknown_without_ip_list(client):
     _, body = search(client, '10.20.48.1/32')
     assert body['results'][0]['url'].endswith('?focus=10.20.48.1')
     assert body['results'][0]['ip']['dns_name'] == 'gw-48.example.test'
+
+
+def test_help_page_is_linked_from_every_page(client):
+    page = client.get(f'{BASE}/help')
+    assert page.status_code == 200 and 'Z-order' in page.get_data(as_text=True)
+    for path in ('/', '/map/1', '/map/1/10_20_0_0_17', '/help'):
+        assert f'href="{BASE}/help"' in client.get(BASE + path).get_data(as_text=True), path
+    assert client.get(f'{BASE}/static/img/z-order.svg').status_code == 200

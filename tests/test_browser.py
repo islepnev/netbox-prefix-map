@@ -453,7 +453,7 @@ def test_free_block_highlight_cleared_on_rerender(open_page):
     assert page.is_hidden('#ov-free') or page.locator('#sum-free table.free tr:hover').count() == 1
 
 
-@pytest.mark.parametrize("path", ['/', '/map/1', '/map/None', '/map/1/10_0_0_0_8', '/map/None/172_31_0_0_16',
+@pytest.mark.parametrize("path", ['/', '/help', '/map/1', '/map/None', '/map/1/10_0_0_0_8', '/map/None/172_31_0_0_16',
                                   '/map/None/172_31_4_0_24'])
 def test_pages_have_no_script_errors(open_page, path):
     page = open_page(BASE + path)
