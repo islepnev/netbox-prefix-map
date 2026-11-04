@@ -42,9 +42,11 @@ if not WEBHOOK_SECRET:
 WEBHOOK_MODELS = {'prefix', 'ipaddress', 'vrf', 'tenant', 'iprange', 'role', 'vlan', 'site', 'location', 'region',
                   'sitegroup'}
 
-updater_manager = UpdaterManager(run_update, debounce_interval=float(os.getenv('UPDATE_DEBOUNCE_SECONDS', 60)))
+# UPDATE_INTERVAL_SECONDS: periodic full update, for changes without a webhook (e.g. IP addresses); 0 = off
+updater_manager = UpdaterManager(run_update, debounce_interval=float(os.getenv('UPDATE_DEBOUNCE_SECONDS', 60)),
+                                 poll_interval=float(os.getenv('UPDATE_INTERVAL_SECONDS', 0)))
 if os.getenv('INITIAL_UPDATE', '1') != '0':
-    updater_manager.request_update()
+    updater_manager.request_update('startup')
 
 WEBHOOK_RESULTS = ('accepted', 'ignored', 'rejected', 'invalid')
 _webhook_counts = dict.fromkeys(WEBHOOK_RESULTS, 0)
@@ -294,6 +296,7 @@ def healthz():
         'last_success_at': last_success,
         'data_age_seconds': round(time.time() - last_success, 1) if last_success else None,
         'last_error': status['last_error'],
+        'poll_interval': status.get('poll_interval') or 0,
     }
     return jsonify(body), 200 if updater_manager.is_alive() else 503
 
@@ -312,6 +315,11 @@ def metrics():
             lines.append(f"{name}{labels} {value}")
 
     metric('prefix_map_updates_total', 'counter', 'Completed update runs.', [('', status['runs'])])
+    by_trigger = status.get('runs_by_trigger') or {}
+    metric('prefix_map_updates_by_trigger_total', 'counter', 'Completed update runs by what started them.',
+           [(f'{{trigger="{t}"}}', by_trigger.get(t, 0)) for t in UpdaterManager.TRIGGERS])
+    metric('prefix_map_poll_interval_seconds', 'gauge', 'Interval of periodic updates; 0 when off.',
+           [('', status.get('poll_interval') or 0)])
     metric('prefix_map_update_failures_total', 'counter', 'Failed update runs.', [('', status['failures'])])
     metric('prefix_map_update_running', 'gauge', '1 while an update runs.', [('', int(status['running']))])
     metric('prefix_map_update_pending', 'gauge', '1 while an update is queued.', [('', int(status['pending']))])

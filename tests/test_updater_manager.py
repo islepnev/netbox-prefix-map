@@ -105,3 +105,47 @@ def test_error_message_is_reported():
     assert wait_for(lambda: mgr.status()['failures'] == 1)
     mgr.stop(1)
     assert mgr.status()['last_error'] == "Failed to fetch prefixes from NetBox"
+
+
+def test_poll_runs_when_idle():
+    rec = Recorder()
+    mgr = UpdaterManager(rec, debounce_interval=INTERVAL, poll_interval=0.3)
+    assert wait_for(lambda: len(rec.starts) >= 2, timeout=3)
+    mgr.stop(1)
+    assert 0.25 < rec.starts[1] - rec.starts[0] < 0.6, "one interval apart"
+    assert mgr.status()['runs_by_trigger']['poll'] >= 2
+
+
+def test_no_poll_when_interval_is_zero():
+    rec = Recorder()
+    mgr = UpdaterManager(rec, debounce_interval=INTERVAL, poll_interval=0)
+    time.sleep(0.5)
+    mgr.stop(1)
+    assert rec.starts == []
+
+
+def test_webhook_run_resets_the_poll_timer():
+    rec = Recorder()
+    mgr = UpdaterManager(rec, debounce_interval=0.05, poll_interval=0.6)
+    time.sleep(0.4)
+    mgr.webhook_received()  # runs now; the next poll is 0.6 s after this run, not after creation
+    assert wait_for(lambda: len(rec.starts) == 1)
+    time.sleep(0.4)
+    assert len(rec.starts) == 1, "no poll 0.6 s after creation"
+    assert wait_for(lambda: len(rec.starts) == 2, timeout=2)
+    mgr.stop(1)
+    assert 0.55 < rec.starts[1] - rec.starts[0] < 0.9
+    counts = mgr.status()['runs_by_trigger']
+    assert counts['webhook'] == 1 and counts['poll'] == 1
+
+
+def test_requests_during_a_run_coalesce_and_count_once():
+    rec = Recorder(duration=0.3)
+    mgr = UpdaterManager(rec, debounce_interval=0.05)
+    mgr.request_update('startup')
+    assert wait_for(lambda: len(rec.starts) == 1)
+    mgr.webhook_received()
+    mgr.request_update('poll')
+    assert wait_for(lambda: len(rec.starts) == 2, timeout=3)
+    mgr.stop(2)
+    assert mgr.status()['runs_by_trigger'] == {'startup': 1, 'webhook': 1, 'poll': 0}

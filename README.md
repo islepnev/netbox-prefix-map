@@ -47,6 +47,7 @@ Settings are read from the environment or from a `.env` file in the project dire
 | `CELL_SIZE` | `4` | Cell size in pixels |
 | `WEBHOOK_SECRET` | | Shared secret of the NetBox webhook; when set, unsigned requests are rejected |
 | `UPDATE_DEBOUNCE_SECONDS` | `60` | Minimum interval between webhook-triggered updates |
+| `UPDATE_INTERVAL_SECONDS` | `0` | Periodic full update when none has run for this long, at most once per `UPDATE_DEBOUNCE_SECONDS`; `0` turns it off |
 | `INITIAL_UPDATE` | `1` | Set to `0` to skip the update at startup |
 | `PORT` | `5000` | Listening port |
 
@@ -76,6 +77,8 @@ python -m app.webapp    # development server
 2. Operations › Integrations › Event Rules › Add: object types IPAM › Prefix, IPAM › IP Address, IPAM › IP Range, IPAM › VRF, Tenancy › Tenant; optionally IPAM › Role, IPAM › VLAN, DCIM › Site, Location, Region, Site Group, so that renames show up; events created, updated, deleted; action: the webhook above.
 
 Events for other object types are ignored. A burst of events triggers one update immediately and at most one follow-up after `UPDATE_DEBOUNCE_SECONDS`.
+
+Where IP addresses change often and in batches, leave IPAM › IP Address out of the event rule: NetBox queues one webhook job per changed object. Set `UPDATE_INTERVAL_SECONDS` (e.g. `900`) instead; the maps then pick up address changes within that interval, and webhooks for the other objects still update them at once.
 
 ### Map button on prefix pages
 
