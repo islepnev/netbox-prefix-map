@@ -556,3 +556,28 @@ def test_layered_map_stripes_reserved_prefix(output_dir):
     x0, y0, _, _ = layer_cell_box("10.0.0.0/8", 24, "10.99.0.0")
     on, _ = stripe_pixels(image, x0, y0, x0 + 8 * CELL_SIZE, y0 + 8 * CELL_SIZE)
     assert (on.min(axis=1) > 200).mean() > 0.9, "free space is not striped"
+
+
+def test_change_history_keeps_the_last_updates(tmp_path, monkeypatch):
+    """Three changing updates and one without changes: three records, newest first, capped lists."""
+    from app.cli import HISTORY_LIST_LIMIT, change_history, run_update
+    from tests.synthetic_data import FakeNetboxManager, build_dataset
+    monkeypatch.setenv('OUTPUT_DIR', str(tmp_path))
+    dataset = build_dataset()
+    run_update(mgr=FakeNetboxManager(dataset))
+    path = data_path(str(tmp_path), LAN, "10.20.48.0/24")
+    removed = []
+    for address in [ip['address'] for ip in ips_in(dataset, '10.20.48.0/24')][:3]:
+        dataset['ip_addresses'] = [ip for ip in dataset['ip_addresses'] if ip['address'] != address]
+        removed.append(address.split('/')[0])
+        run_update(mgr=FakeNetboxManager(dataset))
+    run_update(mgr=FakeNetboxManager(dataset))
+    with open(path) as f:
+        data = json.load(f)
+    assert [h['removed'] for h in data['changes_history']] == [[a] for a in reversed(removed)]
+    assert data['changes'] == data['changes_history'][0]
+    # A data file of the previous version: its last change seeds the history
+    seeded = change_history({'changes': {'at': 1, 'added': [str(i) for i in range(300)]}}, None)
+    assert len(seeded) == 1 and len(seeded[0]['added']) == HISTORY_LIST_LIMIT
+    many = change_history({'changes_history': [{'at': i} for i in range(10)]}, {'at': 99})
+    assert [h['at'] for h in many] == [99] + list(range(9))
