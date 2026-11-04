@@ -8,9 +8,9 @@ The maps are drawn from [NetBox](https://github.com/netbox-community/netbox) pre
 
 ## What you can do
 
-- **See the whole space.** Prefixes of /16 and longer get one cell per address, and shorter ones one cell per /24 or larger block, shaded by how many addresses are used. Child prefixes are filled with their tenant's colour, and used addresses are drawn on top: in use, DHCP, reserved, inactive, or with a role (anycast, VIP).
+- **See the whole space.** Prefixes of /16 and longer get one cell per address, and shorter ones one cell per /24 or larger block, shaded by how many addresses are used. Child prefixes are filled with their tenant's colour, and used addresses are drawn on top: in use, DHCP, reserved, inactive, or with a role (anycast, VIP). NetBox IP ranges are marked too.
 - **Inspect any address.** Hover or click a cell to see its IP record or "free", the chain of prefixes around it with links to NetBox, and the free blocks of the innermost prefix. Network and broadcast addresses are marked as such.
-- **Find space.** Pick a size such as /26 to list the first free blocks of that size, then copy one with a click. Search by address or prefix across all VRFs.
+- **Find space.** Pick a size such as /26 to list the first free blocks of that size, then copy one with a click. Search by address, prefix, DNS name or description across all VRFs.
 - **Share and print.** The URL keeps the pinned address. Print gives a vector map with title and legend, in colour or black and white with hatched tenants, and "Download SVG" saves the same drawing.
 - **Work from the keyboard.** Arrow keys move the pin, Enter opens the child prefix or the IP in NetBox, `c` copies, `/` searches, `+` `-` `0` zoom.
 
@@ -18,7 +18,7 @@ The maps are drawn from [NetBox](https://github.com/netbox-community/netbox) pre
 
 Addresses run along a Z-order (Morton) curve: the first half of a prefix is the top or left half of its map, the first quarter is the top-left quarter, and so on. Every aligned subnet is therefore a rectangle: a /24 is a 16 × 16 square on a /16 map, and a /25 is half of it. The grey numbers on the map are the octets that tell these squares apart, e.g. the third octet of each /24.
 
-![Z-order layout of a /27: addresses 0 to 31, with a /30, a /29 and a /28 as rectangles](docs/img/z-order.svg)
+![Z-order layout of a /27: addresses 0 to 31, with a /30, a /29 and a /28 as rectangles](static/img/z-order.svg)
 
 The same space at three levels, as printed:
 
@@ -30,7 +30,7 @@ The screenshots use the synthetic test dataset (`tests/synthetic_data.py`); no r
 
 ## Requirements
 
-- NetBox 4.x and an API token with read access to IPAM (prefixes, IP addresses, VRFs; roles optional) and Tenancy (tenants)
+- NetBox 4.x and an API token with read access to IPAM (prefixes, IP addresses, VRFs; roles, IP ranges and VLANs optional), Tenancy (tenants) and optionally DCIM (sites, locations, regions, site groups)
 - Docker with Compose, or Python 3.13
 
 ## Configuration
@@ -73,7 +73,7 @@ python -m app.webapp    # development server
 ### Webhook
 
 1. Operations › Integrations › Webhooks › Add: URL `http://<host>:5000/prefix-map/webhook`, method `POST`, content type `application/json`, secret as in `WEBHOOK_SECRET`.
-2. Operations › Integrations › Event Rules › Add: object types IPAM › Prefix, IPAM › IP Address, IPAM › VRF, Tenancy › Tenant; events created, updated, deleted; action: the webhook above.
+2. Operations › Integrations › Event Rules › Add: object types IPAM › Prefix, IPAM › IP Address, IPAM › IP Range, IPAM › VRF, Tenancy › Tenant; optionally IPAM › Role, IPAM › VLAN, DCIM › Site, Location, Region, Site Group, so that renames show up; events created, updated, deleted; action: the webhook above.
 
 Events for other object types are ignored. A burst of events triggers one update immediately and at most one follow-up after `UPDATE_DEBOUNCE_SECONDS`.
 
@@ -130,10 +130,11 @@ All paths are relative to `BASE_PATH`.
 | `/` | VRF list with prefix and address counts |
 | `/map/<vrf>` | Top-level prefixes of a VRF with usage |
 | `/map/<vrf>/<prefix>` | Map page; `<vrf>` is the VRF id or `None` for Global, `<prefix>` uses `_` for `.` and `/` |
-| `/search?q=<address or prefix>` | Maps showing an IPv4 address or prefix, across VRFs (JSON) |
+| `/search?q=<query>` | Maps showing an IPv4 address or prefix, or matching a name or description, across VRFs (JSON) |
 | `/webhook` | NetBox webhook receiver |
 | `/healthz` | Liveness and data age (JSON); used by the container healthcheck |
 | `/metrics` | Prometheus metrics |
+| `/help` | How to read the map |
 | `/errors` | Recent warnings and errors |
 
 ## Limitations
@@ -150,3 +151,11 @@ make test
 ```
 
 Tests run offline against a synthetic dataset (`tests/synthetic_data.py`). Design notes: [docs/design.md](docs/design.md).
+
+## Contributing
+
+Issues and pull requests are welcome. Run `make test` before sending a change; tests run offline against the synthetic dataset. Contributions are accepted under the Apache License 2.0, as the rest of the project.
+
+## License
+
+Apache License 2.0, see [LICENSE](LICENSE). Free to use, modify and redistribute, commercially too. Redistributions and derivative works must keep the copyright and [NOTICE](NOTICE) with the author's name, Ilia Slepnev.

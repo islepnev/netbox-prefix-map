@@ -103,9 +103,14 @@
     let countsKnown = false;
     const blockStart = (a) => a - ((a - net.start) % blockSize);
     let ipsByAddr = new Map();
+    // Addresses with more than one IP record (several VRFs under a Global container, or NetBox duplicates)
+    let dupes = new Map();
     let ipSorted = new Float64Array(0);
     let nested = [];
     let children = [];
+    // NetBox IP ranges overlapping this prefix (DHCP scopes and the like)
+    let ranges = [];
+    const rangesAt = (a, size = 1) => ranges.filter((r) => r.start <= a + size - 1 && r.end >= a);
     const tenantColors = new Map();
 
     const lowerBound = (v) => {
@@ -166,7 +171,7 @@
             if (len >= blockLen) return;
             walk(start, len + 1, overlap);
             walk(start + size / 2, len + 1, overlap);
-        })(range.start, range.len, childrenOf(range));
+        })(range.start, range.len, [...childrenOf(range), ...ranges.filter((r) => r.start <= range.end && r.end >= range.start)]);
         blocks.sort((a, b) => b.size - a.size || a.start - b.start);
         const res = { blocks, total: blocks.reduce((s, b) => s + b.size, 0) };
         freeCache.set(key, res);
@@ -193,10 +198,18 @@
         hasIps = data.rendered ?? net.len >= 16;
         used = data.ip_count ?? (hasIps ? ips.length : null);
         ipsByAddr = new Map(ips.map((ip) => [ipToInt(ip.address.split("/")[0]), ip]));
+        dupes = new Map();
+        for (const ip of ips) {
+            const a = ipToInt(ip.address.split("/")[0]);
+            if (!dupes.has(a)) dupes.set(a, []);
+            dupes.get(a).push(ip);
+        }
+        for (const [a, list] of dupes) if (list.length < 2) dupes.delete(a);
         ipSorted = Float64Array.from(ipsByAddr.keys()).sort();
         const list = data.nested_prefixes || data.child_prefixes || [];
         nested = list.map((p) => ({ ...parsePrefix(p.prefix), p })).sort((a, b) => a.start - b.start || a.len - b.len);
         children = (data.child_prefixes || []).map((p) => ({ ...parsePrefix(p.prefix), p }));
+        ranges = (data.ip_ranges || []).map((r) => ({ start: ipToInt(r.start), end: ipToInt(r.end), r }));
         for (const p of [data, ...(data.child_prefixes || []), ...(data.nested_prefixes || [])]) {
             if (p.tenant && p.color && !tenantColors.has(String(p.tenant))) tenantColors.set(String(p.tenant), p.color);
         }
@@ -440,15 +453,43 @@
         return sec(title, right, el("div", { class: "fsize" }, el("label", null, "Size ", freeSizeSelect(range))), body, more);
     }
 
+    const vlanName = (id) => {
+        const v = id ? (cfg.names.vlans || {})[String(id)] : null;
+        return id ? (v ? `VLAN ${v.vid}` : `VLAN #${id}`) : null;
+    };
+    const vrfLabel = (vrf) => (vrf === null || vrf === undefined ? "Global" : cfg.vrf && String(cfg.vrf.id) === String(vrf) ? cfg.vrf.name : `VRF #${vrf}`);
+    function dupeSection(list) {
+        return sec("All records of this address", `${list.length}`, el("table", { class: "free dupes" }, el("tbody", null, list.map((ip) =>
+            el("tr", null,
+                el("td", { text: vrfLabel(ip.vrf) }),
+                el("td", { text: [statusLabel(ip.status), ip.role, ip.dns_name].filter(Boolean).join(" · ") }),
+                el("td", { class: "n" }, ip.id ? nbLink(`/ipam/ip-addresses/${ip.id}/`, "NetBox") : null))))),
+            el("div", { class: "hint", text: "The map shows one: with a role first, then active, reserved, inactive." }));
+    }
+    const roleName = (id) => (id ? cfg.names.roles[String(id)] || `Role ${id}` : null);
+    function rangeSection(list) {
+        return sec(list.length > 1 ? `IP ranges` : "IP range", list.length > 1 ? `${list.length}` : null, ...list.slice(0, 4).map(({ r }) =>
+            el("div", { class: "range-item" },
+                el("div", { class: "mono" }, `${r.start} – ${r.end}`, copyBtn(`${r.start}-${r.end}`)),
+                kv([
+                    ["NetBox", r.id ? nbLink(`/ipam/ip-ranges/${r.id}/`, "IP range") : null],
+                    ["Size", `${fmt(r.size)} addresses`],
+                    ["Status", statusLabel(r.status)],
+                    ["Role", roleName(r.role)],
+                    ["Description", r.description || null],
+                ]))));
+    }
+
     function chainSection(chainNodes) {
         const chain = [
-            ...cfg.parents.map((p) => ({ prefix: p.prefix, id: p.id, vrf: cfg.vrfKey, desc: p.description, tenant: p.tenant })),
-            { prefix: cfg.prefix, id: cfg.prefixId, vrf: cfg.vrfKey, desc: cfg.details.description, tenant: cfg.details.tenant_id, here: true },
-            ...chainNodes.map((n) => ({ prefix: n.p.prefix, id: n.p.id, vrf: n.p.vrf ?? data.vrf, desc: n.p.description, tenant: n.p.tenant })),
+            ...cfg.parents.map((p) => ({ prefix: p.prefix, id: p.id, vrf: cfg.vrfKey, desc: p.description, tenant: p.tenant, pool: p.is_pool, vlan: p.vlan })),
+            { prefix: cfg.prefix, id: cfg.prefixId, vrf: cfg.vrfKey, desc: cfg.details.description, tenant: cfg.details.tenant_id, here: true,
+                pool: data.is_pool ?? cfg.details.is_pool, vlan: cfg.details.vlan_id },
+            ...chainNodes.map((n) => ({ prefix: n.p.prefix, id: n.p.id, vrf: n.p.vrf ?? data.vrf, desc: n.p.description, tenant: n.p.tenant, pool: n.p.is_pool, vlan: n.p.vlan })),
         ];
         const innerPrefix = chain.at(-1).prefix;
         return sec("Prefix chain", `${chain.length} levels`, el("ol", { class: "chain" }, chain.map((c) => {
-            const desc = [c.desc, tenantName(c.tenant)].filter(Boolean).join(" · ");
+            const desc = [c.pool ? "pool" : null, c.desc, tenantName(c.tenant), vlanName(c.vlan)].filter(Boolean).join(" · ");
             return el("li", { class: [c.here ? "here" : "", c.prefix === innerPrefix ? "inner" : ""].join(" ").trim() || null },
                 el("span", { class: "p", text: c.prefix }),
                 el("span", { class: "l" },
@@ -473,6 +514,8 @@
                 el("span", { class: "mono", text: count === null ? `${fmt(blockSize)} addresses` : `${pct(count, blockSize)} of ${fmt(blockSize)}` })),
             action ? el("div", { class: "hint", text: `Double-click to ${action.label}` })
                 : el("div", { class: "hint", text: "No prefix in this block" }))];
+        const blockRanges = rangesAt(a, blockSize);
+        if (blockRanges.length) out.push(rangeSection(blockRanges));
         out.push(chainSection(chainNodes));
         if (smaller.length) {
             const shown = smaller.slice(0, 8);
@@ -509,8 +552,10 @@
         if (layer) { renderBlock(a); return; }
         const ip = ipsByAddr.get(a);
         const edge = ip ? null : edgeKind(a);
+        const inRange = rangesAt(a);
         const chainNodes = containing(a);
         const inner = chainNodes.at(-1);
+        const pool = (inner ? inner.p.is_pool : data.is_pool ?? cfg.details.is_pool) ? (inner ? inner.p.prefix : cfg.prefix) : null;
         const mask = ip ? ip.address.split("/")[1] : inner ? inner.len : net.len;
         const action = openAction(a);
         const out = [];
@@ -519,7 +564,10 @@
             el("div", { class: "sub" },
                 ip ? el("span", { class: "pill" }, el("span", { class: "sw", style: swatchStyle(ipColor(ip)) }), statusLabel(ip.status) || "IP")
                     : edge ? el("span", { class: "pill", text: `${capital(edge)} address` })
-                        : el("span", { class: "pill free", text: "Free" }),
+                        : inRange.length ? el("span", { class: "pill" }, el("span", { class: "sw range" }), "IP range")
+                            : el("span", { class: "pill free", text: "Free" }),
+                dupes.has(a) ? el("span", { class: "pill warn", text: `${dupes.get(a).length} records` }) : null,
+                pool ? el("span", { class: "pill", text: "Pool", title: `${pool} is a pool: all its addresses are usable, network and broadcast included` }) : null,
                 el("span", { class: "mono", text: `offset ${fmt(a - net.start)}` })),
             action ? el("div", { class: "hint", text: `Double-click to ${action.label}` }) : null));
         if (ip) {
@@ -538,6 +586,8 @@
             out.push(sec("IP address", null, el("div", { class: "empty" }, "No IP record. ",
                 nbLink(`/ipam/ip-addresses/add/?address=${intToIp(a)}/${mask}${vrfParam}`, "Add in NetBox"))));
         }
+        if (dupes.has(a)) out.push(dupeSection(dupes.get(a)));
+        if (inRange.length) out.push(rangeSection(inRange));
         out.push(chainSection(chainNodes));
         const innerPrefix = inner ? inner.p.prefix : cfg.prefix;
         out.push(freeSection(inner || net, innerPrefix));
@@ -557,12 +607,17 @@
             el("div", { class: "stats" },
                 el("div", { class: "stat" }, el("b", { text: used === null ? "—" : fmt(used) }),
                     el("span", { text: used === null ? "IPs" : `IPs · ${pct(used, total)}` })),
-                el("div", { class: "stat" }, el("b", { text: fmt((data.child_prefixes || []).length) }),
-                    el("span", { text: typeof data.allocated === "number" && data.child_prefixes?.length
-                        ? `child prefixes · ${pct(data.allocated, total)} assigned` : "child prefixes",
-                        title: typeof data.allocated === "number" ? `${fmt(data.allocated)} of ${fmt(total)} addresses in prefixes that are not containers` : null })),
+                el("div", { class: "stat" }, el("b", { text: fmt((data.child_prefixes || []).length) }), el("span", { text: "child prefixes" })),
                 el("div", { class: "stat" }, el("b", { text: fmt(total) }), el("span", { text: "addresses" }))));
         if (hasIps || countsKnown) $("sum-free").replaceChildren(freeSection(net, cfg.prefix));
+        if (dupes.size) {
+            const shown = [...dupes.keys()].sort((x, y) => x - y).slice(0, 8);
+            $("sum-free").append(sec("Addresses with several records", `${fmt(dupes.size)}`, el("table", { class: "free" }, el("tbody", null,
+                shown.map((a) => el("tr", { onclick: () => pin(a, true) },
+                    el("td", { text: intToIp(a) }),
+                    el("td", { class: "n", text: dupes.get(a).map((ip) => vrfLabel(ip.vrf)).join(", ") }))))),
+                dupes.size > shown.length ? el("div", { class: "hint", text: `${fmt(dupes.size - shown.length)} more` }) : null));
+        }
         const big = document.querySelector("#insp-summary .big");
         if (big && !big.querySelector(".copy")) big.append(copyBtn(cfg.prefix));
     }
@@ -585,7 +640,8 @@
                 el("span", { class: "lg" }, el("span", { class: "sw checker" }), "prefixes inside"))
             : el("span", { class: "lg-group" }, ["active", "dhcp", "reserved", "inactive", "role"]
                 .filter((kind) => !hasIps || kind === "active" || kind === "role" || (data.ip_addresses || []).some((ip) => ipKind(ip) === kind))
-                .map((kind) => el("span", { class: "lg" }, sw(IP_KINDS[kind].color), IP_KINDS[kind].label)));
+                .map((kind) => el("span", { class: "lg" }, sw(IP_KINDS[kind].color), IP_KINDS[kind].label)),
+                ranges.length ? el("span", { class: "lg" }, el("span", { class: "sw range" }), "IP range") : null);
         // replaceChildren() would print null as text
         $("legend").replaceChildren(...[
             keys,
@@ -750,7 +806,7 @@
         const exp = window.PrefixMapExport;
         if (!exp) return;
         exp.init({
-            cfg, data, net, layer, blockLen, blockSize, blockCounts, GW, GH, nested, children,
+            cfg, data, net, layer, blockLen, blockSize, blockCounts, GW, GH, nested, children, ranges, ipsByAddr,
             cellOf, rangeBounds, intToIp, ipToInt, ipKind, IP_KINDS, tenantName, usageText,
         });
         const bw = el("input", { type: "checkbox", id: "export-bw" });

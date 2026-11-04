@@ -21,7 +21,10 @@ RUN pip install --no-cache-dir --no-index /wheels/* && rm -rf /wheels
 COPY app app
 COPY static static
 COPY templates templates
-COPY entrypoint.sh .
+COPY entrypoint.sh LICENSE NOTICE ./
+LABEL org.opencontainers.image.licenses="Apache-2.0" \
+      org.opencontainers.image.authors="Ilia Slepnev" \
+      org.opencontainers.image.source="https://github.com/islepnev/netbox-prefix-map"
 RUN mkdir output && chown app:app output
 
 USER app

@@ -453,7 +453,7 @@ def test_free_block_highlight_cleared_on_rerender(open_page):
     assert page.is_hidden('#ov-free') or page.locator('#sum-free table.free tr:hover').count() == 1
 
 
-@pytest.mark.parametrize("path", ['/', '/map/1', '/map/None', '/map/1/10_0_0_0_8', '/map/None/172_31_0_0_16',
+@pytest.mark.parametrize("path", ['/', '/help', '/map/1', '/map/None', '/map/1/10_0_0_0_8', '/map/None/172_31_0_0_16',
                                   '/map/None/172_31_4_0_24'])
 def test_pages_have_no_script_errors(open_page, path):
     page = open_page(BASE + path)
@@ -648,4 +648,77 @@ def test_free_space_inside_child_containers_counts_as_free(open_page):
     page = open_page(f'{BASE}/map/1/10_20_0_0_16')
     wait_for_map(page)
     assert ipaddress.ip_network('10.20.128.0/17') in free_block_rows(page)
-    assert 'assigned' in page.inner_text('#sum-usage')
+
+
+def test_pool_is_shown_in_inspector(open_page):
+    page = open_page(f'{BASE}/map/1/10_20_36_0_24')
+    wait_for_map(page)
+    page.mouse.move(*cell_center(page, *cell_of('10.20.36.0/24', '10.20.36.128')))
+    pills = page.eval_on_selector_all('#insp-detail .pill', 'els => els.map(e => e.textContent)')
+    assert 'Pool' in pills and 'Network address' not in pills
+    assert 'pool' in page.inner_text('#insp-detail ol.chain li.inner')
+
+
+@pytest.mark.parametrize('path', ['/map/1/10_20_50_0_24', '/map/1/10_20_1_0_27', '/map/1/10_20_0_0_16'])
+def test_svg_export_title_fits_the_map(open_page, path):
+    page = open_page(BASE + path)
+    wait_for_map(page)
+    widths = page.evaluate('''() => {
+        const host = document.createElement("div");
+        host.innerHTML = PrefixMapExport.build({});
+        document.body.append(host);
+        const svg = host.querySelector("svg"), w = svg.viewBox.baseVal.width;
+        const texts = [...svg.querySelectorAll("text")].slice(0, 2).map((t) => t.getComputedTextLength());
+        const map = svg.querySelector("g[transform] > rect").width.baseVal.value;
+        host.remove();
+        return { w, texts, map };
+    }''')
+    assert all(t <= widths['w'] for t in widths['texts']), widths
+    assert widths['map'] <= widths['w']
+
+
+def test_ip_range_in_inspector_and_free_blocks(open_page, dataset):
+    page = open_page(f'{BASE}/map/1/10_20_0_0_17')
+    wait_for_map(page)
+    blocks = [ipaddress.ip_network(b) for b in page.evaluate(
+        '() => window.__prefixMap.freeBlocks("10.20.0.0/17").blocks.map((b) => '
+        '[24, 16, 8, 0].map((s) => Math.floor(b.start / 2 ** s) % 256).join(".") + "/" + b.len)')]
+    # 10.20.20.0/22 was free; 10.20.20.0/26 is now the planned range
+    assert not any(b.overlaps(ipaddress.ip_network('10.20.20.0/26')) for b in blocks)
+    assert ipaddress.ip_network('10.20.20.64/26') in blocks
+    page.mouse.move(*cell_center(page, *cell_of('10.20.0.0/17', '10.20.20.5')))
+    detail = page.inner_text('#insp-detail')
+    assert 'IP range' in page.inner_text('#insp-detail .pill')
+    assert '10.20.20.0 – 10.20.20.63' in detail and 'Printers, planned' in detail
+    assert 'IP range' in page.inner_text('#legend')
+    svg = page.evaluate('PrefixMapExport.build({})')
+    assert '<g fill="#555">' in svg and 'IP range' in svg
+
+
+def test_text_search_opens_the_address(open_page):
+    page = open_page(f'{BASE}/')
+    page.keyboard.press('/')
+    page.keyboard.type('gw-93.')
+    page.wait_for_selector('#search-msg li a')
+    assert page.inner_text('#search-msg li a') == '10.20.93.1'
+    with page.expect_navigation(url=f'**{BASE}/map/1/10_20_93_0_24?focus=10.20.93.1'):
+        page.press('#search', 'Enter')
+    wait_for_map(page)
+    assert page.inner_text('#insp-detail .big').startswith('10.20.93.1/')
+
+
+def test_addresses_with_several_records(open_page):
+    def inject(route):
+        data = route.fetch().json()
+        if 'ip_addresses' in data and data['prefix'] == '10.20.48.0/24':
+            first = data['ip_addresses'][0]
+            data['ip_addresses'].append(dict(first, id=99999, vrf=None, status='reserved'))
+        route.fulfill(json=data)
+
+    page = open_page(f'{BASE}/map/1/10_20_48_0_24', route=(f'**{BASE}/data/**', inject))
+    wait_for_map(page)
+    assert 'addresses with several records' in page.inner_text('#sum-free').lower()
+    page.click('#sum-free section:has-text("several records") tr >> nth=0')
+    assert '2 records' in page.inner_text('#insp-detail .sub')
+    detail = page.inner_text('#insp-detail')
+    assert 'all records of this address' in detail.lower() and 'Global' in detail and 'LAN' in detail

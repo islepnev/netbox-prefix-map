@@ -301,6 +301,31 @@ def draw_sparse_grid(ax, cell_size, grid_width, grid_height, palette):
         ax.axvline(i * cell_size, color=palette['grid_lines'], linestyle=':', linewidth=1, zorder=Z_DEPTH_AXES, aa=False)
 
 
+# IP ranges (DHCP scopes and the like): a dot in the middle of each address cell; IP cells are painted over it
+RANGE_MARK_COLOR = np.array([0x55, 0x55, 0x55]) / 255
+
+
+def range_cell_coords(network, ip_ranges, max_bits, grid_width, grid_height):
+    """(x, y) of every address of the network that lies in one of the IP ranges."""
+    start, end = int(network.network_address), int(network.broadcast_address)
+    cells = set()
+    for r in ip_ranges:
+        first = max(start, int(ipaddress.ip_address(r['start'])))
+        last = min(end, int(ipaddress.ip_address(r['end'])))
+        for address in range(first, last + 1):
+            cells.add(decode_offset(address - start, max_bits, grid_width, grid_height))
+    return cells
+
+
+def paint_range_marks(image, cells, cell_size):
+    body = cell_size - 1
+    size = max(1, body // 3)
+    offset = 1 + (body - size) // 2
+    for x, y in cells:
+        top, left = y * cell_size + offset, x * cell_size + offset
+        image[top:top + size, left:left + size] = RANGE_MARK_COLOR
+
+
 def paint_allocated_ips(image, ip_details, cell_size):
     """
     Paint IP cells into an (h, w, 3) float image in place: the cell body, without the 1 px gap before it.
@@ -350,7 +375,8 @@ def finalize_plot(ax, image_width, image_height, prefix_entry):
     ax.set_position([0, 0, 1, 1])
 
 
-def plot_allocation_grid(top_level_prefix_entry, child_prefixes, relevant_ips, output_file, cell_size, tenant_color_map):
+def plot_allocation_grid(top_level_prefix_entry, child_prefixes, relevant_ips, output_file, cell_size, tenant_color_map,
+                         ip_ranges=()):
     """Visualize the allocation grid and save it as a PNG."""
     top_level_prefix = top_level_prefix_entry.get("prefix", "").strip()
     logging.info(top_level_prefix)
@@ -379,8 +405,14 @@ def plot_allocation_grid(top_level_prefix_entry, child_prefixes, relevant_ips, o
     image = np.asarray(fig.canvas.buffer_rgba())[..., :3] / 255
     plt.close(fig)
     image = image.copy()
+    range_cells = range_cell_coords(ipaddress.ip_network(top_level_prefix), ip_ranges, max_bits, grid_width, grid_height)
+    # Only on addresses without an IP record: a dot would show through the lighter IP shades
+    range_cells -= set(ip_details)
+    paint_range_marks(image, range_cells, cell_size)
     paint_allocated_ips(image, ip_details, cell_size)
     occupied = np.zeros((grid_height, grid_width), dtype=bool)
+    for x, y in range_cells:
+        occupied[y, x] = True
     for (x, y), details in ip_details.items():
         occupied[y, x] = determine_ip_color(details, palette)[0] != 'none'
     paint_labels(image, block_labels(ipaddress.ip_network(top_level_prefix), 32, occupied, cell_size))

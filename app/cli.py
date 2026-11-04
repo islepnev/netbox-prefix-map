@@ -93,12 +93,37 @@ def save_vrf_data(vrfs, output_dir):
     logging.info(f"Saved VRF data to {vrf_filepath}")
 
 
-def save_names(tenants, roles, output_dir):
+def prefix_scope(prefix):
+    """'<object type>:<id>' of a prefix scope: scope_type and scope_id (NetBox 4.2+), or the older site field."""
+    if prefix.get('scope_type') and prefix.get('scope_id'):
+        return f"{prefix['scope_type']}:{prefix['scope_id']}"
+    site = prefix.get('site')
+    if isinstance(site, dict):
+        site = site.get('id')
+    return f"dcim.site:{site}" if site else None
+
+
+def save_names(tenants, roles, output_dir, vlans=(), scope_objects=None):
     names = {
         'tenants': {str(t['id']): t.get('name') for t in tenants},
         'roles': {str(r['id']): r.get('name') for r in roles},
+        'vlans': {str(v['id']): {'vid': v.get('vid'), 'name': v.get('name')} for v in vlans},
+        'scopes': {f"{kind}:{o['id']}": o.get('name') for kind, objects in (scope_objects or {}).items()
+                   for o in objects},
     }
     write_json_atomic(os.path.join(output_dir, 'names.json'), names)
+
+
+def save_search_index(ip_addresses, output_dir):
+    """IPv4 addresses with a DNS name or description, for text search: [address, vrf, dns_name, description, id]."""
+    rows = []
+    for ip in ip_addresses:
+        address = (ip.get('address') or '').split('/')[0]
+        dns_name, description = ip.get('dns_name') or '', ip.get('description') or ''
+        if ':' in address or not (dns_name or description):
+            continue
+        rows.append([address, ip.get('vrf'), dns_name, description, ip.get('id')])
+    write_json_atomic(os.path.join(output_dir, 'search_index.json'), {'ips': rows})
 
 
 def save_prefix_tree(prefixes, output_dir):
@@ -114,6 +139,8 @@ def save_prefix_tree(prefixes, output_dir):
             'tenant': prefix.get('tenant'),
             'status': choice_value(prefix.get('status')),
             'role': prefix.get('role'),
+            'vlan': prefix.get('vlan'),
+            'scope': prefix_scope(prefix),
             'is_pool': bool(prefix.get('is_pool')),
             'description': prefix.get('description') or '',
             'vrf': vrf_id,
@@ -127,7 +154,7 @@ def save_prefix_tree(prefixes, output_dir):
     logging.info(f"Saved prefix tree data to {prefix_tree_filepath}")
 
 
-def save_summary(prefixes, prefix_tree_obj, ip_addresses, ip_counts, tenant_color_map, output_dir, allocated=None):
+def save_summary(prefixes, prefix_tree_obj, ip_addresses, ip_counts, tenant_color_map, output_dir):
     """Per VRF: IPv4 prefix and address counts, top-level prefixes with usage."""
     def vrf_key(vrf):
         return 'None' if vrf is None else str(vrf)
@@ -149,7 +176,6 @@ def save_summary(prefixes, prefix_tree_obj, ip_addresses, ip_counts, tenant_colo
                 'description': entry.get('description') or '',
                 'color': prefix_fill_color(entry.get('tenant'), tenant_color_map),
                 'ip_count': ip_counts.get((vrf, prefix), 0),
-                'allocated': (allocated or {}).get((vrf, prefix), 0),
                 'size': ipaddress.ip_network(prefix).num_addresses,
                 'has_children': bool(tree.children(prefix)),
             })
@@ -168,20 +194,35 @@ def save_summary(prefixes, prefix_tree_obj, ip_addresses, ip_counts, tenant_colo
     write_json_atomic(os.path.join(output_dir, 'summary.json'), summary)
 
 
-def allocated_counts(prefix_tree_obj):
-    """
-    Addresses of each IPv4 prefix assigned to nested prefixes that are not containers (any depth), keyed by
-    (vrf, prefix). Child containers do not count as used space; what is assigned inside them does.
-    """
-    allocated = {}
-    for vrf, trees in prefix_tree_obj.trees.items():
-        tree = trees['ipv4']
-        for prefix in tree:
-            assigned = [ipaddress.ip_network(c) for c in tree.children(prefix)
-                        if (tree[c] or {}).get('status') != 'container']
-            # Nested and duplicate prefixes (NetBox allows them) are counted once
-            allocated[(vrf, prefix)] = sum(n.num_addresses for n in ipaddress.collapse_addresses(assigned))
-    return allocated
+RANGE_KEYS = ('id', 'start', 'end', 'size', 'vrf', 'tenant', 'status', 'role', 'description', 'mark_utilized')
+
+
+def normalize_ip_ranges(ip_ranges):
+    """IPv4 NetBox IP ranges with plain start and end addresses and their integer bounds."""
+    result = []
+    for r in ip_ranges:
+        try:
+            first = ipaddress.ip_interface(r['start_address']).ip
+            last = ipaddress.ip_interface(r['end_address']).ip
+        except (KeyError, ValueError):
+            continue
+        if first.version != 4:
+            continue
+        result.append({
+            'id': r.get('id'), 'start': str(first), 'end': str(last), 'size': int(last) - int(first) + 1,
+            'vrf': r.get('vrf'), 'tenant': r.get('tenant'), 'status': choice_value(r.get('status')),
+            'role': r.get('role'), 'description': r.get('description') or '',
+            'mark_utilized': bool(r.get('mark_utilized')), 'first': int(first), 'last': int(last),
+        })
+    return result
+
+
+def ranges_in(prefix, vrf, ranges, all_vrfs=False):
+    """IP ranges overlapping a prefix: of its VRF, or of all VRFs for a Global container."""
+    network = ipaddress.ip_network(prefix)
+    first, last = int(network.network_address), int(network.broadcast_address)
+    return [{k: r[k] for k in RANGE_KEYS} for r in ranges
+            if (all_vrfs or r['vrf'] == vrf) and r['first'] <= last and r['last'] >= first]
 
 
 def block_counts(prefix, ip_addresses, block_len):
@@ -195,7 +236,7 @@ def block_counts(prefix, ip_addresses, block_len):
     return counts
 
 
-def render_fingerprint(prefix, nested_prefixes, ip_addresses, cell_size, tenant_color_map, layer=None):
+def render_fingerprint(prefix, nested_prefixes, ip_addresses, cell_size, tenant_color_map, layer=None, ip_ranges=()):
     state = {
         'version': RENDER_VERSION,
         'layer': layer,
@@ -208,12 +249,13 @@ def render_fingerprint(prefix, nested_prefixes, ip_addresses, cell_size, tenant_
             (ip.get('address', ''), choice_value(ip.get('status')) or '', choice_value(ip.get('role')) or '')
             for ip in ip_addresses
         ),
+        'ranges': sorted((r['start'], r['end']) for r in ip_ranges),
     }
     return hashlib.sha256(json.dumps(state).encode()).hexdigest()
 
 
 def process_prefix(prefix_entry, prefix_subtree, descendants, ip_addresses, cell_size, tenant_color_map, output_dir,
-                   render=True, ancestors=(), ip_counts=None, layer=None, allocated=None):
+                   render=True, ancestors=(), ip_counts=None, layer=None, ip_ranges=()):
     """
     :param prefix_subtree: tree node of this prefix; its direct children go to the data file (navigation).
     :param descendants: all nested prefixes at any depth; drawn on the map.
@@ -237,13 +279,12 @@ def process_prefix(prefix_entry, prefix_subtree, descendants, ip_addresses, cell
     json_filename = f"data-{sanitized_vrf}-{sanitized_prefix}.json"
     json_filepath = os.path.join(output_dir, json_filename)
 
-    prefix_keys = {"id", "prefix", "vrf", "tenant", "status", "description", "is_pool"}
+    prefix_keys = {"id", "prefix", "vrf", "tenant", "status", "description", "is_pool", "vlan", "scope"}
     ip_counts = ip_counts or {}
     child_prefixes = [
         dict(child, has_children=bool(node.get("children")),
              color=prefix_fill_color(child.get('tenant'), tenant_color_map),
              ip_count=ip_counts.get((child.get('vrf'), child['prefix']), 0),
-             allocated=(allocated or {}).get((child.get('vrf'), child['prefix']), 0),
              size=ipaddress.ip_network(child['prefix']).num_addresses)
         for child, node in zip(filter_keys_from_dicts(prefix_subtree.get("children", []), prefix_keys),
                                prefix_subtree.get("children", []))
@@ -252,7 +293,8 @@ def process_prefix(prefix_entry, prefix_subtree, descendants, ip_addresses, cell
 
     fingerprint = None
     if render:
-        fingerprint = render_fingerprint(prefix, nested_prefixes, ip_addresses, cell_size, tenant_color_map)
+        fingerprint = render_fingerprint(prefix, nested_prefixes, ip_addresses, cell_size, tenant_color_map,
+                                         ip_ranges=ip_ranges)
     elif layer:
         fingerprint = render_fingerprint(prefix, nested_prefixes, [], cell_size, tenant_color_map,
                                          layer=[layer['block_len'], sorted(layer['counts'].items())])
@@ -270,7 +312,6 @@ def process_prefix(prefix_entry, prefix_subtree, descendants, ip_addresses, cell
         'is_pool': bool(prefix_entry.get('is_pool')),
         'color': prefix_fill_color(prefix_entry.get('tenant'), tenant_color_map),
         'ip_count': ip_counts.get((vrf, prefix), len(ip_addresses)),
-        'allocated': (allocated or {}).get((vrf, prefix), 0),
         'size': ipaddress.ip_network(prefix).num_addresses,
         'generated_at': time.time(),
         'rendered': render,
@@ -280,6 +321,7 @@ def process_prefix(prefix_entry, prefix_subtree, descendants, ip_addresses, cell
         'nested_prefixes': [dict(p, color=prefix_fill_color(p.get('tenant'), tenant_color_map))
                             for p in nested_prefixes],
         'ip_addresses': filtered_ip_addresses,
+        'ip_ranges': list(ip_ranges),
     }
     if render:
         data_to_save['cell_size'] = cell_size
@@ -295,7 +337,7 @@ def process_prefix(prefix_entry, prefix_subtree, descendants, ip_addresses, cell
         logging.debug(f"No changes detected for prefix {prefix}. Skipping regeneration.")
     elif render:
         plot_allocation_grid(prefix_entry, nested_prefixes, ip_addresses, output_filepath, cell_size,
-                             tenant_color_map)
+                             tenant_color_map, ip_ranges=ip_ranges)
         logging.debug(f"Generated image for prefix {prefix} at {output_filepath}")
     elif layer:
         plot_layered_grid(prefix, layer['block_len'], layer['counts'], data_to_save['nested_prefixes'],
@@ -308,7 +350,7 @@ def process_prefix(prefix_entry, prefix_subtree, descendants, ip_addresses, cell
     logging.debug(f"Saved data for prefix {prefix} to {json_filepath}")
 
 
-def process_all_prefixes(prefixes, ip_addresses, cell_size, output_dir):
+def process_all_prefixes(prefixes, ip_addresses, cell_size, output_dir, ip_ranges=()):
 
     prefix_tree_obj = PrefixTree()
     for prefix_entry in prefixes:
@@ -320,12 +362,14 @@ def process_all_prefixes(prefixes, ip_addresses, cell_size, output_dir):
             'description': prefix_entry.get('description') or '',
             'prefix': prefix_entry['prefix'],
             'is_pool': bool(prefix_entry.get('is_pool')),
+            'vlan': prefix_entry.get('vlan'),
+            'scope': prefix_scope(prefix_entry),
         }
         prefix_tree_obj.add_prefix(prefix_data)
 
 
     tenant_color_map = build_tenant_color_map(prefixes)
-    allocated = allocated_counts(prefix_tree_obj)
+    ranges = normalize_ip_ranges(ip_ranges)
     ip_index = IpIndex(ip_addresses)
     ip_counts = {}
     for prefix_entry in prefixes:
@@ -356,7 +400,8 @@ def process_all_prefixes(prefixes, ip_addresses, cell_size, output_dir):
                 layer = {'block_len': block_len,
                          'counts': block_counts(prefix, ip_index.lookup(prefix_entry), block_len)}
 
-            if vrf is None and choice_value(prefix_entry.get('status')) == 'container':
+            global_container = vrf is None and choice_value(prefix_entry.get('status')) == 'container'
+            if global_container:
                 # NetBox semantics: a Global container spans all VRFs
                 descendants = prefix_tree_obj.get_descendants_all_vrfs(prefix)
             else:
@@ -364,7 +409,7 @@ def process_all_prefixes(prefixes, ip_addresses, cell_size, output_dir):
             process_prefix(prefix_entry, prefix_subtree, descendants, filtered_ip_addresses, cell_size,
                            tenant_color_map, output_dir, render=render,
                            ancestors=prefix_tree_obj.get_ancestors(prefix, vrf), ip_counts=ip_counts, layer=layer,
-                           allocated=allocated)
+                           ip_ranges=ranges_in(prefix, vrf, ranges, all_vrfs=global_container))
         except Exception as e:
             logging.error(f"Error processing prefix '{prefix}': {e}")
             continue
@@ -373,7 +418,8 @@ def process_all_prefixes(prefixes, ip_addresses, cell_size, output_dir):
         logging.info(f"Skipped {skipped_ipv6} IPv6 prefixes (IPv6 maps are not supported)")
 
     save_prefix_tree(prefixes, output_dir)
-    save_summary(prefixes, prefix_tree_obj, ip_addresses, ip_counts, tenant_color_map, output_dir, allocated)
+    save_search_index(ip_addresses, output_dir)
+    save_summary(prefixes, prefix_tree_obj, ip_addresses, ip_counts, tenant_color_map, output_dir)
 
 
 def run_update(args=None, mgr=None):
@@ -396,8 +442,13 @@ def run_update(args=None, mgr=None):
     ip_addresses = mgr.get_ip_addresses()
     vrfs = mgr.get_vrfs()
     save_vrf_data(vrfs, output_dir)
-    save_names(mgr.get_tenants(), mgr.get_roles(), output_dir)
-    process_all_prefixes(prefixes, ip_addresses, cell_size, output_dir)
+    # VLANs and scopes are optional in data sources, like IP ranges
+    save_names(mgr.get_tenants(), mgr.get_roles(), output_dir,
+               vlans=mgr.get_vlans() if hasattr(mgr, 'get_vlans') else [],
+               scope_objects=mgr.get_scope_objects() if hasattr(mgr, 'get_scope_objects') else {})
+    # Optional in data sources: test doubles and older tokens may have no IP ranges
+    get_ranges = getattr(mgr, 'get_ip_ranges', None)
+    process_all_prefixes(prefixes, ip_addresses, cell_size, output_dir, ip_ranges=get_ranges() if get_ranges else [])
 
 
 def full_update(args=None, mgr=None) -> bool:

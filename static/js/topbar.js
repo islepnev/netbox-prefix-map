@@ -54,6 +54,8 @@ window.PrefixMapTop = (() => {
     }
 
     const QUERY = /^\d{1,3}(\.\d{1,3}){3}(\/\d{1,2})?$/;
+    // Mirrors ADDRESS_LIKE in app/webapp.py: digits and dots, or IPv6, are meant as an address
+    const ADDRESS_LIKE = /^[\d./]+$|^[0-9a-fA-F]*:[0-9a-fA-F:./]*$/;
     let searchSeq = 0;
     let searchTimer = null;
 
@@ -66,8 +68,13 @@ window.PrefixMapTop = (() => {
 
     function resultItem(r) {
         const li = node("li");
-        const link = node("a", "mono", r.prefix);
+        const link = node("a", "mono", r.kind === "ip" ? r.address : r.prefix);
         link.href = r.url;
+        if (r.kind === "ip") {
+            li.append(node("span", "chip", r.vrf_name), link, node("span", "desc", ` in ${r.prefix}`));
+            li.append(node("div", "ip", [r.ip.dns_name, r.ip.description].filter(Boolean).join(" · ")));
+            return li;
+        }
         const details = [r.match === "exact" ? "" : "contains it", r.description].filter(Boolean).join(" · ");
         li.append(node("span", "chip", r.vrf_name), link);
         if (details) li.append(node("span", "desc", ` ${details}`));
@@ -85,11 +92,11 @@ window.PrefixMapTop = (() => {
             .then(({ ok, body }) => {
                 if (seq !== searchSeq) return;
                 if (!ok) { ui.bad(); say(body.error || "Search failed."); return; }
-                if (!body.results.length) { say(`${q}: no prefix contains it.`); return; }
+                if (!body.results.length) { say(body.text ? `${q}: no names or descriptions match.` : `${q}: no prefix contains it.`); return; }
                 if (commit) { window.location.href = body.results[0].url; return; }
                 const list = node("ul");
                 list.append(...body.results.map(resultItem));
-                say([node("div", null, "Enter opens the first map:"), list]);
+                say([node("div", null, body.truncated ? `First ${body.results.length} matches; Enter opens the first:` : "Enter opens the first map:"), list]);
             })
             .catch((error) => { if (seq === searchSeq) say(`Search failed: ${error.message}`); });
     }
@@ -102,9 +109,15 @@ window.PrefixMapTop = (() => {
         if (!q) { say(null); return; }
         const ui = { say, bad: () => search.classList.add("bad") };
         if (!QUERY.test(q)) {
+            // Text: names and descriptions, searched on the server
+            if (!ADDRESS_LIKE.test(q) && q.length >= 2) {
+                if (commit) serverSearch(q, true, ui);
+                else searchTimer = setTimeout(() => serverSearch(q, false, ui), 250);
+                return;
+            }
             if (commit || /^\d+\.\d+\.\d+\.\d+/.test(q)) {
                 ui.bad();
-                say("Enter an IPv4 address or prefix, e.g. 10.20.0.1 or 10.20.36.0/24");
+                say("Enter an IPv4 address or prefix (10.20.0.1, 10.20.36.0/24), or a name or description");
             } else {
                 say(null);
             }

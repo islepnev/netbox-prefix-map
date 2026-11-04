@@ -35,6 +35,21 @@ def test_roles_are_optional(monkeypatch):
     assert "prefix roles" in calls
 
 
+def test_ranges_vlans_and_scopes_are_optional(monkeypatch):
+    optional = {"IP ranges", "VLANs", "sites", "locations", "regions", "site groups"}
+
+    def fake_fetch(fetch_method, data_type):
+        if data_type in optional:
+            raise RuntimeError("403")
+        return [{"id": 1, "name": "x"}]
+
+    monkeypatch.setattr(NetboxAddressManager, 'nb_connect', staticmethod(lambda *a: _FakeApi()))
+    monkeypatch.setattr(NetboxAddressManager, '_fetch_data', staticmethod(fake_fetch))
+    mgr = NetboxAddressManager('http://netbox.invalid', 'token')
+    assert mgr.get_ip_ranges() == [] and mgr.get_vlans() == []
+    assert all(objects == [] for objects in mgr.get_scope_objects().values())
+
+
 class _Endpoint:
     all = None
 
@@ -47,3 +62,4 @@ class _App:
 class _FakeApi:
     ipam = _App()
     tenancy = _App()
+    dcim = _App()
