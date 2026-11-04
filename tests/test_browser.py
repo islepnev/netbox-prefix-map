@@ -980,7 +980,8 @@ def test_last_change_section_and_overlay(open_page):
     def inject(route):
         data = route.fetch().json()
         if data.get('prefix') == '10.20.48.0/24':
-            data['changes'] = {'at': 1767225600, 'since': 1767139200, 'added': ['10.20.48.1'], 'removed': ['10.20.48.200'],
+            data['changes'] = {'at': 1767225600, 'since': 1767139200, 'added': ['10.20.48.1'],
+                               'removed': ['10.20.48.200'],
                                'changed': [], 'prefixes_added': [], 'prefixes_removed': [],
                                'added_count': 1, 'removed_count': 1, 'changed_count': 0,
                                'prefixes_added_count': 0, 'prefixes_removed_count': 0}

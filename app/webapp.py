@@ -606,8 +606,8 @@ FREE_PER_VRF = 10
 def search_free(prefix_len, within=None, prefer_vrf=None):
     """
     First free aligned blocks of /prefix_len per VRF (at most FREE_PER_VRF each), from free_space.json; within: an
-    IPv4 network that the blocks must lie in; prefer_vrf: VRF key listed first. Returns (results, counts per VRF name), or None before the first update
-    that writes free_space.json.
+    IPv4 network that the blocks must lie in; prefer_vrf: VRF key listed first. Returns (results, counts per VRF
+    name), or None before the first update that writes free_space.json.
     """
     free_space = load_output_json('free_space.json', None)
     if free_space is None:
@@ -701,6 +701,7 @@ def serve_image(filename):
 
 
 app.register_blueprint(bp)
+
 
 @app.route('/', methods=['GET'])
 def root_redirect():
