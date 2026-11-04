@@ -4,20 +4,9 @@
 [![NetBox 4.x](https://img.shields.io/badge/NetBox-4.x-blue)](#requirements)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
 
-**A world map of your IPv4 space.** Every address is a cell, every subnet is a rectangle, every tenant has its own colour. See at a glance what is used, what is free and who owns it, from a /8 down to a single address.
+**A world map of your IPv4 space.** Every address is a cell, every subnet is a rectangle, every tenant is drawn in its colour, from a /8 down to a single address. The maps are drawn from [NetBox](https://github.com/netbox-community/netbox) and redrawn when NetBox reports a change through a webhook.
 
 ![Map of a /17: tenant blocks, used addresses, a pinned free address with its prefix chain and free blocks](docs/img/hero.png)
-
-The maps are drawn from [NetBox](https://github.com/netbox-community/netbox) prefixes and IP addresses and redrawn when NetBox reports a change through a webhook. The web interface is served under a base path (default `/prefix-map`), so it can sit on the NetBox host behind the same reverse proxy.
-
-## What you can do
-
-- **See the whole space.** Prefixes of /16 and longer get one cell per address, and shorter ones one cell per /24 or larger block, shaded by how many addresses are used. Child prefixes are filled with their tenant's colour, and used addresses are drawn on top: in use, DHCP, reserved, inactive, or with a role (anycast, VIP). Reserved and deprecated prefixes are striped, and NetBox IP ranges are marked too.
-- **Inspect any address.** Hover or click a cell to see its IP record or "free", the chain of prefixes around it with links to NetBox, and the free blocks of the innermost prefix. Network and broadcast addresses are marked as such.
-- **Find space.** Pick a size such as /26 to list the first free blocks of that size, then copy one with a click. Type `free /26` in the search box to find free blocks in all VRFs at once. Search by address, prefix, DNS name or description across all VRFs. Click a tenant in the legend to outline its prefixes and list them with usage.
-- **Share and print.** The URL keeps the pinned address. Print gives a vector map with title and legend, in colour or black and white with hatched tenants, and "Download SVG" saves the same drawing.
-- **Work from the keyboard.** Arrow keys move the pin, Enter opens the child prefix or the IP in NetBox, `c` copies, `/` searches, `+` `-` `0` zoom. The wheel and pinch zoom about the pointer and dragging moves the map, as in a map app.
-- **English or Russian.** The interface follows the browser language; EN and RU in the top bar switch it, and the choice is kept in a cookie. `?lang=ru` on any page link opens it in Russian. Print and SVG export follow the page language.
 
 ## How to read the map
 
@@ -31,7 +20,11 @@ The same space at three levels, as printed:
 |---|---|---|
 | ![Layered map of 10.0.0.0/8](docs/img/level-8.png) | ![Map of 10.20.0.0/16](docs/img/level-16.png) | ![Map of 10.20.50.0/24](docs/img/level-24.png) |
 
-The screenshots use the synthetic test dataset (`tests/synthetic_data.py`); no real data is shown.
+## Search, links, print
+
+- **Search.** Addresses and prefixes, and text in DNS names, descriptions, tenant and role names, across all VRFs. `free /26` lists free /26 blocks in all VRFs, `free /26 in 10.20.0.0/16` within a prefix.
+- **Links.** The URL keeps the pinned address and the outlined tenant. `?lang=ru` opens a page in Russian; otherwise the browser language decides.
+- **Print.** Ctrl+P prints the map alone as vector graphics with title and legend; in black and white, tenants are hatched.
 
 ## Requirements
 
@@ -47,24 +40,22 @@ Settings are read from the environment or from a `.env` file in the project dire
 | `NETBOX_API_URL` | | NetBox base URL, e.g. `https://netbox.example.com` |
 | `NETBOX_API_TOKEN` | | API token |
 | `NETBOX_TIMEOUT` | `30` | API request timeout, seconds |
-| `BASE_PATH` | `/prefix-map` | URL path prefix of the web interface |
+| `BASE_PATH` | `/prefix-map` | URL path prefix of the web interface, so that it can share the NetBox host |
 | `OUTPUT_DIR` | `output` | Generated files; relative paths are resolved against the project directory |
-| `CELL_SIZE` | `4` | Cell size in pixels |
+| `CELL_SIZE` | `4` | Cell size in image pixels |
 | `WEBHOOK_SECRET` | | Shared secret of the NetBox webhook; when set, unsigned requests are rejected |
-| `UPDATE_DEBOUNCE_SECONDS` | `60` | Minimum interval between webhook-triggered updates |
+| `UPDATE_DEBOUNCE_SECONDS` | `60` | A burst of webhooks gives one update at once and at most one more after this interval |
 | `UPDATE_INTERVAL_SECONDS` | `0` | Periodic full update when none has run for this long, at most once per `UPDATE_DEBOUNCE_SECONDS`; `0` turns it off |
 | `INITIAL_UPDATE` | `1` | Set to `0` to skip the update at startup |
 | `PORT` | `5000` | Listening port |
 
 ## Running
 
-With Docker:
-
 ```bash
 make up
 ```
 
-The container serves requests immediately and updates the maps in the background. Generated files are kept in the `output` volume. `make logs` and `make down` show the logs and stop the container.
+The container serves requests at once and draws the maps in the background; they appear when the first update ends. Generated files are kept in the `output` volume.
 
 Without Docker:
 
@@ -81,8 +72,6 @@ python -m app.webapp    # development server
 1. Operations › Integrations › Webhooks › Add: URL `http://<host>:5000/prefix-map/webhook`, method `POST`, content type `application/json`, secret as in `WEBHOOK_SECRET`.
 2. Operations › Integrations › Event Rules › Add: object types IPAM › Prefix, IPAM › IP Address, IPAM › IP Range, IPAM › VRF, Tenancy › Tenant; optionally IPAM › Role, IPAM › VLAN, DCIM › Site, Location, Region, Site Group, so that renames show up; events created, updated, deleted; action: the webhook above.
 
-Events for other object types are ignored. A burst of events triggers one update immediately and at most one follow-up after `UPDATE_DEBOUNCE_SECONDS`.
-
 Where IP addresses change often and in batches, leave IPAM › IP Address out of the event rule: NetBox queues one webhook job per changed object. Set `UPDATE_INTERVAL_SECONDS` (e.g. `900`) instead; the maps then pick up address changes within that interval, and webhooks for the other objects still update them at once.
 
 ### Map button on prefix pages
@@ -96,22 +85,9 @@ Customization › Custom Links › Add, object type IPAM › Prefix:
   /prefix-map/map/{{ object.vrf.pk if object.vrf else 'None' }}/{{ (object.prefix | string).replace('.', '_').replace('/', '_') }}
   ```
 
-## Reverse proxy
+## Reverse proxy and access control
 
-Apache, in the NetBox virtual host:
-
-```apache
-<Location /prefix-map>
-    ProxyPass http://localhost:5000/prefix-map
-    ProxyPassReverse http://localhost:5000/prefix-map
-</Location>
-```
-
-Requires `mod_proxy` and `mod_proxy_http`.
-
-## Access control
-
-The maps show every prefix, IP address, DNS name, tenant and description that the API token can read, in images, data files, the search and the prefix tree. The app has no login of its own: restrict it at the reverse proxy, with the same rules as NetBox if that suits. Keep the webhook reachable for NetBox and protect it with `WEBHOOK_SECRET`:
+The maps show every prefix, IP address, DNS name, tenant and description that the API token can read. The app has no login of its own: restrict it at the reverse proxy. Apache, in the NetBox virtual host:
 
 ```apache
 <Location /prefix-map>
@@ -127,47 +103,39 @@ The maps show every prefix, IP address, DNS name, tenant and description that th
 </Location>
 ```
 
-Replace `Basic` with your SSO module (mod_auth_openidc, mod_auth_mellon, Kerberos) as needed, and the address in `Require ip` with that of the NetBox host when the webhook does not come from localhost. `/healthz` and `/metrics` carry no inventory data. `/errors` shows log lines; keep it behind the same rule. Without `WEBHOOK_SECRET`, anyone who can reach `/webhook` can trigger a full refetch from NetBox (at most one per `UPDATE_DEBOUNCE_SECONDS`).
+The webhook must stay reachable for NetBox: put the address of the NetBox host in `Require ip` when it is not localhost. Without `WEBHOOK_SECRET`, anyone who can reach `/webhook` can trigger a full refetch from NetBox (at most one per `UPDATE_DEBOUNCE_SECONDS`). `/healthz` and `/metrics` carry no inventory data; `/errors` shows log lines, so keep it behind the same rule as the maps.
 
 ## Endpoints
 
-All paths are relative to `BASE_PATH`.
+Paths are relative to `BASE_PATH`.
 
 | Path | Description |
 |---|---|
-| `/` | VRF list with prefix and address counts |
-| `/map/<vrf>` | Top-level prefixes of a VRF with usage |
 | `/map/<vrf>/<prefix>` | Map page; `<vrf>` is the VRF id or `None` for Global, `<prefix>` uses `_` for `.` and `/` |
-| `/search?q=<query>` | Maps showing an IPv4 address or prefix, or matching a name or description, across VRFs; `free /26` lists free blocks (JSON). Errors carry `error` in the page language and `error_code` |
+| `/search?q=<query>` | Search as in the search box (JSON) |
 | `/webhook` | NetBox webhook receiver |
 | `/healthz` | Liveness and data age (JSON); used by the container healthcheck |
 | `/metrics` | Prometheus metrics |
-| `/help` | How to read the map |
 | `/errors` | Recent warnings and errors |
 
 ## Limitations
 
 - IPv4 only; IPv6 prefixes are skipped.
 - 16 tenant colours, by tenant id: tenants 16 ids apart share a colour.
-- Prefixes of /16 and longer get one cell per address. Shorter prefixes get a layered map with one cell per aligned block (/24 for a /8, at most 65,536 cells), shaded by the number of IP addresses in it.
+- Prefixes shorter than /16 get one cell per aligned block, at most 65,536 cells.
 - The updater runs inside the web process; run a single web worker.
-- No authentication of its own; see [Access control](#access-control).
 
 ## Development
 
 ```bash
-make test
+make test    # offline, on the synthetic dataset in tests/synthetic_data.py
 make lint    # flake8, also run in CI
 ```
 
-Tests run offline against a synthetic dataset (`tests/synthetic_data.py`). Design notes: [docs/design.md](docs/design.md).
+Design notes: [docs/design.md](docs/design.md). UI text lives in `app/locales/<lang>.json` and `templates/_help_<lang>.html`; to add a language, translate copies of the English files and add the code to `LANGUAGES` in `app/i18n.py`.
 
-UI text lives in `app/locales/<lang>.json`, shared by templates and scripts, and in `templates/_help_<lang>.html` for the help page. To add a language, copy `en.json` and `_help_en.html`, translate them and add the code to `LANGUAGES` in `app/i18n.py`. The tests check that every language has the same keys, placeholders, plural forms and help structure as English, and that Russian pages show no English.
-
-## Contributing
-
-Issues and pull requests are welcome. Run `make test` before sending a change; tests run offline against the synthetic dataset. Contributions are accepted under the Apache License 2.0, as the rest of the project.
+Contributions are accepted under the Apache License 2.0, as the rest of the project.
 
 ## License
 
-Apache License 2.0, see [LICENSE](LICENSE). Free to use, modify and redistribute, commercially too. Redistributions and derivative works must keep the copyright and [NOTICE](NOTICE) with the author's name, Ilia Slepnev.
+Apache License 2.0, see [LICENSE](LICENSE). Redistributions and derivative works must keep the copyright and [NOTICE](NOTICE) with the author's name, Ilia Slepnev.
