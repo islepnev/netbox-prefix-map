@@ -641,3 +641,11 @@ def test_print_shows_only_the_vector_map(open_page):
         assert page.is_hidden(hidden), hidden
     page.emulate_media(media='screen')
     assert page.is_hidden('#print-sheet') and page.is_visible('#map-img')
+
+
+def test_free_space_inside_child_containers_counts_as_free(open_page):
+    """10.20.128.0/17 is an empty container: its space is free on the /16 map."""
+    page = open_page(f'{BASE}/map/1/10_20_0_0_16')
+    wait_for_map(page)
+    assert ipaddress.ip_network('10.20.128.0/17') in free_block_rows(page)
+    assert 'assigned' in page.inner_text('#sum-usage')
