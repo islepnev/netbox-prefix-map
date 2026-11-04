@@ -1211,3 +1211,17 @@ def test_russian_pages_have_no_english(open_page, dataset):
     found['layered'] = latin_words(page, allowed)
     assert not {k: v for k, v in found.items() if v}
     assert not page.errors
+
+
+@pytest.mark.parametrize("width", [800, 1000, 1240])
+def test_current_prefix_stays_whole_in_the_top_bar(open_page, width):
+    """A deep prefix path shrinks its parents, not the current prefix; the search placeholder is not cut."""
+    page = open_page(f'{BASE}/map/1/10_20_48_0_24', viewport=(width, 700))
+    wait_for_map(page)
+    cur, crumbs = page.locator('.crumb.current').bounding_box(), page.locator('#crumbs').bounding_box()
+    assert cur['x'] + cur['width'] <= crumbs['x'] + crumbs['width'] + 0.5
+    if width >= 1000:
+        assert page.evaluate('''() => {
+            const s = document.getElementById("search"), c = document.createElement("canvas").getContext("2d");
+            c.font = getComputedStyle(s, "::placeholder").font;
+            return c.measureText(s.placeholder).width <= s.clientWidth - 58; }''')
