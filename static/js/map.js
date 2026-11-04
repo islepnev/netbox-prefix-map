@@ -420,16 +420,12 @@
         }));
         box.hidden = false;
     }
-    function toggleTenant(id, quiet) {
+    function toggleTenant(id) {
         tenantHi = id === null || String(tenantHi) === String(id) ? null : String(id);
         drawTenant();
         document.querySelectorAll("#legend .tenant-toggle").forEach((e) => e.setAttribute("aria-pressed", String(e.dataset.tenant === tenantHi)));
         renderSummary();
         syncUrl();
-        if (tenantHi !== null && !quiet) {
-            const n = tenantPrefixes(tenantHi).length;
-            toast(`${tenantName(tenantHi)}: ${n} ${n === 1 ? "prefix" : "prefixes"} outlined`);
-        }
     }
     // Inspector summary: the outlined tenant's prefixes with usage; a row outlines one prefix
     function tenantSection() {
@@ -512,7 +508,7 @@
             el("div", { class: "hint", text: "History" }),
             el("table", { class: "free changes history" }, el("tbody", null, history.map((h, i) => el("tr", {
                 class: i === changeIndex ? "current" : null, onclick: () => pick(i),
-                title: i === changeIndex ? "Shown above" : "Show this change",
+                title: i === changeIndex ? null : "Show this change",
             }, el("td", { text: new Date(h.at * 1000).toLocaleString() }), el("td", { class: "n", text: changeSummary(h) })))))) : null;
         return sec(changeIndex ? "Earlier change" : "Last change", new Date(ch.at * 1000).toLocaleString(),
             el("div", { class: "sub" }, changeSummary(ch)),
@@ -685,7 +681,7 @@
             ...chainNodes.map((n) => ({ prefix: n.p.prefix, id: n.p.id, vrf: n.p.vrf ?? data.vrf, desc: n.p.description, tenant: n.p.tenant, pool: n.p.is_pool, vlan: n.p.vlan, status: n.p.status })),
         ];
         const innerPrefix = chain.at(-1).prefix;
-        return sec("Prefix chain", `${chain.length} levels`, el("ol", { class: "chain" }, chain.map((c) => {
+        return sec("Prefix chain", null, el("ol", { class: "chain" }, chain.map((c) => {
             const desc = [STRIPED_STATUS.has(c.status) ? c.status : null, c.pool ? "pool" : null, c.desc, tenantName(c.tenant), vlanName(c.vlan)].filter(Boolean).join(" · ");
             return el("li", { class: [c.here ? "here" : "", c.prefix === innerPrefix ? "inner" : ""].join(" ").trim() || null },
                 el("span", { class: "p", text: c.prefix }),
@@ -851,16 +847,11 @@
             tenants.size ? el("span", { class: "vsep" }) : null,
             tenants.size ? el("span", { class: "lg-group tenants" }, el("span", { class: "lg-label", text: "Tenants" }),
                 [...tenants].sort((a, b) => tenantName(a[0]).localeCompare(tenantName(b[0])))
-                    .map(([id, c]) => {
-                        // Colours come from a 16-colour palette by tenant id: tenants 1 and 17 look the same
-                        const same = [...tenants].filter(([o, oc]) => o !== id && oc === c).map(([o]) => tenantName(o));
-                        const pressed = String(tenantHi) === String(id);
-                        return el("span", { class: same.length ? "lg tenant-toggle same-color" : "lg tenant-toggle", role: "button", tabindex: "0",
-                            "data-tenant": String(id), "aria-pressed": String(pressed),
-                            title: (same.length ? `Same colour as ${same.join(", ")}. ` : "") + "Click to outline its prefixes",
-                            onclick: () => toggleTenant(id), onkeydown: (ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); toggleTenant(id); } } },
-                            sw(c), tenantName(id), same.length ? el("span", { class: "same-mark", text: "=" }) : null);
-                    })) : null,
+                    .map(([id, c]) => el("span", { class: "lg tenant-toggle", role: "button", tabindex: "0",
+                        "data-tenant": String(id), "aria-pressed": String(String(tenantHi) === String(id)),
+                        title: "Click to outline its prefixes",
+                        onclick: () => toggleTenant(id), onkeydown: (ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); toggleTenant(id); } } },
+                    sw(c), tenantName(id)))) : null,
             el("span", { class: "right", id: "usage-total" },
                 usageText(),
                 img ? el("span", { class: "cellnote", text: layer ? ` · 1 cell = /${blockLen}` : " · 1 cell = 1 address" }) : null),
@@ -887,14 +878,14 @@
             const a = blockStart(addr);
             pin(a, true);
             const count = countsKnown ? ` · ${fmt(blockCounts.get((a - net.start) / blockSize) || 0)} IPs` : "";
-            ui.say(`${intToIp(addr)} is in block ${intToIp(a)}/${blockLen}${count} — pinned`);
+            ui.say(`${intToIp(addr)} is in block ${intToIp(a)}/${blockLen}${count}`);
             return true;
         }
         if (len === null) {
             const ip = ipsByAddr.get(addr);
             pin(addr, true);
             const edge = ip ? null : edgeKind(addr);
-            ui.say(`${intToIp(addr)} · ${ip ? statusLabel(ip.status) + (ip.dns_name ? ` · ${ip.dns_name}` : "") : edge ? `${edge} address` : "free"} — pinned`);
+            ui.say(`${intToIp(addr)} · ${ip ? statusLabel(ip.status) + (ip.dns_name ? ` · ${ip.dns_name}` : "") : edge ? `${edge} address` : "free"}`);
             return true;
         }
         const start = addr - (addr % 2 ** (32 - len));
@@ -903,10 +894,10 @@
         const node = nested.find((n) => n.p.prefix === prefix);
         outline(parsePrefix(prefix));
         if (node) {
-            ui.say(`${prefix}${node.p.description ? ` · ${node.p.description}` : ""} — outlined. Enter opens its map.`);
+            ui.say(`${prefix}${node.p.description ? ` · ${node.p.description}` : ""}. Enter opens its map.`);
             if (commit) navigate(mapUrl(node.p.vrf ?? data.vrf, prefix));
         } else {
-            ui.say(`${prefix} is not a NetBox prefix; outlined as a range.`);
+            ui.say(`${prefix} is not a NetBox prefix.`);
         }
         return true;
     }
@@ -1057,7 +1048,7 @@
                 // which rewrites the URL; applied after it, so that both end up in the URL again.
                 const t = new URLSearchParams(window.location.search).get("tenant");
                 applyFocus();
-                if (t && tenantPrefixes(t).length) toggleTenant(t, true);
+                if (t && tenantPrefixes(t).length) toggleTenant(t);
                 initExport();
             }
             document.body.dataset.ready = "1";

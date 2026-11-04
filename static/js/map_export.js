@@ -101,7 +101,6 @@ window.PrefixMapExport = (() => {
 
         // Tenant fills: color, or one hatch per tenant in black and white
         const tenantFill = new Map();  // colour, or hatch number in black and white
-        const tenantLook = new Map();  // equal looks are named in the legend
         const tenantOrder = [];
         // Hatch pitch: about 1.6 mm with the drawing printed 190 mm wide (A4 portrait). A pitch close to the cell size
         // would read as the cell grid.
@@ -112,10 +111,8 @@ window.PrefixMapExport = (() => {
             if (!tenantFill.has(key)) {
                 tenantOrder.push(key);
                 if (mono) {
-                    tenantLook.set(key, tenantFill.size % HATCHES.length);
                     tenantFill.set(key, tenantFill.size % HATCHES.length);
                 } else {
-                    tenantLook.set(key, p.color);
                     tenantFill.set(key, p.color);
                 }
             }
@@ -230,12 +227,8 @@ window.PrefixMapExport = (() => {
             if ((ctx.ranges || []).length) items.push({ fill: "#fff", opacity: 1, dot: true, label: "IP range" });
         }
         if (ctx.nested.some((n) => STRIPED.has(n.p.status) && !(layer && n.len > blockLen))) items.push({ fill: "#fff", opacity: 1, striped: true, label: "Reserved, deprecated prefix" });
-        const sameAs = (key) => {
-            const same = tenantOrder.filter((o) => o !== key && tenantLook.get(o) === tenantLook.get(key)).map(ctx.tenantName);
-            return same.length ? ` (same ${mono ? "pattern" : "colour"} as ${same.join(", ")})` : "";
-        };
         const tenantItems = tenantOrder.map((key) => ({ ...(mono ? { fill: "#fff", hatch: tenantFill.get(key) } : { fill: tenantFill.get(key) }),
-            opacity: 1, label: ctx.tenantName(key) + sameAs(key), name: ctx.tenantName(key), outline: true }))
+            opacity: 1, label: ctx.tenantName(key), name: ctx.tenantName(key), outline: true }))
             .sort((a, b) => a.name.localeCompare(b.name));
         const rows = [];
         let row = [], used = 0;

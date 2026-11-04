@@ -105,7 +105,7 @@ window.PrefixMapTop = (() => {
                 const list = node("ul");
                 list.append(...body.results.map(resultItem));
                 const head = body.free
-                    ? `Free: ${Object.entries(body.counts).map(([vrf, n]) => `${n.toLocaleString("en-US")} in ${vrf}`).join(", ")}; the first ones by address. Enter opens the first:`
+                    ? `Free: ${Object.entries(body.counts).map(([vrf, n]) => `${n.toLocaleString("en-US")} in ${vrf}`).join(", ")}. Enter opens the first:`
                     : body.truncated ? `First ${body.results.length} matches; Enter opens the first:` : "Enter opens the first map:";
                 say([node("div", null, head), list]);
             })
