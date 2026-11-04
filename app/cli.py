@@ -254,6 +254,48 @@ def render_fingerprint(prefix, nested_prefixes, ip_addresses, cell_size, tenant_
     return hashlib.sha256(json.dumps(state).encode()).hexdigest()
 
 
+CHANGES_LIMIT = 1000
+
+
+def _ip_states(ip_addresses):
+    """(address, vrf) -> (status, role, dns_name) of IP records."""
+    return {((ip.get('address') or '').split('/')[0], ip.get('vrf')):
+            (choice_value(ip.get('status')), choice_value(ip.get('role')), ip.get('dns_name') or '')
+            for ip in ip_addresses}
+
+
+def prefix_changes(previous, ip_addresses, nested_prefixes, now):
+    """
+    What changed in a prefix since its previous data file: IP records added, removed or changed (status, role,
+    DNS name) and nested prefixes added or removed. None when nothing changed or there is no previous data file
+    to compare with.
+    """
+    if not previous or 'nested_prefixes' not in previous:
+        return None
+    before, after = _ip_states(previous.get('ip_addresses') or []), _ip_states(ip_addresses)
+    old_nested = {p['prefix'] for p in previous.get('nested_prefixes') or []}
+    new_nested = {p['prefix'] for p in nested_prefixes}
+
+    def addresses(keys):
+        return sorted({k[0] for k in keys}, key=lambda a: ipaddress.ip_address(a))
+
+    def by_prefix(prefixes):
+        return sorted(prefixes, key=ipaddress.ip_network)
+
+    changes = {
+        'added': addresses(after.keys() - before.keys()),
+        'removed': addresses(before.keys() - after.keys()),
+        'changed': addresses(k for k in after.keys() & before.keys() if after[k] != before[k]),
+        'prefixes_added': by_prefix(new_nested - old_nested),
+        'prefixes_removed': by_prefix(old_nested - new_nested),
+    }
+    if not any(changes.values()):
+        return None
+    counts = {f'{key}_count': len(value) for key, value in changes.items()}
+    return {'at': now, 'since': previous.get('generated_at'), **counts,
+            **{key: value[:CHANGES_LIMIT] for key, value in changes.items()}}
+
+
 def process_prefix(prefix_entry, prefix_subtree, descendants, ip_addresses, cell_size, tenant_color_map, output_dir,
                    render=True, ancestors=(), ip_counts=None, layer=None, ip_ranges=()):
     """
@@ -303,6 +345,11 @@ def process_prefix(prefix_entry, prefix_subtree, descendants, ip_addresses, cell
         for ip in filter_keys_from_dicts(
             ip_addresses, {"id", "address", "vrf", "tenant", "status", "role", "dns_name", "description"})
     ]
+    previous = load_json(json_filepath)
+    now = time.time()
+    # The last change stays until a newer one replaces it
+    changes = prefix_changes(previous, filtered_ip_addresses if render else [], nested_prefixes, now) \
+        or previous.get('changes')
     data_to_save = {
         'prefix': prefix_entry["prefix"],
         'id': prefix_entry.get("id"),
@@ -313,7 +360,7 @@ def process_prefix(prefix_entry, prefix_subtree, descendants, ip_addresses, cell
         'color': prefix_fill_color(prefix_entry.get('tenant'), tenant_color_map),
         'ip_count': ip_counts.get((vrf, prefix), len(ip_addresses)),
         'size': ipaddress.ip_network(prefix).num_addresses,
-        'generated_at': time.time(),
+        'generated_at': now,
         'rendered': render,
         'render_hash': fingerprint,
         'parents': filter_keys_from_dicts(ancestors, {"id", "prefix", "vrf"}),
@@ -322,6 +369,7 @@ def process_prefix(prefix_entry, prefix_subtree, descendants, ip_addresses, cell
                             for p in nested_prefixes],
         'ip_addresses': filtered_ip_addresses,
         'ip_ranges': list(ip_ranges),
+        'changes': changes,
     }
     if render:
         data_to_save['cell_size'] = cell_size
@@ -332,8 +380,7 @@ def process_prefix(prefix_entry, prefix_subtree, descendants, ip_addresses, cell
         data_to_save['grid'] = [2 ** (cell_bits - cell_bits // 2), 2 ** (cell_bits // 2)]
         data_to_save['layer'] = {'block_len': layer['block_len'], 'blocks': sorted(layer['counts'].items())}
 
-    if fingerprint and os.path.exists(output_filepath) \
-            and load_json(json_filepath).get('render_hash') == fingerprint:
+    if fingerprint and os.path.exists(output_filepath) and previous.get('render_hash') == fingerprint:
         logging.debug(f"No changes detected for prefix {prefix}. Skipping regeneration.")
     elif render:
         plot_allocation_grid(prefix_entry, nested_prefixes, ip_addresses, output_filepath, cell_size,

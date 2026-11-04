@@ -98,17 +98,35 @@ def free_address(dataset, prefix):
 
 
 @pytest.mark.parametrize("dpr", [1, 2])
-def test_zoom_is_whole_device_pixels(open_page, dpr):
+def test_zoom_is_whole_device_pixels_per_cell(open_page, dpr):
     page = open_page(f'{BASE}/map/1/10_20_48_0_20', device_scale_factor=dpr)
     wait_for_map(page)
     natural, css_width = page.eval_on_selector(
         '#map-img', 'img => [img.naturalWidth, img.getBoundingClientRect().width]')
-    k = css_width * dpr / natural
-    assert k == int(k) >= 1
+    cells = natural / CELL_SIZE
+    c = css_width * dpr / cells  # device pixels per cell
+    assert c == int(c) >= CELL_SIZE
     page.click('#zoom-in')
-    assert page.eval_on_selector('#map-img', 'img => img.getBoundingClientRect().width') * dpr / natural == k + 1
-    assert page.inner_text('#zoom-level') == f'{int(k) + 1}×'
+    c2 = page.eval_on_selector('#map-img', 'img => img.getBoundingClientRect().width') * dpr / cells
+    assert c2 == int(c2) > c
+    assert page.inner_text('#zoom-level') == f'{float(f"{c2 / CELL_SIZE:.2f}"):g}×'
     assert page.errors == []
+
+
+def test_zoom_steps(open_page):
+    """Zoom out to 1 x, then in: 4, 5, 6, 7, 8, 10, 12 device pixels per cell, and back down the same way."""
+    page = open_page(f'{BASE}/map/1/10_20_48_0_20', viewport=(1400, 900))
+    wait_for_map(page)
+    for _ in range(30):
+        page.keyboard.press('-')
+    seen = [page.evaluate('window.__prefixMap.c')]
+    for _ in range(6):
+        page.keyboard.press('+')
+        seen.append(page.evaluate('window.__prefixMap.c'))
+    assert seen == [CELL_SIZE * 1, 5, 6, 7, 8, 10, 12] if CELL_SIZE == 4 else seen == sorted(set(seen))
+    for _ in range(6):
+        page.keyboard.press('-')
+    assert page.evaluate('window.__prefixMap.c') == CELL_SIZE
 
 
 @pytest.mark.parametrize("dpr", [1, 2])
@@ -722,3 +740,50 @@ def test_addresses_with_several_records(open_page):
     assert '2 records' in page.inner_text('#insp-detail .sub')
     detail = page.inner_text('#insp-detail')
     assert 'all records of this address' in detail.lower() and 'Global' in detail and 'LAN' in detail
+
+
+def test_last_change_section_and_overlay(open_page):
+    def inject(route):
+        data = route.fetch().json()
+        if data.get('prefix') == '10.20.48.0/24':
+            data['changes'] = {'at': 1767225600, 'since': 1767139200, 'added': ['10.20.48.1'], 'removed': ['10.20.48.200'],
+                               'changed': [], 'prefixes_added': [], 'prefixes_removed': [],
+                               'added_count': 1, 'removed_count': 1, 'changed_count': 0,
+                               'prefixes_added_count': 0, 'prefixes_removed_count': 0}
+        route.fulfill(json=data)
+
+    page = open_page(f'{BASE}/map/1/10_20_48_0_24', route=(f'**{BASE}/data/**', inject))
+    wait_for_map(page)
+    section = page.locator('#sum-free section:has-text("Last change")')
+    assert '1 IP added · 1 removed' in section.inner_text()
+    assert page.is_hidden('#ov-changes')
+    page.check('#show-changes')
+    assert page.locator('#ov-changes .ov-change.added').count() == 1
+    assert page.locator('#ov-changes .ov-change.removed').count() == 1
+    section.locator('tr >> nth=1').click()
+    assert page.inner_text('#insp-detail .big').startswith('10.20.48.200/')
+
+
+@pytest.mark.parametrize("dpr,presses", [(1, 2), (2, 1), (1, 5)])
+def test_fractional_zoom_keeps_cells_identical(open_page, output_dir, dpr, presses):
+    """
+    At c device pixels per cell, device pixel i shows image pixel floor((i + 1/2) * cs / c) (nearest neighbour at the
+    pixel centre). c device pixels hold exactly cs image pixels, so every cell gets the same pattern.
+    """
+    import io
+    import numpy as np
+    from PIL import Image
+    page = open_page(f'{BASE}/map/1/10_20_48_0_24', device_scale_factor=dpr, viewport=(1400, 1400))
+    wait_for_map(page)
+    for _ in range(30):
+        page.keyboard.press('-')
+    for _ in range(presses):
+        page.keyboard.press('+')
+    c = page.evaluate('window.__prefixMap.c')
+    shot = np.array(Image.open(io.BytesIO(page.locator('#map-img').screenshot())).convert('RGB')).astype(int)
+    png = np.array(Image.open(f'{output_dir}/address_map-1-10_20_48_0_24.png').convert('RGB')).astype(int)
+    rows = ((2 * np.arange(shot.shape[0]) + 1) * CELL_SIZE) // (2 * c)
+    cols = ((2 * np.arange(shot.shape[1]) + 1) * CELL_SIZE) // (2 * c)
+    expected = png[rows][:, cols]
+    assert shot.shape[:2] == (png.shape[0] * c // CELL_SIZE, png.shape[1] * c // CELL_SIZE)
+    assert (np.abs(shot - expected).max(axis=2) > 8).mean() < 0.001, f"c={c}"
