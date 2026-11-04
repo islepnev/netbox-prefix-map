@@ -650,6 +650,51 @@ def test_svg_export_black_and_white_hatches_tenants(open_page):
     assert fills <= {f'url(#t{i})' for i in range(len(patterns))} | {'none'}
 
 
+def retenant(mapping):
+    """Route handler that sets the tenant (and its colour) of nested prefixes: {prefix: (tenant, color)}."""
+    def handle(route):
+        data = route.fetch().json()
+        for p in data['nested_prefixes']:
+            if p['prefix'] in mapping:
+                p['tenant'], p['color'] = mapping[p['prefix']]
+        route.fulfill(json=data)
+    return handle
+
+
+def test_legend_marks_tenants_sharing_a_colour(open_page):
+    """Colours repeat every 16 tenant ids; the legend names tenants that look the same on this map."""
+    route = retenant({'10.20.0.64/26': (17, '#8fbbd9')})  # colour of tenant 1, Core
+    page = open_page(f'{BASE}/map/1/10_20_0_0_17', route=(f'**{BASE}/data/1/10_20_0_0_17', route))
+    wait_for_map(page)
+    marked = page.eval_on_selector_all('#legend .lg.same-color', 'els => els.map(e => [e.textContent, e.title])')
+    assert marked == [['Core=', 'Same colour as Tenant 17'], ['Tenant 17=', 'Same colour as Core']]
+    assert page.locator('#legend .lg:not(.same-color):has-text("Office")').count() == 1
+    svg, _ = export_svg(page)
+    assert 'Core (same colour as Tenant 17)' in svg
+    _, root = export_svg(page, mono=True)
+    assert not any('same pattern' in (t.text or '') for t in root.iter(SVG_NS + 'text'))
+    assert page.errors == []
+
+
+def test_svg_export_black_and_white_has_16_distinct_hatches(open_page, output_dir):
+    with open(os.path.join(output_dir, 'data-1-10_20_0_0_17.json')) as f:
+        nested = json.load(f)['nested_prefixes']
+    mapping = {p['prefix']: (i + 1, '#123456') for i, p in enumerate(nested[:17])}
+    page = open_page(f'{BASE}/map/1/10_20_0_0_17', route=(f'**{BASE}/data/1/10_20_0_0_17', retenant(mapping)))
+    wait_for_map(page)
+    _, root = export_svg(page, mono=True)
+    patterns = [''.join(ET_tostring(c) for c in p if c.tag != SVG_NS + 'rect') for p in root.findall(f'.//{SVG_NS}pattern[@id]')
+                if p.get('id').startswith('t')]
+    assert len(patterns) == 17 and len(set(patterns)) == 16
+    same = [t.text for t in root.iter(SVG_NS + 'text') if 'same pattern' in (t.text or '')]
+    assert len(same) == 2, same
+
+
+def ET_tostring(e):
+    import xml.etree.ElementTree as ET
+    return ET.tostring(e, encoding='unicode')
+
+
 def test_svg_export_of_layered_map(open_page):
     page = open_page(f'{BASE}/map/1/10_0_0_0_8')
     wait_for_map(page)

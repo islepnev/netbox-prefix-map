@@ -140,6 +140,7 @@ All paths are relative to `BASE_PATH`.
 ## Limitations
 
 - IPv4 only; IPv6 prefixes are skipped.
+- 16 tenant colours, by tenant id: tenants 16 ids apart share a colour. The legend marks such tenants on a map.
 - Prefixes of /16 and longer get one cell per address. Shorter prefixes get a layered map with one cell per aligned block (/24 for a /8, at most 65,536 cells), shaded by the number of IP addresses in it.
 - The updater runs inside the web process; run a single web worker.
 - No authentication of its own; see [Access control](#access-control).
