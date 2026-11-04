@@ -88,10 +88,11 @@ window.PrefixMapExport = (() => {
         if (!ctx || !ctx.GW) return null;
         const { cfg, data, net, GW, GH, layer, blockLen, blockSize, cellOf, rangeBounds, intToIp } = ctx;
         const W = GW * U, H = GH * U;
-        const vrfName = cfg.vrf ? cfg.vrf.name : "Global";
+        const { t } = window.I18N;
+        const vrfName = cfg.vrf ? cfg.vrf.name : t("vrf.global");
         const title = [`${cfg.prefix}`, `VRF ${vrfName}`, cfg.details.description].filter(Boolean).join(" · ");
-        const sub = [ctx.usageText(), layer ? `1 cell = /${blockLen}` : "1 cell = 1 address",
-            data.generated_at ? `data of ${new Date(data.generated_at * 1000).toLocaleString()}` : null].filter(Boolean).join(" · ");
+        const sub = [ctx.usageText(), layer ? t("legend.cell_block", { len: blockLen }) : t("legend.cell_address"),
+            data.generated_at ? t("export.data_of", { date: window.I18N.date(data.generated_at * 1000) }) : null].filter(Boolean).join(" · ");
         // Font size follows the map width; a drawing wider than the map holds the title and subtitle of small maps
         const fs = Math.max(11, Math.round(W / 55));
         const SW = Math.ceil(Math.max(W, title.length * fs * 0.62 * 1.3, sub.length * fs * 0.6));
@@ -215,8 +216,8 @@ window.PrefixMapExport = (() => {
         const titleH = pad + fs * 1.3 + fs * 1.4;
         const items = [];
         if (layer) {
-            items.push({ fill: "#000", opacity: 0.25, label: "few IPs" }, { fill: "#000", opacity: 0.575, label: "25%" },
-                { fill: "#000", opacity: 0.9, label: "all used" }, { check: true, label: "prefixes inside" });
+            items.push({ fill: "#000", opacity: 0.25, label: t("export.few_ips") }, { fill: "#000", opacity: 0.575, label: "25%" },
+                { fill: "#000", opacity: 0.9, label: t("export.all_used") }, { check: true, label: t("legend.prefixes_inside") });
         } else {
             const kinds = new Set((data.ip_addresses || []).map(ctx.ipKind));
             for (const kind of ["active", "dhcp", "reserved", "inactive", "role"]) {
@@ -224,16 +225,16 @@ window.PrefixMapExport = (() => {
                 const k = ctx.IP_KINDS[kind];
                 items.push({ fill: mono && kind === "role" ? "#000" : k.svg[0], opacity: mono && kind === "role" ? 1 : k.svg[1], hollow: mono && kind === "role", label: k.label });
             }
-            if ((ctx.ranges || []).length) items.push({ fill: "#fff", opacity: 1, dot: true, label: "IP range" });
+            if ((ctx.ranges || []).length) items.push({ fill: "#fff", opacity: 1, dot: true, label: t("insp.ip_range") });
         }
-        if (ctx.nested.some((n) => STRIPED.has(n.p.status) && !(layer && n.len > blockLen))) items.push({ fill: "#fff", opacity: 1, striped: true, label: "Reserved, deprecated prefix" });
+        if (ctx.nested.some((n) => STRIPED.has(n.p.status) && !(layer && n.len > blockLen))) items.push({ fill: "#fff", opacity: 1, striped: true, label: t("legend.striped") });
         const tenantItems = tenantOrder.map((key) => ({ ...(mono ? { fill: "#fff", hatch: tenantFill.get(key) } : { fill: tenantFill.get(key) }),
             opacity: 1, label: ctx.tenantName(key), name: ctx.tenantName(key), outline: true }))
             .sort((a, b) => a.name.localeCompare(b.name));
         const rows = [];
         let row = [], used = 0;
         const sw = fs, itemW = (it) => sw + fs * 0.5 + it.label.length * fs * 0.62 + fs * 1.6;
-        for (const it of [...items, ...(tenantItems.length ? [{ label: "Tenants:", heading: true }] : []), ...tenantItems]) {
+        for (const it of [...items, ...(tenantItems.length ? [{ label: `${t("legend.tenants")}:`, heading: true }] : []), ...tenantItems]) {
             const w = it.heading ? it.label.length * fs * 0.62 + fs : itemW(it);
             if (used + w > SW && row.length) { rows.push(row); row = []; used = 0; }
             row.push({ ...it, x: used });

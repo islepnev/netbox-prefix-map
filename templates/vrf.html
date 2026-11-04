@@ -1,16 +1,16 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="{{ lang }}">
 <head>
 {% include '_head.html' %}
-    <title>VRF {{ vrf.name if vrf else 'Global' }} · Prefix Map</title>
+    <title>VRF {{ vrf.name if vrf else t('vrf.global') }} · {{ t('app.name') }}</title>
 </head>
 <body class="doc-page">
 {% include '_topbar.html' %}
-{% from '_usage.html' import usage, percent, count %}
+{% from '_usage.html' import usage, percent, count with context %}
 <main class="page-main">
     <div class="page-head">
         <div>
-            <h1>VRF {{ vrf.name if vrf else 'Global' }}</h1>
+            <h1>VRF {{ vrf.name if vrf else t('vrf.global') }}</h1>
             <div class="sub">
                 {% if vrf and vrf.description %}<span>{{ vrf.description }}</span>{% endif %}
                 {% if vrf and vrf.rd %}<span class="mono">RD {{ vrf.rd }}</span>{% endif %}
@@ -18,15 +18,15 @@
             </div>
         </div>
         <div class="stats">
-            <div class="stat"><b>{{ count(summary.prefix_count) }}</b><span>IPv4 prefixes</span></div>
-            <div class="stat"><b>{{ count(summary.ip_count) }}</b><span>IP addresses</span></div>
+            <div class="stat"><b>{{ count(summary.prefix_count) }}</b><span>{{ t('vrf.stat_prefixes', n=summary.prefix_count or 0) }}</span></div>
+            <div class="stat"><b>{{ count(summary.ip_count) }}</b><span>{{ t('vrf.stat_addresses', n=summary.ip_count or 0) }}</span></div>
         </div>
     </div>
     <div class="card">
         {% if summary.top_prefixes %}
         <table class="list" id="prefix-list">
             <thead>
-                <tr><th>Prefix</th><th class="hide-narrow">Description</th><th class="hide-narrow">Tenant</th><th class="hide-narrow">Status</th><th class="num">Addresses used</th><th class="num">Usage</th></tr>
+                <tr><th>{{ t('col.prefix') }}</th><th class="hide-narrow">{{ t('col.description') }}</th><th class="hide-narrow">{{ t('col.tenant') }}</th><th class="hide-narrow">{{ t('col.status') }}</th><th class="num">{{ t('col.addresses_used') }}</th><th class="num">{{ t('col.usage') }}</th></tr>
             </thead>
             <tbody>
                 {% for p in summary.top_prefixes %}
@@ -34,7 +34,7 @@
                     <td><span class="pfx-cell"><span class="tdot{{ '' if p.color else ' none' }}"{% if p.color %} style="background:{{ p.color }}"{% endif %}></span><a href="{{ url_for('app.serve_map', vrf=vrf_key, prefix=p.sanitized) }}">{{ p.prefix }}</a></span></td>
                     <td class="desc hide-narrow">{{ p.description or '' }}</td>
                     <td class="hide-narrow">{% if p.tenant %}{{ tenants.get(p.tenant | string) or p.tenant }}{% endif %}</td>
-                    <td class="hide-narrow">{% if p.status %}<span class="pill">{{ p.status | capitalize }}</span>{% endif %}</td>
+                    <td class="hide-narrow">{% if p.status %}<span class="pill">{{ status_label(p.status) }}</span>{% endif %}</td>
                     <td class="num">{{ count(p.ip_count) }} / {{ count(p.size) }}</td>
                     <td class="num"><span class="usage-cell">{{ usage(p, wide=True) }}<span class="pct">{{ percent(p.ip_count, p.size) }}</span></span></td>
                 </tr>
@@ -42,7 +42,7 @@
             </tbody>
         </table>
         {% else %}
-        <div class="empty">No IPv4 prefixes in this VRF.</div>
+        <div class="empty">{{ t('vrf.empty') }}</div>
         {% endif %}
     </div>
 </main>

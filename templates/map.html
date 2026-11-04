@@ -1,11 +1,12 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="{{ lang }}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>{{ prefix }} · VRF {{ vrf.name if vrf else 'Global' }} · Prefix Map</title>
+    <title>{{ prefix }} · VRF {{ vrf.name if vrf else t('vrf.global') }} · {{ t('app.name') }}</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
     <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
+{% include '_i18n.html' %}
     <script src="{{ url_for('static', filename='js/topbar.js') }}" defer></script>
     <script src="{{ url_for('static', filename='js/prefix_tree.js') }}" defer></script>
     <script src="{{ url_for('static', filename='js/map_export.js') }}" defer></script>
@@ -14,14 +15,14 @@
 <body class="map-page">
 {% include '_topbar.html' %}
 
-<aside id="tree-panel" class="panel" aria-label="Prefix tree">
-    <div class="panel-head">Prefixes
+<aside id="tree-panel" class="panel" aria-label="{{ t('tree.label') }}">
+    <div class="panel-head">{{ t('tree.title') }}
         <span class="spacer"></span>
-        <button type="button" class="icon-btn" data-toggle-panel="tree" title="Hide prefix tree ([)" aria-label="Hide prefix tree">
+        <button type="button" class="icon-btn" data-toggle-panel="tree" title="{{ t('tree.hide') }} ([)" aria-label="{{ t('tree.hide') }}">
             <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M7.5 2.5L4 6l3.5 3.5" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>
         </button>
     </div>
-    <div class="panel-body"><div id="tree" role="tree"><div class="msg">Loading…</div></div></div>
+    <div class="panel-body"><div id="tree" role="tree"><div class="msg">{{ t('common.loading') }}</div></div></div>
 </aside>
 
 <main id="map-panel">
@@ -29,7 +30,7 @@
     <div id="viewport">
         <div id="stage-wrap">
             <div id="stage">
-                <img id="map-img" draggable="false" src="{{ image_url }}" alt="Address map of {{ prefix }}">
+                <img id="map-img" draggable="false" src="{{ image_url }}" alt="{{ t('map.alt', prefix=prefix) }}">
                 <div class="ov" id="ov-select" hidden></div>
                 <div class="ov" id="ov-prefix" hidden></div>
                 <div class="ov" id="ov-free" hidden></div>
@@ -41,30 +42,30 @@
         </div>
     </div>
     {% else %}
-    <div class="map-empty"><p>No map image for {{ prefix }} yet: it is drawn on the next update. Choose a child prefix in the tree.</p></div>
+    <div class="map-empty"><p>{{ t('map.no_image', prefix=prefix) }}</p></div>
     {% endif %}
-    <div id="zoom" role="toolbar" aria-label="Map view">
-        <button type="button" data-toggle-panel="tree" title="Prefix tree ([)" aria-label="Toggle prefix tree">
+    <div id="zoom" role="toolbar" aria-label="{{ t('zoom.toolbar') }}">
+        <button type="button" data-toggle-panel="tree" title="{{ t('tree.label') }} ([)" aria-label="{{ t('tree.toggle') }}">
             <svg width="14" height="12" viewBox="0 0 14 12" aria-hidden="true"><rect x=".7" y=".7" width="12.6" height="10.6" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.2"/><rect x="1.5" y="1.5" width="3.5" height="9" fill="currentColor"/></svg>
         </button>
         {% if image_url %}
         <span class="sep"></span>
-        <button type="button" id="zoom-out" title="Zoom out (−)" aria-label="Zoom out">−</button>
+        <button type="button" id="zoom-out" title="{{ t('zoom.out') }} (−)" aria-label="{{ t('zoom.out') }}">−</button>
         <span id="zoom-level"></span>
-        <button type="button" id="zoom-in" title="Zoom in (+)" aria-label="Zoom in">+</button>
+        <button type="button" id="zoom-in" title="{{ t('zoom.in') }} (+)" aria-label="{{ t('zoom.in') }}">+</button>
         <span class="sep"></span>
-        <button type="button" id="zoom-fit" title="Fit to view (0)">Fit</button>
+        <button type="button" id="zoom-fit" title="{{ t('zoom.fit_title') }} (0)">{{ t('zoom.fit') }}</button>
         {% endif %}
         <span class="sep"></span>
-        <button type="button" data-toggle-panel="insp" title="Inspector (])" aria-label="Toggle inspector">
+        <button type="button" data-toggle-panel="insp" title="{{ t('insp.title') }} (])" aria-label="{{ t('insp.toggle') }}">
             <svg width="14" height="12" viewBox="0 0 14 12" aria-hidden="true"><rect x=".7" y=".7" width="12.6" height="10.6" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.2"/><rect x="9" y="1.5" width="3.5" height="9" fill="currentColor"/></svg>
         </button>
     </div>
 </main>
 
-<aside id="insp-panel" class="panel" aria-label="Inspector">
-    <div class="panel-head"><span id="insp-title">Inspector</span><span id="insp-badge" class="badge">{% if image_url %}hover the map{% endif %}</span>
-        <button type="button" class="icon-btn" data-toggle-panel="insp" title="Hide inspector (])" aria-label="Hide inspector">
+<aside id="insp-panel" class="panel" aria-label="{{ t('insp.title') }}">
+    <div class="panel-head"><span id="insp-title">{{ t('insp.title') }}</span><span id="insp-badge" class="badge">{% if image_url %}{{ t('insp.hover_hint') }}{% endif %}</span>
+        <button type="button" class="icon-btn" data-toggle-panel="insp" title="{{ t('insp.hide') }} (])" aria-label="{{ t('insp.hide') }}">
             <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M4.5 2.5L8 6l-3.5 3.5" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>
         </button>
     </div>
@@ -75,49 +76,49 @@
                 <div class="big">{{ prefix }}</div>
                 <div class="sub">
                     {% if details.description %}<span>{{ details.description }}</span>{% endif %}
-                    {% if details.status %}<span class="pill">{{ details.status | capitalize }}</span>{% endif %}
+                    {% if details.status %}<span class="pill">{{ status_label(details.status) }}</span>{% endif %}
                 </div>
                 <div id="sum-usage"></div>
             </section>
             <section class="sec">
-                <h3>Prefix</h3>
+                <h3>{{ t('insp.prefix') }}</h3>
                 <dl class="kv">
                     <dt>VRF</dt>
-                    <dd>{% if vrf %}<a class="ext" href="{{ netbox_url }}/ipam/vrfs/{{ vrf.id }}/" target="_blank" rel="noopener">{{ vrf.name }}</a>{% else %}Global{% endif %}</dd>
-                    <dt>Status</dt>
-                    {% if details.status %}<dd>{{ details.status | capitalize }}</dd>{% else %}<dd class="none">—</dd>{% endif %}
-                    <dt>Tenant</dt>
+                    <dd>{% if vrf %}<a class="ext" href="{{ netbox_url }}/ipam/vrfs/{{ vrf.id }}/" target="_blank" rel="noopener">{{ vrf.name }}</a>{% else %}{{ t('vrf.global') }}{% endif %}</dd>
+                    <dt>{{ t('field.status') }}</dt>
+                    {% if details.status %}<dd>{{ status_label(details.status) }}</dd>{% else %}<dd class="none">—</dd>{% endif %}
+                    <dt>{{ t('field.tenant') }}</dt>
                     {% if details.tenant_id %}<dd><a class="ext" href="{{ netbox_url }}/tenancy/tenants/{{ details.tenant_id }}/" target="_blank" rel="noopener">{{ details.tenant_name or details.tenant_id }}</a></dd>{% else %}<dd class="none">—</dd>{% endif %}
                     <dt>VLAN</dt>
                     {% if details.vlan_id %}<dd><a class="ext" href="{{ netbox_url }}/ipam/vlans/{{ details.vlan_id }}/" target="_blank" rel="noopener">{{ details.vlan_label }}</a></dd>{% else %}<dd class="none">—</dd>{% endif %}
-                    <dt>Scope</dt>
+                    <dt>{{ t('field.scope') }}</dt>
                     {% if details.scope_name %}<dd>{% if details.scope_path %}<a class="ext" href="{{ netbox_url }}{{ details.scope_path }}" target="_blank" rel="noopener">{{ details.scope_name }}</a>{% else %}{{ details.scope_name }}{% endif %}</dd>{% else %}<dd class="none">—</dd>{% endif %}
-                    <dt>Role</dt>
+                    <dt>{{ t('field.role') }}</dt>
                     {% if details.role_id %}<dd><a class="ext" href="{{ netbox_url }}/ipam/roles/{{ details.role_id }}/" target="_blank" rel="noopener">{{ details.role_name or details.role_id }}</a></dd>{% else %}<dd class="none">—</dd>{% endif %}
                 </dl>
             </section>
             <div id="sum-free"></div>
             <div id="sum-export"></div>
             <section class="sec">
-                <h3>Links</h3>
+                <h3>{{ t('insp.links') }}</h3>
                 <div class="links">
                     {% if prefix_id %}
-                    <a class="ext" href="{{ netbox_url }}/ipam/prefixes/{{ prefix_id }}/" target="_blank" rel="noopener">Prefix {{ prefix }} in NetBox</a>
-                    <a class="ext" href="{{ netbox_url }}/ipam/prefixes/{{ prefix_id }}/ip-addresses/" target="_blank" rel="noopener">IP addresses in this prefix</a>
+                    <a class="ext" href="{{ netbox_url }}/ipam/prefixes/{{ prefix_id }}/" target="_blank" rel="noopener">{{ t('links.prefix', prefix=prefix) }}</a>
+                    <a class="ext" href="{{ netbox_url }}/ipam/prefixes/{{ prefix_id }}/ip-addresses/" target="_blank" rel="noopener">{{ t('links.prefix_ips') }}</a>
                     {% endif %}
-                    {% if vrf %}<a class="ext" href="{{ netbox_url }}/ipam/vrfs/{{ vrf.id }}/" target="_blank" rel="noopener">VRF {{ vrf.name }} in NetBox</a>{% endif %}
+                    {% if vrf %}<a class="ext" href="{{ netbox_url }}/ipam/vrfs/{{ vrf.id }}/" target="_blank" rel="noopener">{{ t('links.vrf', vrf=vrf.name) }}</a>{% endif %}
                 </div>
             </section>
             {% if image_url %}
             <section class="sec">
-                <h3>Keys</h3>
+                <h3>{{ t('keys.title') }}</h3>
                 <div class="howto">
-                    <div>Hover to inspect, click to pin, <kbd>Esc</kbd> to unpin</div>
-                    <div>Double-click or <kbd>Enter</kbd> opens the child prefix or the IP in NetBox</div>
-                    <div><kbd>←</kbd> <kbd>→</kbd> <kbd>↑</kbd> <kbd>↓</kbd> move the pin (<kbd>Shift</kbd>: 16 cells) · <kbd>c</kbd> copy</div>
-                    <div><kbd>/</kbd> search · <kbd>+</kbd> <kbd>−</kbd> <kbd>0</kbd> zoom · <kbd>[</kbd> <kbd>]</kbd> panels</div>
-                    <div>The URL keeps the pinned address: share it as a link</div>
-                    <div>Addresses follow a Z curve, so every aligned subnet is a rectangle: a /24 is 16 × 16 cells, grey numbers are its octet. <a href="{{ url_for('app.help_page') }}">How to read the map</a></div>
+                    <div>{{ t('keys.pin') | safe }}</div>
+                    <div>{{ t('keys.open') | safe }}</div>
+                    <div>{{ t('keys.move') | safe }}</div>
+                    <div>{{ t('keys.other') | safe }}</div>
+                    <div>{{ t('keys.url') }}</div>
+                    <div>{{ t('keys.zcurve') }} <a href="{{ url_for('app.help_page') }}">{{ t('help.title') }}</a></div>
                 </div>
             </section>
             {% endif %}

@@ -1,16 +1,16 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="{{ lang }}">
 <head>
 {% include '_head.html' %}
-    <title>Not found · Prefix Map</title>
+    <title>{{ t('error.not_found') }} · {{ t('app.name') }}</title>
 </head>
 <body class="doc-page">
 {% include '_topbar.html' %}
 <main class="page-main">
-    <div class="page-head"><h1>Not found</h1></div>
+    <div class="page-head"><h1>{{ t('error.not_found') }}</h1></div>
     <div class="card"><div class="empty">
         <p>{{ message }}</p>
-        <p><a href="{{ url_for('app.index') }}">Back to the VRF list</a></p>
+        <p><a href="{{ url_for('app.index') }}">{{ t('error.back') }}</a></p>
     </div></div>
 </main>
 </body>
