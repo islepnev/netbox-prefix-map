@@ -297,12 +297,14 @@
         return Math.max(cs, Math.ceil(down / stepOf(down)) * stepOf(down));
     }
     const scaleText = (v) => `${Number((v / cs).toFixed(2))}×`;
-    function layout(keepCenter) {
+    // keep: keep the map point under the view centre in place, or under anchor ([x, y] in viewport pixels) when given
+    function layout(keep, anchor) {
         if (!img || !img.naturalWidth) return;
         const vw = viewport.clientWidth, vh = viewport.clientHeight;
+        const [ax, ay] = anchor || [vw / 2, vh / 2];
         const oldW = stage.offsetWidth || 1, oldH = stage.offsetHeight || 1;
-        const cx = (viewport.scrollLeft + vw / 2 - stage.offsetLeft) / oldW;
-        const cy = (viewport.scrollTop + vh / 2 - stage.offsetTop) / oldH;
+        const cx = (viewport.scrollLeft + ax - stage.offsetLeft) / oldW;
+        const cy = (viewport.scrollTop + ay - stage.offsetTop) / oldH;
         const w = (GW * c) / dpr, h = (GH * c) / dpr;
         img.style.width = `${w}px`;
         img.style.height = `${h}px`;
@@ -312,9 +314,9 @@
         stage.style.top = `${topPx}px`;
         wrap.style.width = `${left + w + PAD}px`;
         wrap.style.height = `${topPx + h + PAD}px`;
-        if (keepCenter) {
-            viewport.scrollLeft = cx * w + left - vw / 2;
-            viewport.scrollTop = cy * h + topPx - vh / 2;
+        if (keep) {
+            viewport.scrollLeft = cx * w + left - ax;
+            viewport.scrollTop = cy * h + topPx - ay;
         }
         document.documentElement.style.setProperty("--hair", `${1 / dpr}px`);
         stage.classList.add("laid-out");
@@ -326,10 +328,49 @@
         $("zoom-fit").classList.toggle("active", fitMode);
         drawOverlays();
     }
-    function setC(v, byUser) {
+    function setC(v, byUser, anchor) {
         c = Math.max(minC(), Math.min(maxC(), v));
         fitMode = !byUser;
-        layout(true);
+        layout(true, anchor);
+    }
+
+    // Ctrl/Cmd + wheel and touchpad pinch (a wheel event with ctrlKey) zoom about the pointer, one step per notch;
+    // the plain wheel scrolls. Dragging with the primary button pans; a drag does not pin.
+    function enableWheelAndDrag() {
+        let wheelSum = 0;
+        viewport.addEventListener("wheel", (ev) => {
+            if (!ev.ctrlKey && !ev.metaKey) return;
+            ev.preventDefault();
+            wheelSum += ev.deltaMode === 1 ? ev.deltaY * 40 : ev.deltaY;
+            if (Math.abs(wheelSum) < 40) return;
+            const dir = wheelSum < 0 ? 1 : -1;
+            wheelSum = 0;
+            const r = viewport.getBoundingClientRect();
+            const next = zoomStep(c, dir);
+            if (next !== c) setC(next, true, [ev.clientX - r.left, ev.clientY - r.top]);
+        }, { passive: false });
+        let drag = null, dragged = false;
+        viewport.addEventListener("pointerdown", (ev) => {
+            if (ev.button !== 0 || ev.pointerType !== "mouse") return;
+            drag = { x: ev.clientX, y: ev.clientY, left: viewport.scrollLeft, top: viewport.scrollTop, id: ev.pointerId };
+            dragged = false;
+        });
+        viewport.addEventListener("pointermove", (ev) => {
+            if (!drag || ev.pointerId !== drag.id) return;
+            const dx = ev.clientX - drag.x, dy = ev.clientY - drag.y;
+            if (!dragged && Math.hypot(dx, dy) < 4) return;
+            if (!dragged) { dragged = true; viewport.setPointerCapture(ev.pointerId); viewport.classList.add("dragging"); }
+            viewport.scrollLeft = drag.left - dx;
+            viewport.scrollTop = drag.top - dy;
+        });
+        const end = () => {
+            drag = null;
+            viewport.classList.remove("dragging");
+        };
+        viewport.addEventListener("pointerup", end);
+        viewport.addEventListener("pointercancel", end);
+        // The click that ends a drag is not a pin
+        viewport.addEventListener("click", (ev) => { if (dragged) { dragged = false; ev.stopPropagation(); } }, true);
     }
 
     // ---------- overlays, aligned to cell edges ----------
@@ -873,6 +914,7 @@
         $("zoom-out").addEventListener("click", () => setC(zoomStep(c, -1), true));
         $("zoom-fit").addEventListener("click", () => setC(fitC(), false));
         new ResizeObserver(() => { if (fitMode) c = fitC(); layout(!fitMode); }).observe(viewport);
+        enableWheelAndDrag();
         const watchDpr = () => matchMedia(`(resolution: ${dpr}dppx)`).addEventListener("change", () => {
             dpr = window.devicePixelRatio || 1;
             if (fitMode) c = fitC();
