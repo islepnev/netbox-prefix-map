@@ -192,6 +192,32 @@ def test_touch_pinch_and_safari_gesture_zoom(open_page):
     assert page.errors == []
 
 
+def test_touch_drag_on_and_off_the_map_image(open_page, browser, server):
+    """Real touch input (CDP), started on the map image and beside it: both move the map by the drag distance."""
+    ctx = browser.new_context(viewport={'width': 1400, 'height': 900}, has_touch=True)
+    try:
+        page = ctx.new_page()
+        page.goto(f'{server}{BASE}/map/1/10_20_0_0_17')
+        wait_for_map(page)
+        cdp = ctx.new_cdp_session(page)
+        img, vp = page.locator('#map-img').bounding_box(), page.locator('#viewport').bounding_box()
+        for x, y in ((img['x'] + img['width'] / 2, img['y'] + img['height'] / 2), (vp['x'] + 20, vp['y'] + 20)):
+            before = page.evaluate('window.__prefixMap.camera')
+            cdp.send('Input.dispatchTouchEvent', {'type': 'touchStart', 'touchPoints': [{'x': x, 'y': y}]})
+            for i in range(1, 11):
+                point = {'x': x - 8 * i, 'y': y - 5 * i}
+                cdp.send('Input.dispatchTouchEvent', {'type': 'touchMove', 'touchPoints': [point]})
+            cdp.send('Input.dispatchTouchEvent', {'type': 'touchEnd', 'touchPoints': []})
+            after = page.evaluate('window.__prefixMap.camera')
+            assert [round(a - b) for a, b in zip(after, before)] == [-80, -50], (x, y)
+        assert page.eval_on_selector('#map-img', 'i => i.draggable') is False
+        cancelled = page.eval_on_selector('#map-img', """i => { const e = new DragEvent('dragstart', {bubbles: true,
+            cancelable: true}); i.dispatchEvent(e); return e.defaultPrevented; }""")
+        assert cancelled, "no native image drag"
+    finally:
+        ctx.close()
+
+
 def test_drag_pans_and_does_not_pin(open_page):
     page = open_page(f'{BASE}/map/1/10_20_48_0_20', viewport=(1200, 800))
     wait_for_map(page)
