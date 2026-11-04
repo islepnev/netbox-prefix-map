@@ -38,11 +38,26 @@ class NetboxAddressManager:
         except RuntimeError:
             logging.warning("IP ranges unavailable (token needs ipam.view_iprange); ranges are not shown.")
             self.ip_ranges = []
+        self.vlans = self._optional(self.nb.ipam.vlans.all, "VLANs", "ipam.view_vlan")
+        # Prefix scopes (NetBox 4.2+) or sites (older): names for the inspector
+        self.scope_objects = {
+            'dcim.site': self._optional(self.nb.dcim.sites.all, "sites", "dcim.view_site"),
+            'dcim.location': self._optional(self.nb.dcim.locations.all, "locations", "dcim.view_location"),
+            'dcim.region': self._optional(self.nb.dcim.regions.all, "regions", "dcim.view_region"),
+            'dcim.sitegroup': self._optional(self.nb.dcim.site_groups.all, "site groups", "dcim.view_sitegroup"),
+        }
         try:
             self.roles_list = self._fetch_data(self.nb.ipam.roles.all, "prefix roles")
         except RuntimeError:
             logging.warning("Prefix roles unavailable (token needs ipam.view_role); role names are not shown.")
             self.roles_list = []
+
+    def _optional(self, fetch_method, data_type, permission):
+        try:
+            return self._fetch_data(fetch_method, data_type)
+        except RuntimeError:
+            logging.warning(f"{data_type.capitalize()} unavailable (token needs {permission}); their names are not shown.")
+            return []
 
     @staticmethod
     def nb_connect(api_url: str = None, api_token: str = None) -> Api:
@@ -91,6 +106,13 @@ class NetboxAddressManager:
 
     def get_ip_ranges(self) -> list:
         return self.ip_ranges
+
+    def get_vlans(self) -> list:
+        return self.vlans
+
+    def get_scope_objects(self) -> dict:
+        """Sites, locations, regions and site groups by NetBox object type."""
+        return self.scope_objects
 
     def get_tenants(self) -> list:
         return self.tenants_list

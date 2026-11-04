@@ -444,6 +444,10 @@
         return sec(title, right, el("div", { class: "fsize" }, el("label", null, "Size ", freeSizeSelect(range))), body, more);
     }
 
+    const vlanName = (id) => {
+        const v = id ? (cfg.names.vlans || {})[String(id)] : null;
+        return id ? (v ? `VLAN ${v.vid}` : `VLAN #${id}`) : null;
+    };
     const roleName = (id) => (id ? cfg.names.roles[String(id)] || `Role ${id}` : null);
     function rangeSection(list) {
         return sec(list.length > 1 ? `IP ranges` : "IP range", list.length > 1 ? `${list.length}` : null, ...list.slice(0, 4).map(({ r }) =>
@@ -460,14 +464,14 @@
 
     function chainSection(chainNodes) {
         const chain = [
-            ...cfg.parents.map((p) => ({ prefix: p.prefix, id: p.id, vrf: cfg.vrfKey, desc: p.description, tenant: p.tenant, pool: p.is_pool })),
+            ...cfg.parents.map((p) => ({ prefix: p.prefix, id: p.id, vrf: cfg.vrfKey, desc: p.description, tenant: p.tenant, pool: p.is_pool, vlan: p.vlan })),
             { prefix: cfg.prefix, id: cfg.prefixId, vrf: cfg.vrfKey, desc: cfg.details.description, tenant: cfg.details.tenant_id, here: true,
-                pool: data.is_pool ?? cfg.details.is_pool },
-            ...chainNodes.map((n) => ({ prefix: n.p.prefix, id: n.p.id, vrf: n.p.vrf ?? data.vrf, desc: n.p.description, tenant: n.p.tenant, pool: n.p.is_pool })),
+                pool: data.is_pool ?? cfg.details.is_pool, vlan: cfg.details.vlan_id },
+            ...chainNodes.map((n) => ({ prefix: n.p.prefix, id: n.p.id, vrf: n.p.vrf ?? data.vrf, desc: n.p.description, tenant: n.p.tenant, pool: n.p.is_pool, vlan: n.p.vlan })),
         ];
         const innerPrefix = chain.at(-1).prefix;
         return sec("Prefix chain", `${chain.length} levels`, el("ol", { class: "chain" }, chain.map((c) => {
-            const desc = [c.pool ? "pool" : null, c.desc, tenantName(c.tenant)].filter(Boolean).join(" · ");
+            const desc = [c.pool ? "pool" : null, c.desc, tenantName(c.tenant), vlanName(c.vlan)].filter(Boolean).join(" · ");
             return el("li", { class: [c.here ? "here" : "", c.prefix === innerPrefix ? "inner" : ""].join(" ").trim() || null },
                 el("span", { class: "p", text: c.prefix }),
                 el("span", { class: "l" },

@@ -93,10 +93,23 @@ def save_vrf_data(vrfs, output_dir):
     logging.info(f"Saved VRF data to {vrf_filepath}")
 
 
-def save_names(tenants, roles, output_dir):
+def prefix_scope(prefix):
+    """'<object type>:<id>' of a prefix scope: scope_type and scope_id (NetBox 4.2+), or the older site field."""
+    if prefix.get('scope_type') and prefix.get('scope_id'):
+        return f"{prefix['scope_type']}:{prefix['scope_id']}"
+    site = prefix.get('site')
+    if isinstance(site, dict):
+        site = site.get('id')
+    return f"dcim.site:{site}" if site else None
+
+
+def save_names(tenants, roles, output_dir, vlans=(), scope_objects=None):
     names = {
         'tenants': {str(t['id']): t.get('name') for t in tenants},
         'roles': {str(r['id']): r.get('name') for r in roles},
+        'vlans': {str(v['id']): {'vid': v.get('vid'), 'name': v.get('name')} for v in vlans},
+        'scopes': {f"{kind}:{o['id']}": o.get('name') for kind, objects in (scope_objects or {}).items()
+                   for o in objects},
     }
     write_json_atomic(os.path.join(output_dir, 'names.json'), names)
 
@@ -126,6 +139,8 @@ def save_prefix_tree(prefixes, output_dir):
             'tenant': prefix.get('tenant'),
             'status': choice_value(prefix.get('status')),
             'role': prefix.get('role'),
+            'vlan': prefix.get('vlan'),
+            'scope': prefix_scope(prefix),
             'is_pool': bool(prefix.get('is_pool')),
             'description': prefix.get('description') or '',
             'vrf': vrf_id,
@@ -264,7 +279,7 @@ def process_prefix(prefix_entry, prefix_subtree, descendants, ip_addresses, cell
     json_filename = f"data-{sanitized_vrf}-{sanitized_prefix}.json"
     json_filepath = os.path.join(output_dir, json_filename)
 
-    prefix_keys = {"id", "prefix", "vrf", "tenant", "status", "description", "is_pool"}
+    prefix_keys = {"id", "prefix", "vrf", "tenant", "status", "description", "is_pool", "vlan", "scope"}
     ip_counts = ip_counts or {}
     child_prefixes = [
         dict(child, has_children=bool(node.get("children")),
@@ -347,6 +362,8 @@ def process_all_prefixes(prefixes, ip_addresses, cell_size, output_dir, ip_range
             'description': prefix_entry.get('description') or '',
             'prefix': prefix_entry['prefix'],
             'is_pool': bool(prefix_entry.get('is_pool')),
+            'vlan': prefix_entry.get('vlan'),
+            'scope': prefix_scope(prefix_entry),
         }
         prefix_tree_obj.add_prefix(prefix_data)
 
@@ -425,7 +442,10 @@ def run_update(args=None, mgr=None):
     ip_addresses = mgr.get_ip_addresses()
     vrfs = mgr.get_vrfs()
     save_vrf_data(vrfs, output_dir)
-    save_names(mgr.get_tenants(), mgr.get_roles(), output_dir)
+    # VLANs and scopes are optional in data sources, like IP ranges
+    save_names(mgr.get_tenants(), mgr.get_roles(), output_dir,
+               vlans=mgr.get_vlans() if hasattr(mgr, 'get_vlans') else [],
+               scope_objects=mgr.get_scope_objects() if hasattr(mgr, 'get_scope_objects') else {})
     # Optional in data sources: test doubles and older tokens may have no IP ranges
     get_ranges = getattr(mgr, 'get_ip_ranges', None)
     process_all_prefixes(prefixes, ip_addresses, cell_size, output_dir, ip_ranges=get_ranges() if get_ranges else [])

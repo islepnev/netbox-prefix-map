@@ -38,7 +38,8 @@ WEBHOOK_SECRET = os.getenv('WEBHOOK_SECRET', '')
 if not WEBHOOK_SECRET:
     logging.warning("WEBHOOK_SECRET is not set: webhook requests are not authenticated.")
 
-WEBHOOK_MODELS = {'prefix', 'ipaddress', 'vrf', 'tenant', 'iprange'}
+WEBHOOK_MODELS = {'prefix', 'ipaddress', 'vrf', 'tenant', 'iprange', 'role', 'vlan', 'site', 'location', 'region',
+                  'sitegroup'}
 
 updater_manager = UpdaterManager(run_update, debounce_interval=float(os.getenv('UPDATE_DEBOUNCE_SECONDS', 60)))
 if os.getenv('INITIAL_UPDATE', '1') != '0':
@@ -111,6 +112,31 @@ def load_names():
     return names.get('tenants', {}), names.get('roles', {})
 
 
+SCOPE_PATHS = {'dcim.site': 'dcim/sites', 'dcim.location': 'dcim/locations', 'dcim.region': 'dcim/regions',
+               'dcim.sitegroup': 'dcim/site-groups'}
+
+
+def vlan_label(vlan_id):
+    """'VLAN 1812 (name)' from names.json; the id when the VLAN name is unknown."""
+    if not vlan_id:
+        return None
+    vlan = load_output_json('names.json', {}).get('vlans', {}).get(str(vlan_id))
+    if not vlan:
+        return f"VLAN #{vlan_id}"
+    name = vlan.get('name')
+    return f"VLAN {vlan.get('vid')}" + (f" ({name})" if name and str(name) != str(vlan.get('vid')) else '')
+
+
+def scope_info(scope):
+    """Name and NetBox path of a prefix scope '<object type>:<id>'."""
+    if not scope:
+        return None, None
+    kind, _, object_id = scope.partition(':')
+    name = load_output_json('names.json', {}).get('scopes', {}).get(scope)
+    path = f"/{SCOPE_PATHS[kind]}/{object_id}/" if kind in SCOPE_PATHS else None
+    return name or f"{kind.split('.')[-1].capitalize()} #{object_id}", path
+
+
 def prefix_details(prefix_entry):
     if not prefix_entry:
         return {}
@@ -124,6 +150,10 @@ def prefix_details(prefix_entry):
         'tenant_name': tenants.get(str(tenant_id)) if tenant_id else None,
         'role_id': role_id,
         'role_name': roles.get(str(role_id)) if role_id else None,
+        'vlan_id': prefix_entry.get('vlan'),
+        'vlan_label': vlan_label(prefix_entry.get('vlan')),
+        'scope_name': scope_info(prefix_entry.get('scope'))[0],
+        'scope_path': scope_info(prefix_entry.get('scope'))[1],
     }
 
 
@@ -155,6 +185,7 @@ def find_parents(vrf, display_prefix):
         'tenant': entry.get('tenant'),
         'status': entry.get('status'),
         'is_pool': bool(entry.get('is_pool')),
+        'vlan': entry.get('vlan'),
         'description': entry.get('description') or '',
     } for p, entry in sorted(parents.items(), key=lambda item: item[0].prefixlen)]
 
@@ -398,7 +429,9 @@ def serve_map(vrf, prefix):
     prefix_entry = find_prefix_entry(vrf, display_prefix)
     details = prefix_details(prefix_entry)
     parents = find_parents(vrf, display_prefix)
-    names = dict(zip(('tenants', 'roles'), load_names()))
+    all_names = load_output_json('names.json', {})
+    names = {'tenants': all_names.get('tenants', {}), 'roles': all_names.get('roles', {}),
+             'vlans': all_names.get('vlans', {})}
     netbox_url = get_netbox_url()
     image_url = url_for('app.serve_image', filename=image_filename) if image_exists else None
     config = {
@@ -534,7 +567,8 @@ def search_text(query):
         for network, entry in networks:
             tenant = tenants.get(str(entry.get('tenant'))) if entry.get('tenant') else ''
             role = roles.get(str(entry.get('role'))) if entry.get('role') else ''
-            if any(q in (text or '').lower() for text in (entry.get('description'), tenant, role)):
+            vlan, scope = vlan_label(entry.get('vlan')), scope_info(entry.get('scope'))[0]
+            if any(q in (text or '').lower() for text in (entry.get('description'), tenant, role, vlan, scope)):
                 prefixes.append({
                     'kind': 'prefix', 'vrf': vrf_key, 'vrf_name': vrf_name(vrf_key), 'prefix': str(network),
                     'description': ' · '.join(filter(None, (entry.get('description'), tenant))), 'match': 'exact',
