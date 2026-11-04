@@ -28,7 +28,13 @@ window.PrefixMapExport = (() => {
         if (!ctx || !ctx.GW) return null;
         const { cfg, data, net, GW, GH, layer, blockLen, blockSize, cellOf, rangeBounds, intToIp } = ctx;
         const W = GW * U, H = GH * U;
+        const vrfName = cfg.vrf ? cfg.vrf.name : "Global";
+        const title = [`${cfg.prefix}`, `VRF ${vrfName}`, cfg.details.description].filter(Boolean).join(" · ");
+        const sub = [ctx.usageText(), layer ? `1 cell = /${blockLen}` : "1 cell = 1 address",
+            data.generated_at ? `data of ${new Date(data.generated_at * 1000).toLocaleString()}` : null].filter(Boolean).join(" · ");
+        // Font size follows the map width; a drawing wider than the map holds the title and subtitle of small maps
         const fs = Math.max(11, Math.round(W / 55));
+        const SW = Math.ceil(Math.max(W, title.length * fs * 0.62 * 1.3, sub.length * fs * 0.6));
         const defs = [];
         const body = [];
         const box = (start, end) => { const [x1, y1, x2, y2] = rangeBounds(start, end); return [x1 * U, y1 * U, (x2 - x1 + 1) * U, (y2 - y1 + 1) * U]; };
@@ -136,10 +142,6 @@ window.PrefixMapExport = (() => {
 
         // Title above the map, legend below it
         const pad = fs;
-        const vrfName = cfg.vrf ? cfg.vrf.name : "Global";
-        const title = [`${cfg.prefix}`, `VRF ${vrfName}`, cfg.details.description].filter(Boolean).join(" · ");
-        const sub = [ctx.usageText(), layer ? `1 cell = /${blockLen}` : "1 cell = 1 address",
-            data.generated_at ? `data of ${new Date(data.generated_at * 1000).toLocaleString()}` : null].filter(Boolean).join(" · ");
         const titleH = pad + fs * 1.3 + fs * 1.4;
         const items = [];
         if (layer) {
@@ -160,7 +162,7 @@ window.PrefixMapExport = (() => {
         const sw = fs, itemW = (it) => sw + fs * 0.5 + it.label.length * fs * 0.62 + fs * 1.6;
         for (const it of [...items, ...(tenantItems.length ? [{ label: "Tenants:", heading: true }] : []), ...tenantItems]) {
             const w = it.heading ? it.label.length * fs * 0.62 + fs : itemW(it);
-            if (used + w > W && row.length) { rows.push(row); row = []; used = 0; }
+            if (used + w > SW && row.length) { rows.push(row); row = []; used = 0; }
             row.push({ ...it, x: used });
             used += w;
         }
@@ -179,9 +181,9 @@ window.PrefixMapExport = (() => {
         if (layer) defs.push(`<pattern id="legend-check" width="${sw / 4}" height="${sw / 4}" patternUnits="userSpaceOnUse"><rect width="${sw / 4}" height="${sw / 4}" fill="#fff"/><rect width="${sw / 8}" height="${sw / 8}" fill="#999"/><rect x="${sw / 8}" y="${sw / 8}" width="${sw / 8}" height="${sw / 8}" fill="#999"/></pattern>`);
         const totalH = legendY + rows.length * fs * 1.7 + pad / 2;
 
-        return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${Math.ceil(totalH)}" width="${W}" height="${Math.ceil(totalH)}" shape-rendering="crispEdges">`
+        return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${SW} ${Math.ceil(totalH)}" width="${SW}" height="${Math.ceil(totalH)}" shape-rendering="crispEdges">`
             + `<title>${esc(title)}</title><defs>${defs.join("")}</defs>`
-            + `<rect width="${W}" height="${Math.ceil(totalH)}" fill="#fff"/>`
+            + `<rect width="${SW}" height="${Math.ceil(totalH)}" fill="#fff"/>`
             + `<g font-family="sans-serif" fill="#000"><text x="0" y="${pad + fs * 0.3}" font-size="${fs * 1.3}" font-weight="bold">${esc(title)}</text>`
             + `<text x="0" y="${pad + fs * 1.9}" font-size="${fs}" fill="#444">${esc(sub)}</text></g>`
             + `<g transform="translate(0 ${titleH})">${body.join("")}<rect width="${W}" height="${H}" fill="none" stroke="#000" stroke-width="${U / 8}"/></g>`

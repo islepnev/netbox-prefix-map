@@ -154,6 +154,7 @@ def find_parents(vrf, display_prefix):
         'id': entry.get('id'),
         'tenant': entry.get('tenant'),
         'status': entry.get('status'),
+        'is_pool': bool(entry.get('is_pool')),
         'description': entry.get('description') or '',
     } for p, entry in sorted(parents.items(), key=lambda item: item[0].prefixlen)]
 
@@ -335,15 +336,8 @@ def vrf_summary(vrf_key, summary=None):
             'top_prefixes': [dict(entry, prefix=str(network), ip_count=None, size=network.num_addresses)
                              for network, entry in top_level_prefixes(entries)],
         }
-    result['top_prefixes'] = [dict(p, sanitized=sanitize_name(p['prefix']), **usage_of(p)) for p in result['top_prefixes']]
+    result['top_prefixes'] = [dict(p, sanitized=sanitize_name(p['prefix'])) for p in result['top_prefixes']]
     return result
-
-
-def usage_of(p):
-    """Usage shown for a prefix: containers by addresses in child prefixes, others by IP addresses."""
-    if p.get('status') == 'container' and p.get('allocated') is not None:
-        return {'used': p['allocated'], 'usage_kind': 'allocated'}
-    return {'used': p.get('ip_count'), 'usage_kind': 'ips'}
 
 
 @bp.route('/')
