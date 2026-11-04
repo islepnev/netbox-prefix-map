@@ -69,6 +69,12 @@ def test_image_served(client):
     assert r.mimetype == 'image/png'
 
 
+@pytest.mark.parametrize('name', ['prefix_tree.json', 'names.json', 'summary.json', 'vrf.json',
+                                  'data-1-10_20_0_0_17.json', 'address_map-1-10_20_0_0_17.png.tmp'])
+def test_images_route_serves_only_map_images(client, name):
+    assert client.get(f'{BASE}/images/{name}').status_code == 404
+
+
 def test_data_endpoint(client):
     r = client.get(f'{BASE}/data/1/10_20_0_0_17')
     assert r.status_code == 200
