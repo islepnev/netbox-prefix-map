@@ -26,7 +26,7 @@
 
 Each data file keeps `changes`: what the last update that changed the prefix added, removed or changed, compared with the previous data file: IP records (address and VRF; status, role, DNS name) and nested prefixes, at most 1,000 of each with full counts, and the time (`at`, `since`). An update without changes keeps the previous record; the first update has none.
 
-An image is redrawn only when its inputs change. The inputs are hashed (`render_hash` in the data file): address, status and role of each IP, nested prefixes with their tenant colors, cell size and `RENDER_VERSION`. Bump `RENDER_VERSION` when drawing code changes.
+An image is redrawn only when its inputs change. The inputs are hashed (`render_hash` in the data file): address, status and role of each IP, nested prefixes with their tenant colors and statuses, cell size and `RENDER_VERSION`. Bump `RENDER_VERSION` when drawing code changes.
 
 ## Address membership
 
@@ -43,6 +43,7 @@ Each cell is `CELL_SIZE` pixels: a 1 px gap followed by the cell body. The axes 
 | Element | Style |
 |---|---|
 | Nested prefix | Tenant color blended 50% with white, dotted border; longer prefixes on top |
+| Reserved or deprecated prefix | Diagonal stripes, 1 px every two cells, at half the brightness of what is under them; a child prefix with a tenant covers them, one without does not |
 | IP with a role | Red |
 | DHCP or SLAAC IP | Black at 55% opacity |
 | Reserved or deprecated IP | Black at 25% opacity |
@@ -64,6 +65,7 @@ Prefixes shorter than /16 would need a grid of 4096 × 4096 cells or more. They 
 | Block with nested prefixes inside | Checkerboard of the shortest such prefix with a tenant, gray when none has one |
 | IP addresses in the block | Black overlay, 25% opacity for one address up to 90% for a full block |
 | Direct child prefix of a block or larger | Dark outline on the cell gap lines |
+| Reserved or deprecated prefix of a block or larger | Stripes as on address maps |
 | Grid | Light lines every 16 cells |
 | Labels | As on address maps, for each 16 × 16-cell group (the second octet of a /16 on a /8 map); none when no single octet tells the groups apart (/1 to /7) |
 

@@ -294,6 +294,7 @@ kbd { font: 11px var(--mono); border: 1px solid var(--line); border-radius: 3px;
 }
 .lg { display: inline-flex; align-items: center; gap: 6px; flex: none; }
 .lg .sw { width: 10px; height: 10px; border-radius: 2px; box-shadow: 0 0 0 1px var(--line); }
+.sw.striped { background: repeating-linear-gradient(45deg, #fff 0 3px, #808080 3px 4px) !important; }
 .sw.range { background: radial-gradient(circle, #555 0 22%, #fff 26%) !important; }
 .range-item + .range-item { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line-2); }
 .range-item > .mono { display: flex; align-items: center; gap: 2px; margin-bottom: 6px; white-space: nowrap; }

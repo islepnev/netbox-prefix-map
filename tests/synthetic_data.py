@@ -32,7 +32,7 @@ TENANTS = {
 # (prefix, tenant_id, status) inside the LAN VRF
 TENANT_BLOCKS = [
     ("10.20.0.0/24", 1, "active"),
-    ("10.20.5.0/24", 2, "active"),
+    ("10.20.5.0/24", 2, "reserved"),
     ("10.20.8.0/21", 2, "active"),
     ("10.20.16.0/23", 2, "active"),
     ("10.20.24.0/21", 2, "active"),
