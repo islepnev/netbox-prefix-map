@@ -35,6 +35,7 @@
 | `CELL_SIZE` | `4` | Размер ячейки в пикселях |
 | `WEBHOOK_SECRET` | | Общий секрет webhook в NetBox; если задан, неподписанные запросы отклоняются |
 | `UPDATE_DEBOUNCE_SECONDS` | `60` | Минимальный интервал между обновлениями по webhook |
+| `UPDATE_INTERVAL_SECONDS` | `0` | Периодическое полное обновление, если за это время не было другого, не чаще `UPDATE_DEBOUNCE_SECONDS`; `0` — выключено |
 | `INITIAL_UPDATE` | `1` | `0` — не обновлять при запуске |
 | `PORT` | `5000` | Порт |
 
@@ -64,6 +65,8 @@ python -m app.webapp    # сервер для разработки
 2. Operations › Integrations › Event Rules › Add: типы объектов IPAM › Prefix, IPAM › IP Address, IPAM › IP Range, IPAM › VRF, Tenancy › Tenant; при желании IPAM › Role, IPAM › VLAN, DCIM › Site, Location, Region, Site Group, чтобы видеть переименования; события created, updated, deleted; действие — webhook из п. 1.
 
 События для других типов объектов игнорируются. Серия событий запускает одно обновление сразу и не более одного повторного через `UPDATE_DEBOUNCE_SECONDS`.
+
+Если IP-адреса меняются часто и пачками, не включайте IPAM › IP Address в правило событий: NetBox ставит в очередь отдельную задачу webhook на каждый изменённый объект. Вместо этого задайте `UPDATE_INTERVAL_SECONDS` (например, `900`): изменения адресов попадут на карты в пределах этого интервала, а webhook на остальные объекты по-прежнему обновит их сразу.
 
 ### Кнопка карты на странице префикса
 

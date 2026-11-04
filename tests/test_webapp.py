@@ -131,13 +131,15 @@ def test_healthz(client):
     r = client.get(f'{BASE}/healthz')
     assert r.status_code == 200
     assert r.get_json()['status'] == 'ok'
+    assert r.get_json()['poll_interval'] == 0, "off unless UPDATE_INTERVAL_SECONDS is set"
 
 
 def test_metrics(client, stub_updater, webapp, monkeypatch):
     class Status:
         def status(self):
             return {'runs': 3, 'failures': 1, 'running': False, 'pending': True, 'last_duration': 1.5,
-                    'last_success_at': 1700000000.0}
+                    'last_success_at': 1700000000.0, 'poll_interval': 900.0,
+                    'runs_by_trigger': {'startup': 1, 'webhook': 0, 'poll': 2}}
 
         def webhook_received(self):
             pass
@@ -149,6 +151,9 @@ def test_metrics(client, stub_updater, webapp, monkeypatch):
     assert 'prefix_map_updates_total 3' in text
     assert 'prefix_map_update_pending 1' in text
     assert 'prefix_map_last_success_timestamp_seconds 1700000000.0' in text
+    assert 'prefix_map_updates_by_trigger_total{trigger="poll"} 2' in text
+    assert 'prefix_map_updates_by_trigger_total{trigger="webhook"} 0' in text
+    assert 'prefix_map_poll_interval_seconds 900.0' in text
 
     def count(t, result):
         return int(next(line for line in t.splitlines()
