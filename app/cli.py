@@ -8,6 +8,7 @@ import sys
 import time
 from dotenv import load_dotenv
 
+from app.free_space import free_intervals
 from app.logging_config import setup_logging
 from app.netbox_integration import NetboxAddressManager
 from app.plot_map import (
@@ -256,6 +257,19 @@ def render_fingerprint(prefix, nested_prefixes, ip_addresses, cell_size, tenant_
 
 
 CHANGES_LIMIT = 1000
+# changes_history: the last updates that changed a prefix, newest first, with shorter lists than `changes`
+HISTORY_LIMIT = 10
+HISTORY_LIST_LIMIT = 100
+CHANGE_LISTS = ('added', 'removed', 'changed', 'prefixes_added', 'prefixes_removed')
+
+
+def change_history(previous, new_change):
+    """The history to store: the new change in front of the previous history (or of the previous last change)."""
+    history = list(previous.get('changes_history') or ([previous['changes']] if previous.get('changes') else []))
+    if new_change:
+        history.insert(0, new_change)
+    return [{k: (v[:HISTORY_LIST_LIMIT] if k in CHANGE_LISTS else v) for k, v in record.items()}
+            for record in history[:HISTORY_LIMIT]]
 
 
 def _ip_states(ip_addresses):
@@ -349,8 +363,9 @@ def process_prefix(prefix_entry, prefix_subtree, descendants, ip_addresses, cell
     previous = load_json(json_filepath)
     now = time.time()
     # The last change stays until a newer one replaces it
-    changes = prefix_changes(previous, filtered_ip_addresses if render else [], nested_prefixes, now) \
-        or previous.get('changes')
+    new_change = prefix_changes(previous, filtered_ip_addresses if render else [], nested_prefixes, now)
+    changes = new_change or previous.get('changes')
+    history = change_history(previous, new_change)
     data_to_save = {
         'prefix': prefix_entry["prefix"],
         'id': prefix_entry.get("id"),
@@ -371,6 +386,7 @@ def process_prefix(prefix_entry, prefix_subtree, descendants, ip_addresses, cell
         'ip_addresses': filtered_ip_addresses,
         'ip_ranges': list(ip_ranges),
         'changes': changes,
+        'changes_history': history,
     }
     if render:
         data_to_save['cell_size'] = cell_size
@@ -468,6 +484,27 @@ def process_all_prefixes(prefixes, ip_addresses, cell_size, output_dir, ip_range
     save_prefix_tree(prefixes, output_dir)
     save_search_index(ip_addresses, output_dir)
     save_summary(prefixes, prefix_tree_obj, ip_addresses, ip_counts, tenant_color_map, output_dir)
+    save_free_space(prefix_tree_obj, ip_index, ranges, output_dir)
+
+
+def save_free_space(prefix_tree_obj, ip_index, ranges, output_dir):
+    """Per VRF key: [prefix, free intervals] of each top-level IPv4 prefix, for the free-block search."""
+    result = {}
+    for vrf, trees in prefix_tree_obj.trees.items():
+        tree = trees['ipv4']
+        top = []
+        for prefix in tree:
+            if tree.parent(prefix):
+                continue
+            entry = tree[prefix]
+            global_container = vrf is None and entry.get('status') == 'container'
+            descendants = (prefix_tree_obj.get_descendants_all_vrfs(prefix) if global_container
+                           else prefix_tree_obj.get_descendants(prefix, vrf))
+            own_ranges = [r for r in ranges if global_container or r['vrf'] == vrf]
+            top.append([prefix, free_intervals(entry, descendants, ip_index.lookup(entry), own_ranges)])
+        top.sort(key=lambda item: ipaddress.ip_network(item[0]))
+        result['None' if vrf is None else str(vrf)] = top
+    write_json_atomic(os.path.join(output_dir, 'free_space.json'), result)
 
 
 def run_update(args=None, mgr=None):

@@ -56,7 +56,8 @@ class NetboxAddressManager:
         try:
             return self._fetch_data(fetch_method, data_type)
         except RuntimeError:
-            logging.warning(f"{data_type.capitalize()} unavailable (token needs {permission}); their names are not shown.")
+            logging.warning(f"{data_type.capitalize()} unavailable (token needs {permission}); "
+                            "their names are not shown.")
             return []
 
     @staticmethod
@@ -74,7 +75,7 @@ class NetboxAddressManager:
 
         if not api_url or not api_token:
             raise ValueError("NetBox API URL and token must be provided.")
-        
+
         api = Api(api_url, token=api_token)
         api.http_session = TimeoutSession(float(os.getenv('NETBOX_TIMEOUT', 30)))
         return api
